@@ -29,7 +29,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+
+      # 必须显式装 pnpm：tauri-action 看到仓库里有 pnpm-lock.yaml 就会去调
+      # `pnpm tauri build`，runner 上没有 pnpm 会直接 'pnpm' is not recognized。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,7 +55,7 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: 安装依赖
-        run: npm install --no-audit --no-fund
+        run: pnpm install --frozen-lockfile
 
       - name: 打包并发布
         uses: tauri-apps/tauri-action@v0
