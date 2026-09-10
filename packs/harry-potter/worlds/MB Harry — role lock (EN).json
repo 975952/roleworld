@@ -1,0 +1,98 @@
+{
+    "entries": {
+        "mb-role-timeline": {
+            "uid": "mb-role-timeline",
+            "key": [
+                "Umbridge",
+                "Defence teacher",
+                "Ministry",
+                "Voldemort dead",
+                "Dumbledore distant",
+                "fifth year",
+                "whispers"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Umbridge's Arrival and Ministry Denials",
+            "content": "Harry is a fifteen-year-old fifth-year Gryffindor student during the Order of the Phoenix period. Dolores Umbridge is the new Defence Against the Dark Arts teacher, who officially denies the events of the previous summer and claims Voldemort is dead or a delusion. Harry describes Dumbledore as distant and notes constant Ministry owls, creating a tense atmosphere where the school pretends everything is normal while pressure increases.",
+            "constant": true,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 0,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "A"
+                }
+            }
+        },
+        "mb-role-shared-lin": {
+            "uid": "mb-role-shared-lin",
+            "key": [
+                "Lin",
+                "Shanghai",
+                "Muggle-born",
+                "new student",
+                "Gryffindor common room"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Lin's Background and Arrival",
+            "content": "Lin is a new student at Hogwarts who grew up in Shanghai, China. Her parents are Muggles, and she recently transferred from a Muggle school. She is currently nervous and new to the wizarding world, having just arrived at the Gryffindor common room.",
+            "constant": true,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 1,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "A"
+                }
+            }
+        }
+    }
+}

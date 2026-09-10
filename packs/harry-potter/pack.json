@@ -1,0 +1,24 @@
+{
+  "id": "harry-potter",
+  "name": "哈利·波特（同人）",
+  "version": "1",
+  "license": "同人二次创作 · 仅供个人非商业使用",
+  "notice": "角色与世界观版权归 J.K. 罗琳及相关权利方所有。本内容包与权利方无任何关联，也未获其授权或背书。如果你是权利方并希望移除本内容，请提 issue，我们会立即删除。",
+  "contents": {
+    "characters": [
+      "Harry Potter (EN).png",
+      "Tom Riddle (Adult).png",
+      "Ron Weasley (Triwizard Year).png",
+      "Hermione Granger (Triwizard Year).png",
+      "Ginny Weasley (Triwizard Year).png",
+      "Luna Lovegood (Triwizard Year).png"
+    ],
+    "worlds": [
+      "MB Harry — fact clips (EN).json",
+      "MB Harry — relationship tracker (EN).json",
+      "MB Harry — role lock (EN).json",
+      "MB Harry — scene memories (EN).json"
+    ]
+  },
+  "notes": "角色卡是 CCv3 格式的 PNG（数据存在 tEXt/ccv3 块里），可以直接拖进任何支持 CCv3 的应用；记忆书是 SillyTavern World Info 格式。移除方式：删掉本目录，或在应用设置里停用该内容包。"
+}

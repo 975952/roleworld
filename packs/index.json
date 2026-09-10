@@ -1,4 +1,28 @@
 {
-  "comment": "内置内容包清单。应用本身不含角色数据；把内容包目录放进 packs/ 并在此登记即可自动安装。",
-  "packs": []
+  "comment": "内置内容包清单。应用本身不含角色数据；把内容包目录放进 packs/ 并在此登记即可自动安装。删除某个 pack 条目或整个目录即可彻底移除该内容。",
+  "packs": [
+    {
+      "id": "harry-potter",
+      "name": "哈利·波特（同人）",
+      "version": "1",
+      "description": "六个内置角色卡与四本记忆书。属于同人二次创作，仅供个人非商业使用，版权归原作者及权利方所有；权利方要求下架时我们会立即删除。",
+      "path": "packs/harry-potter",
+      "files": {
+        "characters": [
+          "Harry Potter (EN).png",
+          "Tom Riddle (Adult).png",
+          "Ron Weasley (Triwizard Year).png",
+          "Hermione Granger (Triwizard Year).png",
+          "Ginny Weasley (Triwizard Year).png",
+          "Luna Lovegood (Triwizard Year).png"
+        ],
+        "worlds": [
+          "MB Harry — fact clips (EN).json",
+          "MB Harry — relationship tracker (EN).json",
+          "MB Harry — role lock (EN).json",
+          "MB Harry — scene memories (EN).json"
+        ]
+      }
+    }
+  ]
 }

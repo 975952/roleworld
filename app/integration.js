@@ -1802,6 +1802,9 @@
     // 此处摘除不会引入主题闪烁。
     document.documentElement.classList.remove("theme-pending");
     showToast("已准备好。");
+    // 启动完成的唯一可靠信号：theme-pending 在第 2 步（身份落定）就会摘掉，
+    // 不能拿它当"准备好了"，自动化测试与扩展都靠这个标志。
+    window.TASK21_READY = true;
   }
 
   function normalizedName(value) {

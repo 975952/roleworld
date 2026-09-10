@@ -1,0 +1,150 @@
+{
+    "entries": {
+        "mb-scene-meeting": {
+            "uid": "mb-scene-meeting",
+            "key": [
+                "Lin",
+                "Shanghai",
+                "Muggle-born",
+                "Fat Lady",
+                "Gryffindor common room",
+                "new student"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Harry meets Lin in common room",
+            "content": "Lin, a new Muggle-born student from Shanghai, nervously asked Harry Potter for directions to the Gryffindor common room. Harry identified the Fat Lady's portrait behind him and advised her to use a map for navigation. He acknowledged her Muggle-born status and offered his support against any bullying.",
+            "constant": false,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 0,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "A"
+                }
+            }
+        },
+        "mb-scene-promise": {
+            "uid": "mb-scene-promise",
+            "key": [
+                "Saturday",
+                "flying lesson",
+                "Quidditch pitch",
+                "after lunch",
+                "broomstick",
+                "Harry",
+                "lesson"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Saturday Broomstick Lesson Agreement",
+            "content": "Harry agreed to teach Lin to fly a broomstick on Saturday after lunch at the Quidditch pitch. He will meet her at the edge of the pitch and lend his broom if Lin cannot obtain one from the stores. They agreed to keep the lesson secret to avoid Filch, who is in a bad mood.",
+            "constant": false,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 1,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "A"
+                }
+            }
+        },
+        "mb-scene-book": {
+            "uid": "mb-scene-book",
+            "key": [
+                "Hermione",
+                "Quidditch Through the Ages",
+                "flying lesson",
+                "levitation charms",
+                "balance",
+                "grip",
+                "Lin",
+                "book",
+                "lent",
+                "borrowed"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Hermione lends Quidditch theory book",
+            "content": "Hermione is lending Lin a copy of 'Quidditch Through the Ages' to study before their flying lesson. Harry advises Lin to focus on the chapters regarding basic levitation charms and balance to avoid crashing into the stands. He warns Lin not to let Hermione correct their grip before mounting the broom, as it causes unnecessary headaches.",
+            "constant": false,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 2,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "A"
+                }
+            }
+        }
+    }
+}

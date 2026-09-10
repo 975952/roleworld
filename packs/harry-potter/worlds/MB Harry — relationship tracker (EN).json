@@ -1,0 +1,55 @@
+{
+    "entries": {
+        "mb-tracker-relations": {
+            "uid": "mb-tracker-relations",
+            "key": [
+                "Sky-Dodger",
+                "heights",
+                "friendship",
+                "trust",
+                "honesty",
+                "support",
+                "patience",
+                "nickname",
+                "friend",
+                "friends"
+            ],
+            "keysecondary": [],
+            "comment": "[STMB] Harry and Lin's Friendship",
+            "content": "Harry and Lin have developed a close friendship this term, with Harry showing patience and understanding, particularly about Lin's fear of heights. Lin has given Harry permission to use the nickname 'Sky-Dodger' for her, which he has promised to use. Their trust level is high, with Harry allowing Lin to hex him if he ever laughs at her fear of heights. Lin appreciates Harry's honesty and support.",
+            "constant": true,
+            "vectorized": false,
+            "selective": false,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "position": 1,
+            "disable": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "delayUntilRecursion": false,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": 0,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 0,
+            "extensions": {
+                "task20": {
+                    "memory_book": true,
+                    "drafted_by": "B"
+                }
+            }
+        }
+    }
+}

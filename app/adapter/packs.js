@@ -21,6 +21,7 @@
 
 (function (global) {
   const Store = global.RoleWorldStore;
+  const Cards = global.RoleWorldCards;
   const INSTALLED_KEY = "packs:installed";
   const DISABLED_KEY = "packs:disabled";
   const MANIFEST_URL = "packs/index.json";
@@ -110,23 +111,26 @@
     for (const name of pack.files.characters || []) {
       const avatar = fileNameOf(name);
       if (existingCharacters.has(avatar)) continue;
-      const card = await fetchJson(joinPath(pack.path, "characters", name));
+      const { card, image } = await loadCard(pack, name, avatar);
       const record = Object.assign({}, card, {
         avatar,
         name: card.name || (card.data && card.data.name) || avatar.replace(/\.\w+$/, ""),
         date_added: new Date().toISOString(),
       });
       record.chat = avatar;
-      await Store.putCharacter(record);
+      const picture = image || (Cards && Cards.placeholderAvatar(record.name));
+      await Store.putCharacter(record, picture ? { file: picture } : undefined);
       existingCharacters.add(avatar);
       counts.characters += 1;
     }
 
     for (const name of pack.files.worlds || []) {
-      if (existingWorlds.has(name)) continue;
+      // 世界书的名字不带扩展名（SillyTavern 的约定），这里去掉 .json 再入库。
+      const worldName = String(name).replace(/\.json$/i, "");
+      if (existingWorlds.has(worldName)) continue;
       const entries = await fetchJson(joinPath(pack.path, "worlds", name));
-      await Store.putWorld(name, entries && entries.entries ? entries : { entries: entries || {} });
-      existingWorlds.add(name);
+      await Store.putWorld(worldName, entries && entries.entries ? entries : { entries: entries || {} });
+      existingWorlds.add(worldName);
       counts.worlds += 1;
     }
 
@@ -138,6 +142,23 @@
     }
 
     return counts;
+  }
+
+  // 内容包里的角色卡可以是 .png（自带立绘，和用户手动导入的格式一致）或 .json。
+  async function loadCard(pack, name, avatar) {
+    const url = joinPath(pack.path, "characters", name);
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(url + " → HTTP " + response.status);
+    const blob = await response.blob();
+    if (/\.png$/i.test(name)) {
+      if (!Cards || typeof Cards.parse !== "function") throw new Error("角色卡解析器未加载");
+      const file = new File([blob], avatar, { type: "image/png" });
+      const parsed = await Cards.parse(file, "png");
+      return { card: parsed.card, image: parsed.image || blob };
+    }
+    const text = await blob.text();
+    const raw = JSON.parse(text);
+    return { card: Cards && Cards.normalizeCard ? Cards.normalizeCard(raw) : raw, image: null };
   }
 
   function joinPath() {

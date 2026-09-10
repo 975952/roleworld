@@ -214,9 +214,16 @@ async function main() {
   console.log("== 角色对话页 ==");
 
   await goto(base + "/index.html");
+  // 必须等这次启动彻底落定再清库：安装内容包是启动过程的一部分，
+  // 半途 reset 会和它抢写，留下一个装了一半的库。
+  await waitFor("window.TASK21_READY === true", 30000);
+
+  // 清库并停用内置包，让 fixture 阶段的角色数量是确定的。
+  await evaluate("(async () => { await RoleWorld.init(); await RoleWorld.resetAll(); await RoleWorldPacks.setEnabled('harry-potter', false); return true; })()");
+  await goto(base + "/index.html");
 
   // 摘掉 theme-pending 是 bootLive 的最后一步，用它当"启动完成"信号最可靠。
-  await waitFor("!document.documentElement.classList.contains('theme-pending')", 25000);
+  await waitFor("window.TASK21_READY === true", 30000);
   reportErrors("index.html");
 
   await check("页面留在 index.html，没有跳转到登录页", async () => {
@@ -225,16 +232,21 @@ async function main() {
   });
 
   await check("启动遮罩已摘除，登录门与模板门都隐藏", async () => {
+    const gate = await evaluate(`(() => {
+      const node = document.querySelector('#chatTemplateGate');
+      const message = document.querySelector('#chatTemplateGateMessage');
+      return { hidden: node.hidden, text: message ? message.textContent : '' };
+    })()`);
     assert(await evaluate("!document.documentElement.classList.contains('theme-pending')"), "theme-pending 仍存在（灰屏）");
     assert(await evaluate("document.querySelector('#authGate').hidden === true"), "#authGate 仍然可见");
-    assert(await evaluate("document.querySelector('#chatTemplateGate').hidden === true"), "#chatTemplateGate 仍然可见");
+    assert(gate.hidden === true, "#chatTemplateGate 显示：" + gate.text);
   });
 
   await check("角色与记忆书从本机数据库读出", async () => {
-    const counts = await evaluate("(async () => ({ c: (await RoleWorld.store.listCharacters()).length, w: (await RoleWorld.store.listWorlds()).length, adapter: typeof RoleWorld, sta: typeof window.STApi }))()");
+    const counts = await evaluate("(async () => ({ c: (await RoleWorld.store.listCharacters()).length, w: (await RoleWorld.store.listWorlds()).length, names: (await RoleWorld.store.listCharacters()).map((x) => x.avatar), books: (await RoleWorld.store.listWorlds()).map((x) => x.name) }))()");
     if (counts.c !== 2) reportErrors("index.html");
-    assert(counts.c === 2, "角色数量应为 2，实际 " + counts.c + "（适配层 " + counts.adapter + "，STApi " + counts.sta + "）");
-    assert(counts.w === 1, "记忆书数量应为 1，实际 " + counts.w);
+    assert(counts.c === 2, "角色数量应为 2，实际 " + counts.c + "：" + JSON.stringify(counts.names) + " / 书：" + JSON.stringify(counts.books));
+    assert(counts.w === 1, "记忆书数量应为 1，实际 " + counts.w + "：" + JSON.stringify(counts.books));
   });
 
   await check("输入框可用（说明角色卡、端点、会话三个条件都满足）", async () => {
@@ -310,18 +322,57 @@ async function main() {
     assert(await evaluate("location.pathname.endsWith('/assistant.html')"), "被跳转走了");
   });
 
-  console.log("== 空库（仓库默认状态，不含任何内容包）==");
+  console.log("== 内置内容包（packs/harry-potter）==");
 
-  await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
+  await check("内容包在首次启动时自动安装，角色卡自带立绘", async () => {
     await cdp.sessionSend(session, "Page.removeScriptToEvaluateOnNewDocument", { identifier: fixtureScript.identifier });
     await cdp.sessionSend(session, "Page.addScriptToEvaluateOnNewDocument", { source: "window.__ROLEWORLD_FIXTURE__ = null;" });
     await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
     await evaluate("(async () => { await RoleWorld.init(); await RoleWorld.resetAll(); return true; })()");
     await goto(base + "/index.html");
-    await waitFor("!document.documentElement.classList.contains('theme-pending')", 25000);
+    await waitFor("window.TASK21_READY === true", 30000);
+    reportErrors("内置包 index.html");
+
+    const state = await evaluate(`(async () => {
+      const cards = await RoleWorld.store.listCharacters();
+      const worlds = await RoleWorld.store.listWorlds();
+      return {
+        characters: cards.map((card) => card.avatar).sort(),
+        books: worlds.map((world) => world.name).sort(),
+        avatars: await Promise.all(cards.map((card) => RoleWorld.store.getBlob("avatar:" + card.avatar).then((b) => (b ? b.size : 0)))),
+        pickerHidden: document.querySelector('#characterPicker').hidden,
+        pickerName: (document.querySelector('#characterPickerName') || {}).textContent || '',
+        composer: document.querySelector('#messageInput').disabled === false,
+      };
+    })()`);
+
+    assert(state.characters.length === 6, "应装入 6 个角色，实际 " + state.characters.length + "：" + JSON.stringify(state.characters) + " / 书：" + JSON.stringify(state.books));
+    assert(state.characters.indexOf("Harry Potter (EN).png") >= 0, "缺少默认角色 Harry Potter (EN).png");
+    assert(state.books.length === 4, "应装入 4 本记忆书，实际 " + state.books.length);
+    ["MB Harry — fact clips (EN)", "MB Harry — relationship tracker (EN)",
+      "MB Harry — role lock (EN)", "MB Harry — scene memories (EN)"].forEach((name) => {
+      assert(state.books.indexOf(name) >= 0, "缺少记忆书：" + name);
+    });
+    assert(state.avatars.every((size) => size > 1000), "有角色卡丢了立绘：" + JSON.stringify(state.avatars));
+    assert(state.pickerHidden === false, "角色选择器没有显示出来");
+    assert(state.pickerName.indexOf("Harry Potter") === 0, "默认角色选择错了：" + state.pickerName);
+    assert(state.composer, "装了内置包之后输入框仍然不可用");
+  });
+
+  console.log("== 空库（停用内容包后的状态）==");
+
+  await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
+    await evaluate(`(async () => {
+      await RoleWorld.init();
+      await RoleWorld.resetAll();
+      await RoleWorldPacks.setEnabled("harry-potter", false);
+      return true;
+    })()`);
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
     reportErrors("空库 index.html");
     const state = await evaluate(`(() => ({
-      characters: document.querySelector('#dynamicMessages') ? true : false,
       gate: document.querySelector('#chatTemplateGate').hidden,
       auth: document.querySelector('#authGate').hidden,
       disabled: document.querySelector('#messageInput').disabled,
