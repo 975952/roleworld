@@ -8,6 +8,7 @@
  */
 
 const path = require("node:path");
+const fs = require("node:fs");
 const zlib = require("node:zlib");
 const assert = require("node:assert/strict");
 
@@ -329,6 +330,39 @@ async function main() {
     assert.equal(on.reasoning_effort, "high");
     const absent = Model.buildBody({ messages: [] });
     assert.equal("include_reasoning" in absent, false);
+  });
+
+  console.log("== 仓库卫生 ==");
+
+  await test("仓库文本文件不带 UTF-8 BOM", () => {
+    // Rust 的 serde_json 不接受 BOM，带上去整个桌面端打包会秒挂。
+    // （真发生过：用 PowerShell 的 Set-Content -Encoding UTF8 改版本号。）
+    const skip = new Set([".git", "node_modules", "target", "gen", "packs"]);
+    const exts = [".json", ".js", ".cjs", ".html", ".css", ".yml", ".yaml", ".toml", ".rs", ".md"];
+    const offenders = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          if (skip.has(entry.name)) continue;
+          walk(path.join(dir, entry.name));
+          continue;
+        }
+        if (!exts.includes(path.extname(entry.name).toLowerCase())) continue;
+        const file = path.join(dir, entry.name);
+        const head = Buffer.alloc(3);
+        const handle = fs.openSync(file, "r");
+        try {
+          fs.readSync(handle, head, 0, 3, 0);
+        } finally {
+          fs.closeSync(handle);
+        }
+        if (head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
+          offenders.push(path.relative(path.join(__dirname, ".."), file));
+        }
+      }
+    };
+    walk(path.join(__dirname, ".."));
+    assert.deepEqual(offenders, [], "这些文件带 BOM：" + offenders.join(", "));
   });
 
   console.log("== ZIP ==");
