@@ -84,12 +84,47 @@ Node 里 `require()` 即可 —— 因此数据层、请求翻译、SSE 解析�
 | `assistant.js` `start()` | 要求 `user.admin === true` | 不再要求管理员 |
 | `app.js` / `magic-map.js` 头像地址 | 硬编码 `/characters/<avatar>` | 优先用本机 blob URL |
 
-## 六、测试
+## 六、桌面端（Tauri v2）
+
+`src-tauri/` 是一个很薄的外壳，前端与网页版是**同一份 `app/`**（`frontendDist: "../app"`）。
+它只做一件网页做不到的事：把数据存成磁盘上的普通文件。
+
+Rust 侧只有 8 个命令（`rw_read_text` / `rw_write_text` / `rw_read_binary` /
+`rw_write_binary` / `rw_list` / `rw_delete` / `rw_clear` / `rw_data_dir`），刻意**没有**用
+Tauri 的 fs 插件 —— 那样要在 capabilities 里配一长串路径通配符，范围不好收，前端也能到处读写。
+这里把可访问范围钉死在应用数据目录内，文件名走白名单校验（拒绝 `..`、绝对路径、分隔符）。
+
+写文件用「先写临时文件再 rename」，中途崩溃不会留下半截数据。
+
+前端侧对应的是 `app/adapter/desktop.js`：它实现与 `store.js` 里 IndexedDB 后端**完全相同的
+接口**（`open/put/get/getAll/delete/clear/keys`），所以 `store.js` 的 `ready()` 只要挑一个实现：
+
+```
+桌面端有 __TAURI__  → adapter/desktop.js（文件）
+否则有 indexedDB    → IndexedDB
+否则                → 内存（测试 / 隐私模式兜底）
+```
+
+数据布局：
+
+```
+data/characters/<角色>.json
+data/chats/<角色>/<对话>.json
+data/worlds/<记忆书>.json
+data/kv/<键>.json
+data/blobs/<id>               图片等二进制
+```
+
+内容包在 `app/` 的上一层，浏览器取不到，所以 `scripts/prepare-desktop.cjs` 会在打包前把
+`packs/` 复制进 `app/packs/`（该目录在 .gitignore 里）。
+
+## 七、测试
 
 ```
 tests/adapter-unit.cjs     19 项：数据层增删改查、存档往返、请求体翻译、SSE、ZIP
-tests/local-app-check.cjs  12 项：无头 Chrome 打开三个页面，合成 fixture + 假模型端点，
-                                  外加一次「空库启动」验证（仓库默认不含内容包）
+tests/local-app-check.cjs  13 项：无头 Chrome 打开三个页面，合成 fixture + 假模型端点，
+                                  外加「空库启动」与「内容包自动安装」两组用例
+tests/desktop-smoke.cjs     1 项：启动真正的 exe，验证数据真的以普通文件落盘
 tests/legacy/              已废弃的 SillyTavern 假服务器（保留作参考，当前不再被引用）
 ```
 
@@ -97,7 +132,11 @@ tests/legacy/              已废弃的 SillyTavern 假服务器（保留作参�
 `window.__ROLEWORLD_FIXTURE__`，适配层在 `init()` 时一次性导入 —— 这是刻意留的测试缝，
 也让「演示数据 / 首次运行预置内容」有地方挂。
 
-## 七、不能丢的既有资产
+页面在启动完全落定时会置 `window.TASK21_READY = true`。
+注意**不要**用 `theme-pending` 是否还在来判断启动完成：它在启动第 2 步（身份落定）就被摘掉了，
+拿它当信号会在内容包还没装完时就开始操作数据库。
+
+## 八、不能丢的既有资产
 
 - 提示词编排：`task22-core.js` 的 `buildSystemPrompt` / `composeMessages` / `parseGenerateResponse`
 - 记忆书（World Info）的条目结构与注入规则

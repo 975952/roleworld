@@ -195,6 +195,21 @@
     if (backend) return Promise.resolve(backend);
     if (opening) return opening;
     opening = (async () => {
+      // 桌面端优先：数据存成磁盘上的普通文件，用户能直接看见和备份。
+      const desktop = global.RoleWorldDesktop;
+      if (desktop && typeof desktop.hasTauri === "function" && desktop.hasTauri()) {
+        try {
+          const fs = desktop.createDesktopBackend();
+          await fs.open();
+          backend = fs;
+          return backend;
+        } catch (error) {
+          backend = createMemoryBackend();
+          backend.degradedFrom = "tauri-fs";
+          backend.reason = error && error.message ? error.message : String(error);
+          return backend;
+        }
+      }
       if (hasIndexedDB()) {
         const idb = createIdbBackend();
         try {

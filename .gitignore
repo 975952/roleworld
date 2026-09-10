@@ -23,7 +23,10 @@ node_modules/
 dist/
 target/
 src-tauri/target/
+src-tauri/gen/
 build/out/
+# 桌面端打包前由 scripts/prepare-desktop.cjs 从 packs/ 复制过来，不入库
+app/packs/
 *.exe
 *.msi
 *.dmg

@@ -32,17 +32,48 @@ device. MIT licensed. [Jump to English](#english)
 
 ## 快速开始
 
+### 网页版
+
 不需要安装任何依赖，也不需要构建：
 
 ```bash
 git clone <这个仓库>
 cd roleworld
-python -m http.server 8080     # 或者任意静态服务器
+node scripts/serve.cjs          # 或者 python -m http.server 8080
 ```
 
 浏览器打开 <http://127.0.0.1:8080/app/index.html>。
 
 > 直接双击 `index.html`（`file://`）在部分浏览器里无法使用本地数据库，请用上面的本地服务器方式。
+
+### 桌面版（Windows / macOS / Linux）
+
+桌面版和网页版是**同一份前端代码**，区别只有一个：数据存成磁盘上看得见的普通文件，
+而不是浏览器数据库。想备份，直接拷目录；想看内容，直接用编辑器打开。
+
+```bash
+pnpm install                    # 只装打包工具 @tauri-apps/cli
+pnpm desktop:build              # 产出安装包（Windows 为 NSIS 安装程序）
+```
+
+需要 [Rust 工具链](https://rustup.rs/)；Windows 还需要 MSVC 生成工具与 WebView2
+（Windows 10/11 一般自带 WebView2）。
+
+数据目录（应用里「设置 → 关于」也会显示实际路径）：
+
+| 平台 | 路径 |
+|---|---|
+| Windows | `%APPDATA%\app.roleworld.desktop\data\` |
+| macOS | `~/Library/Application Support/app.roleworld.desktop/data/` |
+| Linux | `~/.local/share/app.roleworld.desktop/data/` |
+
+```
+data/characters/<角色>.json     角色卡
+data/chats/<角色>/<对话>.json    对话记录
+data/worlds/<记忆书>.json        记忆书
+data/kv/<键>.json               设置与偏好
+data/blobs/<id>                 头像等图片
+```
 
 然后：
 
@@ -111,13 +142,15 @@ node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的�
 ## 项目状态
 
 已完成：本地适配层、去掉账号系统、三个页面接入适配层、内容包机制（含哈利·波特内置包）、
-存档导出导入、回归测试（13 项端到端 + 19 项单元）。
+存档导出导入、桌面端打包（Tauri v2，Windows 安装包已产出）、回归测试
+（13 项端到端 + 19 项单元 + 1 项桌面冒烟）。
 
 计划中（见 issue / roadmap）：
 
-- [ ] 桌面端打包（Tauri v2 → Windows `.exe` / macOS / Linux）
+- [ ] 发布首个 GitHub / Gitee Release（附 Windows 安装包）
+- [ ] macOS / Linux 打包（需要对应平台构建，或接 GitHub Actions）
 - [ ] PWA（manifest + service worker，可装到手机桌面）
-- [ ] Android / iOS 打包
+- [ ] Android（Capacitor）
 - [ ] 把 `app.js` / `assistant.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
 - [ ] 更细的生成参数面板（温度 / 上下文长度 / 预设）
 

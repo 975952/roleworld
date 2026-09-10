@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "桌面端只用到自带的 rw_* 文件命令，不需要额外插件权限。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
