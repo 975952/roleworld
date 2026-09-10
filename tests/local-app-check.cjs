@@ -496,6 +496,60 @@ async function main() {
     assert(href.endsWith("/magic-map.html"), "被跳转到了 " + href);
   });
 
+  await check("剧情模式与主界面是同一套皮肤（不再自带羊皮纸+衬线）", async () => {
+    const probe = await evaluate(`(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      const marker = document.createElement('div');
+      marker.style.background = 'var(--canvas)';
+      document.body.appendChild(marker);
+      const expected = getComputedStyle(marker).backgroundColor;
+      marker.remove();
+      return {
+        style: document.documentElement.dataset.style,
+        theme: document.documentElement.dataset.theme,
+        bodyBg: body.backgroundColor,
+        expected,
+        font: body.fontFamily,
+        tokensLoaded: root.getPropertyValue('--canvas').trim().length > 0,
+      };
+    })()`);
+    assert(probe.tokensLoaded, "tokens.css 没有加载");
+    assert(probe.style === "default", "风格属性和偏好不一致：" + probe.style);
+    assert(probe.bodyBg === probe.expected, `背景没跟着设计变量走：${probe.bodyBg} ≠ ${probe.expected}`);
+    assert(!/Songti|Georgia|Palatino|Iowan|Noto Serif|(?<!sans-)serif/i.test(probe.font), "还在用衬线字体：" + probe.font);
+  });
+
+  await check("外观里的风格可切换，且两个页面一起变", async () => {
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    const before = await evaluate("document.documentElement.dataset.style");
+    assert(before === "default", "初始风格不对：" + before);
+    await evaluate(`(() => {
+      const select = document.querySelector('#styleSelect');
+      select.value = 'gold';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("document.documentElement.dataset.style === 'gold'", 6000);
+    // 选「返校金」应当同时点亮秋季氛围
+    assert(await evaluate("!!document.querySelector('html[data-style=\"gold\"]')"), "风格没落到 html 上");
+
+    await goto(base + "/magic-map.html");
+    await waitFor("document.querySelector('#castMeta') && document.querySelector('#castMeta').textContent.indexOf('正在读取') < 0", 20000);
+    assert(await evaluate("document.documentElement.dataset.style === 'gold'"), "剧情模式没有跟上风格：" + await evaluate("document.documentElement.dataset.style"));
+
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    await evaluate(`(() => {
+      const select = document.querySelector('#styleSelect');
+      select.value = 'default';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("document.documentElement.dataset.style === 'default'", 6000);
+  });
+
   console.log("== 内置内容包（packs/harry-potter）==");
 
   await check("内容包在首次启动时自动安装，角色卡自带立绘", async () => {

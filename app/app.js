@@ -667,6 +667,9 @@ function applyPreferences() {
   if (shell) shell.dataset.density = preferences.density;
   document.documentElement.dataset.motion = preferences.motion;
   document.documentElement.dataset.theme = preferences.theme;
+  // 风格（配色）与秋季氛围：剧情模式页也在用同一份偏好，靠 tokens.css 一起生效。
+  document.documentElement.dataset.style = preferences.style || "default";
+  document.documentElement.classList.toggle("season-ambient-on", preferences.ambient === true);
   // 界面缩放：整体（正文+控件）一起缩放。
   // 实测这片页面会给 body 上的 zoom 忽略掉（连手设 2 都算回 1），所以加在 appShell 上。
   const scale = Number(preferences.scale) || 1;
@@ -682,11 +685,15 @@ function applyPreferences() {
   const motionSelect = $("#motionSelect");
   const sendModeSelect = $("#sendModeSelect");
   const scaleSelect = $("#scaleSelect");
+  const styleSelect = $("#styleSelect");
+  const ambientToggle = $("#ambientToggle");
   if (themeSelect) themeSelect.value = preferences.theme;
   if (densitySelect) densitySelect.value = preferences.density;
   if (motionSelect) motionSelect.value = preferences.motion;
   if (sendModeSelect) sendModeSelect.value = preferences.sendMode;
   if (scaleSelect) scaleSelect.value = String(scale);
+  if (styleSelect) styleSelect.value = preferences.style || "default";
+  if (ambientToggle) ambientToggle.checked = preferences.ambient === true;
 }
 
 function savePreference(key, value) {
@@ -1346,6 +1353,8 @@ function openCharacterImport() {
 function bindSettings() {
   $("#themeSelect")?.addEventListener("change", (event) => savePreference("theme", event.target.value));
   $("#scaleSelect")?.addEventListener("change", (event) => savePreference("scale", event.target.value));
+  $("#styleSelect")?.addEventListener("change", (event) => savePreference("style", event.target.value));
+  $("#ambientToggle")?.addEventListener("change", (event) => savePreference("ambient", event.target.checked === true));
   $("#densitySelect")?.addEventListener("change", (event) => savePreference("density", event.target.value));
   $("#motionSelect")?.addEventListener("change", (event) => savePreference("motion", event.target.value));
   $("#sendModeSelect")?.addEventListener("change", (event) => savePreference("sendMode", event.target.value));

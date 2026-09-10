@@ -8,6 +8,7 @@
   <title>角色世界 · 对话</title>
   <script>(function () { var theme = ""; try { var encodedHandle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || ""; var preferenceKey = encodedHandle ? "task27a.preferences.v1." + encodedHandle : ""; var stored = preferenceKey ? JSON.parse(window.localStorage.getItem(preferenceKey) || "null") : null; if (stored && (stored.theme === "light" || stored.theme === "dark")) theme = stored.theme; } catch (_) {} document.documentElement.classList.add("theme-pending"); document.documentElement.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); /* Task-27H：看门狗兜底 —— 正常路径由启动落定/登录门/页面错误摘除遮罩；若脚本链路异常导致遮罩残留，20 秒后强制摘除，杜绝永久灰屏。 */ setTimeout(function () { document.documentElement.classList.remove("theme-pending"); }, 20000); })();</script>
   <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="tokens.css">
 </head>
 <body>
   <div class="auth-gate" id="authGate" hidden>
@@ -212,7 +213,7 @@
             <div class="settings-section-heading"><h2>外观</h2><p>调整阅读节奏与界面密度。</p></div>
             <div class="settings-card">
               <label class="settings-row" for="themeSelect"><div><strong>主题</strong><span>在黑色与白色界面之间切换。</span></div><select id="themeSelect"><option value="dark">黑色</option><option value="light">白色</option></select></label>
-              <label class="settings-row" for="scaleSelect"><div><strong>界面大小</strong><span>整体放大或缩小：正文、按钮、间距一起变。</span></div><select id="scaleSelect"><option value="0.9">较小 90%</option><option value="1">标准 100%</option><option value="1.1">较大 110%</option><option value="1.25">大 125%</option><option value="1.5">特大 150%</option></select></label><label class="settings-row" for="densitySelect"><div><strong>显示密度</strong><span>控制导航、列表与消息之间的留白。</span></div><select id="densitySelect"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+              <label class="settings-row" for="styleSelect"><div><strong>风格</strong><span>同一套布局下的不同配色，对话页与剧情模式一起变。</span></div><select id="styleSelect"><option value="default">默认（石墨）</option><option value="paper">羊皮纸</option><option value="ink">水墨</option><option value="forest">深林</option><option value="sakura">樱</option><option value="gold">返校金</option></select></label><label class="settings-row" for="scaleSelect"><div><strong>界面大小</strong><span>整体放大或缩小：正文、按钮、间距一起变。</span></div><select id="scaleSelect"><option value="0.9">较小 90%</option><option value="1">标准 100%</option><option value="1.1">较大 110%</option><option value="1.25">大 125%</option><option value="1.5">特大 150%</option></select></label><label class="settings-row" for="densitySelect"><div><strong>显示密度</strong><span>控制导航、列表与消息之间的留白。</span></div><select id="densitySelect"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
               <label class="settings-row" for="motionSelect"><div><strong>动效</strong><span>控制面板、滚动与尺寸变化的动量表现。</span></div><select id="motionSelect"><option value="full">完整</option><option value="reduced">减少</option></select></label>
             </div>
           </section>

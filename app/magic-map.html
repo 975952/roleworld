@@ -6,6 +6,26 @@
   <meta name="color-scheme" content="light">
   <meta name="description" content="角色世界 · 剧情模式：多角色同场，自己写场景">
   <title>角色世界 · 剧情模式</title>
+  <script>(function () {
+    /* 与对话页共用同一份外观偏好：主题 / 风格 / 秋季氛围。
+       这个页面不加载 app.js，所以自己读一次，避免首帧闪白或风格对不上。 */
+    var theme = "", style = "default", ambient = false;
+    try {
+      var handle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || "";
+      var key = handle ? "task27a.preferences.v1." + handle : "";
+      var prefs = key ? JSON.parse(window.localStorage.getItem(key) || "null") : null;
+      if (prefs && typeof prefs === "object") {
+        if (prefs.theme === "light" || prefs.theme === "dark") theme = prefs.theme;
+        if (typeof prefs.style === "string" && prefs.style) style = prefs.style;
+        ambient = prefs.ambient === true;
+      }
+    } catch (_) { /* 读不到就用默认值 */ }
+    var root = document.documentElement;
+    root.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    root.dataset.style = style;
+    if (ambient || style === "gold") root.classList.add("season-ambient-on");
+  })();</script>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="magic-map.css">
 </head>
 <body>
@@ -99,5 +119,6 @@
   <script src="adapter/packs.js"></script>
   <script src="adapter/index.js"></script>
   <script src="magic-map.js"></script>
+  <script src="seasonal-surprise.js"></script>
 </body>
 </html>

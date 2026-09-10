@@ -1,0 +1,296 @@
+/* =====================================================================
+   tokens.css —— 全站设计变量（三个页面共用）
+   ---------------------------------------------------------------------
+   之前变量写死在 styles.css 里，剧情模式只能自带一套羊皮纸配色，于是
+   两个页面的设计语言完全不同。现在抽到这里：
+     * 基础色板（暗/亮）
+     * 风格（data-style）：默认 / 羊皮纸 / 水墨 / 深林 / 樱 / 返校金
+   页面只需 <link rel="stylesheet" href="tokens.css"> 就能继承同一套皮肤。
+   ===================================================================== */
+
+:root {
+  color-scheme: dark;
+  --canvas: #0e0f12;
+  --navigation: #15161a;
+  --raised: #191b20;
+  --hover: #202228;
+  --selected: #272a31;
+  --hairline: #2d3038;
+  --strong-line: #3a3e48;
+  --main-text: #f1f2f4;
+  --secondary-text: #d4d7dc;
+  --muted-text: #8f95a0;
+  --quiet-text: #6f7580;
+  --success: #58a875;
+  --error: #c58e88;
+  --focus: #8d95ff;
+  --topbar-bg: rgba(14,15,18,.94);
+  --button-text: #121317;
+  --overlay: rgba(14,15,18,.92);
+  --accent-soft: rgba(141,149,255,.14);
+  --sidebar-width: 248px;
+  --right-width: 420px;
+  --left-min: 196px;
+  --left-max: 420px;
+  --right-min: 320px;
+  --right-max: 620px;
+  --center-min: 0px;
+  --collapse-distance: 54px;
+  --base-radius: 8px;
+  --input-radius: 14px;
+  --card-radius: 16px;
+  --motion-ease: cubic-bezier(.22, 1, .36, 1);
+  --panel-motion: 300ms;
+  --hover-motion: 150ms;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #fafafa;
+  --navigation: #f1f1ef;
+  --raised: #ffffff;
+  --hover: #ececea;
+  --selected: #e2e2df;
+  --hairline: #d9d9d6;
+  --strong-line: #c8c8c4;
+  --main-text: #17181a;
+  --secondary-text: #35373b;
+  --muted-text: #6f747c;
+  --quiet-text: #92969d;
+  --focus: #5865d8;
+  --topbar-bg: rgba(250,250,250,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(247,247,245,.94);
+  --accent-soft: rgba(88,101,216,.12);
+}
+
+/* ---------------------------------------------------------------------
+   风格一：羊皮纸（暖纸色，适合长时间阅读与写作）
+   --------------------------------------------------------------------- */
+:root[data-style="paper"] {
+  --canvas: #17130d;
+  --navigation: #1e1913;
+  --raised: #241d15;
+  --hover: #2d2419;
+  --selected: #372c1e;
+  --hairline: #3b3024;
+  --strong-line: #4d4030;
+  --main-text: #f3e8d5;
+  --secondary-text: #d9cbb4;
+  --muted-text: #a2907a;
+  --quiet-text: #7d6e5c;
+  --focus: #d8a94a;
+  --topbar-bg: rgba(23,19,13,.94);
+  --overlay: rgba(23,19,13,.93);
+  --accent-soft: rgba(216,169,74,.14);
+}
+:root[data-style="paper"][data-theme="light"] {
+  --canvas: #f7f0e2;
+  --navigation: #efe6d4;
+  --raised: #fffaf0;
+  --hover: #e9dfcb;
+  --selected: #e0d3ba;
+  --hairline: #d9cbb0;
+  --strong-line: #c4b393;
+  --main-text: #2a2118;
+  --secondary-text: #4b3f30;
+  --muted-text: #7a6a55;
+  --quiet-text: #97876f;
+  --focus: #9a6f16;
+  --topbar-bg: rgba(247,240,226,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(247,240,226,.94);
+  --accent-soft: rgba(154,111,22,.12);
+}
+
+/* ---------------------------------------------------------------------
+   风格二：水墨（冷灰蓝，对比高，留白多）
+   --------------------------------------------------------------------- */
+:root[data-style="ink"] {
+  --canvas: #0b0d10;
+  --navigation: #111519;
+  --raised: #161a1f;
+  --hover: #1c2127;
+  --selected: #232930;
+  --hairline: #262d35;
+  --strong-line: #354049;
+  --main-text: #eef2f5;
+  --secondary-text: #cbd6de;
+  --muted-text: #8b98a4;
+  --quiet-text: #6b7683;
+  --focus: #6fb2d6;
+  --topbar-bg: rgba(11,13,16,.94);
+  --overlay: rgba(11,13,16,.93);
+  --accent-soft: rgba(111,178,214,.14);
+}
+:root[data-style="ink"][data-theme="light"] {
+  --canvas: #f6f8f9;
+  --navigation: #eaeef1;
+  --raised: #ffffff;
+  --hover: #e3e9ed;
+  --selected: #d7dfe5;
+  --hairline: #d3dbe1;
+  --strong-line: #b9c4cc;
+  --main-text: #101619;
+  --secondary-text: #2f3b43;
+  --muted-text: #5f6d78;
+  --quiet-text: #85929c;
+  --focus: #1f6f9c;
+  --topbar-bg: rgba(246,248,249,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(246,248,249,.94);
+  --accent-soft: rgba(31,111,156,.12);
+}
+
+/* ---------------------------------------------------------------------
+   风格三：深林（墨绿，安静）
+   --------------------------------------------------------------------- */
+:root[data-style="forest"] {
+  --canvas: #0b110d;
+  --navigation: #101812;
+  --raised: #141d17;
+  --hover: #1a251d;
+  --selected: #213024;
+  --hairline: #24332a;
+  --strong-line: #34483a;
+  --main-text: #eaf2ec;
+  --secondary-text: #c8d8cd;
+  --muted-text: #8ba192;
+  --quiet-text: #6b7f71;
+  --focus: #7fc79a;
+  --topbar-bg: rgba(11,17,13,.94);
+  --overlay: rgba(11,17,13,.93);
+  --accent-soft: rgba(127,199,154,.14);
+}
+:root[data-style="forest"][data-theme="light"] {
+  --canvas: #f2f7f3;
+  --navigation: #e6efe8;
+  --raised: #ffffff;
+  --hover: #ddeae0;
+  --selected: #cfe0d4;
+  --hairline: #d0e0d5;
+  --strong-line: #b3c9ba;
+  --main-text: #0f1a13;
+  --secondary-text: #2c3d31;
+  --muted-text: #586b5e;
+  --quiet-text: #7d9083;
+  --focus: #2f7c4e;
+  --topbar-bg: rgba(242,247,243,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(242,247,243,.94);
+  --accent-soft: rgba(47,124,78,.12);
+}
+
+/* ---------------------------------------------------------------------
+   风格四：樱（柔和粉紫）
+   --------------------------------------------------------------------- */
+:root[data-style="sakura"] {
+  --canvas: #120e12;
+  --navigation: #1a141a;
+  --raised: #211a21;
+  --hover: #2a2029;
+  --selected: #352933;
+  --hairline: #382c37;
+  --strong-line: #4c3c4a;
+  --main-text: #f7ecf4;
+  --secondary-text: #e0cbd9;
+  --muted-text: #ab8fa3;
+  --quiet-text: #87707f;
+  --focus: #e79ac0;
+  --topbar-bg: rgba(18,14,18,.94);
+  --overlay: rgba(18,14,18,.93);
+  --accent-soft: rgba(231,154,192,.14);
+}
+:root[data-style="sakura"][data-theme="light"] {
+  --canvas: #fdf5f9;
+  --navigation: #f7e9f1;
+  --raised: #ffffff;
+  --hover: #f2e0ea;
+  --selected: #ebd4e1;
+  --hairline: #ecd6e2;
+  --strong-line: #d8bccd;
+  --main-text: #221621;
+  --secondary-text: #4a3444;
+  --muted-text: #7d6173;
+  --quiet-text: #9b8291;
+  --focus: #b25a8c;
+  --topbar-bg: rgba(253,245,249,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(253,245,249,.94);
+  --accent-soft: rgba(178,90,140,.12);
+}
+
+/* ---------------------------------------------------------------------
+   风格五：返校金（九月限定氛围 —— 现在是一个可选的常驻风格，
+   不再依赖"当月是九月 + 首次进入 + 没关过"这几个条件）
+   --------------------------------------------------------------------- */
+:root[data-style="gold"] {
+  --canvas: #120e08;
+  --navigation: #1a1409;
+  --raised: #221a0e;
+  --hover: #2c2213;
+  --selected: #382c17;
+  --hairline: #3d3018;
+  --strong-line: #55431f;
+  --main-text: #fbf0d8;
+  --secondary-text: #e3d0aa;
+  --muted-text: #ad9569;
+  --quiet-text: #87704b;
+  --focus: #e9b750;
+  --topbar-bg: rgba(18,14,8,.94);
+  --overlay: rgba(18,14,8,.93);
+  --accent-soft: rgba(233,183,80,.15);
+}
+:root[data-style="gold"][data-theme="light"] {
+  --canvas: #fdf6e6;
+  --navigation: #f7ecd4;
+  --raised: #fffdf6;
+  --hover: #f2e4c6;
+  --selected: #ead9b4;
+  --hairline: #e6d6b4;
+  --strong-line: #d0bb92;
+  --main-text: #2b2110;
+  --secondary-text: #4d3d20;
+  --muted-text: #7c6842;
+  --quiet-text: #9a8659;
+  --focus: #a97a17;
+  --topbar-bg: rgba(253,246,230,.94);
+  --button-text: #ffffff;
+  --overlay: rgba(253,246,230,.94);
+  --accent-soft: rgba(169,122,23,.12);
+}
+
+/* ---------------------------------------------------------------------
+   秋季金色氛围：原来只在"九月的第一次进入"里出现，现在跟着风格走 ——
+   选「返校金」就一定有，其它风格可以在外观里单独打开。
+   --------------------------------------------------------------------- */
+html.season-ambient-on::after,
+html[data-style="gold"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  opacity: .5;
+  background:
+    radial-gradient(60% 40% at 15% 0%, rgba(233,183,80,.16) 0%, transparent 70%),
+    radial-gradient(50% 45% at 85% 100%, rgba(200,120,40,.14) 0%, transparent 70%);
+  animation: season-drift 26s var(--motion-ease) infinite alternate;
+}
+html.season-ambient-on::after { opacity: .42; }
+html[data-theme="light"].season-ambient-on::after { mix-blend-mode: multiply; opacity: .3; }
+html[data-theme="light"][data-style="gold"]::after { mix-blend-mode: multiply; opacity: .34; }
+
+@keyframes season-drift {
+  from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+  to { transform: translate3d(1.5%, 1%, 0) scale(1.06); }
+}
+
+html[data-motion="reduced"].season-ambient-on::after,
+html[data-motion="reduced"][data-style="gold"]::after { animation: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  html.season-ambient-on::after,
+  html[data-style="gold"]::after { animation: none !important; }
+}
