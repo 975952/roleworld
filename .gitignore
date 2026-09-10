@@ -1,0 +1,41 @@
+# 私密与本地文件 —— 绝不入库
+novel.txt
+reports/private/
+runs/
+*.key
+*.pem
+.env
+.env.*
+secrets*.json
+*credentials*
+api-keys*
+
+# 用户数据（角色卡 / 聊天 / 世界书 / 存档）
+data/
+profiles/
+*.jsonl
+*.charx
+*.zip
+!examples/**/*.json
+
+# 构建产物与依赖
+node_modules/
+dist/
+target/
+src-tauri/target/
+build/out/
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.apk
+*.aab
+*.ipa
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="角色世界 · 角色对话与记忆工作台">
+  <title>角色世界 · 对话</title>
+  <script>(function () { var theme = ""; try { var encodedHandle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || ""; var preferenceKey = encodedHandle ? "task27a.preferences.v1." + encodedHandle : ""; var stored = preferenceKey ? JSON.parse(window.localStorage.getItem(preferenceKey) || "null") : null; if (stored && (stored.theme === "light" || stored.theme === "dark")) theme = stored.theme; } catch (_) {} document.documentElement.classList.add("theme-pending"); document.documentElement.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); /* Task-27H：看门狗兜底 —— 正常路径由启动落定/登录门/页面错误摘除遮罩；若脚本链路异常导致遮罩残留，20 秒后强制摘除，杜绝永久灰屏。 */ setTimeout(function () { document.documentElement.classList.remove("theme-pending"); }, 20000); })();</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="auth-gate" id="authGate" hidden>
+    <div class="auth-gate-card" role="alert" aria-live="assertive">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <h2>需要登录</h2>
+      <p>登录后才能继续使用对话与记忆。</p>
+      <a class="primary-button" id="authGateLoginLink" href="./login.html">前往登录</a>
+    </div>
+  </div>
+
+  <div class="chat-template-gate" id="chatTemplateGate" hidden>
+    <div class="chat-template-gate-card" role="alert" aria-live="assertive">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <h2 id="chatTemplateGateTitle">正在准备对话</h2>
+      <p id="chatTemplateGateMessage">正在为当前账户准备 Harry 对话…</p>
+      <button class="primary-button" id="chatTemplateGateRetry" type="button" hidden>重新准备</button>
+    </div>
+  </div>
+
+  <div class="app-shell sidebar-open" id="appShell">
+    <aside class="archive-sidebar" aria-label="主导航">
+      <div class="brand-lockup">
+        <div class="brand-copy">
+          <div class="brand-mark brand-mark-small" aria-hidden="true"></div>
+          <strong id="sidebarBrandName">Harry</strong>
+        </div>
+        <button class="icon-button sidebar-inner-toggle" type="button" data-action="toggle-sidebar" aria-label="收起左侧导航" title="收起左侧导航">
+          <span class="panel-toggle-icon" aria-hidden="true"><i></i></span>
+        </button>
+      </div>
+
+      <button class="new-conversation-button" id="newConversationButton" type="button" data-action="new-conversation" aria-label="新建对话">
+        <span class="new-conversation-icon" aria-hidden="true">＋</span>
+        <span class="new-conversation-label">新建对话</span>
+      </button>
+
+      <section class="history-section" aria-labelledby="historyTitle">
+        <h2 class="nav-section-title" id="historyTitle">最近对话</h2>
+        <div class="chat-list-status" id="chatListStatus" role="status" aria-live="polite" hidden>
+          <span id="chatListStatusText"></span>
+          <button class="chat-list-retry" id="chatListRetry" type="button" data-action="retry-chat-list">重试</button>
+        </div>
+        <div class="history-groups" id="historyGroups" aria-label="Harry 已保存的对话"></div>
+      </section>
+
+      <nav class="side-nav" aria-label="功能导航">
+        <button class="nav-item is-active" type="button" data-view="chat">
+          <span class="nav-icon nav-icon-chat" aria-hidden="true"></span>
+          <span class="nav-label">对话</span>
+        </button>
+        <button class="nav-item" type="button" data-view="characters">
+          <span class="nav-icon nav-icon-character" aria-hidden="true"></span>
+          <span class="nav-label">角色</span>
+        </button>
+        <a class="nav-item" id="magicMapLink" href="./magic-map.html">
+          <span class="nav-icon nav-icon-map" aria-hidden="true"></span>
+          <span class="nav-label">剧情模式</span>
+        </a>
+        <a class="nav-item admin-assistant-link" id="adminAssistantLink" data-admin-only href="./assistant.html" hidden>
+          <span class="nav-icon nav-icon-assistant" aria-hidden="true"></span>
+          <span class="nav-label">通用 AI</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="identity-zone">
+        <div class="user-menu" id="userMenu" role="menu" aria-label="账户菜单" hidden>
+          <div class="user-menu-heading">
+            <div class="identity-avatar identity-avatar-menu" aria-hidden="true"></div>
+            <div class="user-menu-heading-copy">
+              <strong id="menuUserName">用户</strong>
+              <span id="menuUserHandle">@未登录</span>
+              <span id="menuUserRole">用户</span>
+            </div>
+          </div>
+          <button class="user-menu-row" type="button" data-action="open-settings" role="menuitem">
+            <span class="menu-row-icon menu-row-icon-settings" aria-hidden="true"></span>
+            <span>设置</span>
+          </button>
+          <a class="user-menu-row" id="menuMagicMapLink" href="./magic-map.html" role="menuitem">
+            <span class="menu-row-icon menu-row-icon-map" aria-hidden="true"></span>
+            <span>剧情模式</span>
+          </a>
+          <button class="user-menu-row" type="button" data-action="open-rename" role="menuitem">
+            <span class="menu-row-icon menu-row-icon-account" aria-hidden="true"></span>
+            <span>改名</span>
+          </button>
+          <button class="user-menu-row" type="button" data-action="open-password" role="menuitem">
+            <span class="menu-row-icon menu-row-icon-account" aria-hidden="true"></span>
+            <span>改密</span>
+          </button>
+          <a class="user-menu-row" id="menuAssistantLink" href="./assistant.html" data-admin-only role="menuitem" hidden>
+            <span class="menu-row-icon menu-row-icon-assistant" aria-hidden="true"></span>
+            <span>通用 AI</span>
+          </a>
+          <div class="user-menu-separator" aria-hidden="true"></div>
+          <button class="user-menu-row user-menu-row-danger" type="button" data-action="open-logout" role="menuitem">
+            <span class="menu-row-icon menu-row-icon-logout" aria-hidden="true"></span>
+            <span>退出登录</span>
+          </button>
+        </div>
+        <button class="identity-control" id="userIdentityButton" type="button" data-action="toggle-user-menu" aria-haspopup="menu" aria-expanded="false" aria-label="打开用户菜单">
+          <span class="identity-avatar" aria-hidden="true"></span>
+          <span class="identity-copy">
+            <span class="identity-name" id="userDisplayName">用户</span>
+            <span class="identity-status" id="userStatus">@未登录</span>
+          </span>
+          <span class="identity-chevron" aria-hidden="true"></span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="panel-resizer panel-resizer-left" id="leftResizeHandle" role="separator" aria-label="调整左侧导航宽度" aria-orientation="vertical" tabindex="0"></div>
+
+    <main class="main-stage" id="mainStage">
+      <header class="topbar">
+        <div class="topbar-title">
+          <button class="icon-button navigation-button" id="sidebarToggle" type="button" data-action="toggle-sidebar" aria-label="打开左侧导航" title="打开左侧导航">
+            <span class="panel-toggle-icon" aria-hidden="true"><i></i></span>
+          </button>
+          <h1 id="topbarTitle">Harry Potter</h1>
+        </div>
+         <div class="topbar-actions">
+           <label class="chat-model" for="chatModelSelect"><span>模型</span><select id="chatModelSelect"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label>
+           <button class="plain-button" type="button" data-action="open-memories" aria-expanded="false" hidden>记忆</button>
+           <button class="icon-button mobile-topbar-action" type="button" data-action="open-settings" aria-label="打开设置" title="设置">
+             <span aria-hidden="true">⚙</span>
+           </button>
+         </div>
+      </header>
+
+      <section class="conversation-column" aria-label="Harry 对话">
+        <div class="chat-scroll" id="chatScroll" aria-live="polite" tabindex="0">
+          <div class="chat-content">
+            <div class="date-divider"><span>最近对话</span></div>
+
+            <article class="message-row message-row-assistant initial-assistant-message">
+              <div class="message-avatar assistant-avatar" aria-label="Harry Potter" role="img"></div>
+              <div class="message-stack">
+                <div class="message-meta"><strong>Harry Potter</strong></div>
+                <div class="assistant-body">
+                  <div class="message-bubble assistant-bubble"><p>有什么想聊的吗？</p></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="message-row message-row-user" hidden>
+              <div class="message-stack">
+                <div class="message-meta message-meta-user"><strong>你</strong></div>
+                <div class="message-bubble user-bubble"><p></p></div>
+              </div>
+            </article>
+
+            <div id="dynamicMessages"></div>
+            <div class="typing-note" id="typingNote" role="status" aria-label="正在回复" hidden>
+              <span class="thinking-dot" aria-hidden="true"></span>
+              <span class="typing-note-label" hidden></span>
+              <span class="sr-only">正在回复</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer-shell">
+          <div class="composer-box">
+            <!-- Task-29A：空白新聊天首条消息前的角色选择器（Codex 风格），绑定后隐藏。 -->
+            <div class="character-picker" id="characterPicker" hidden>
+              <button type="button" class="character-picker-trigger" id="characterPickerTrigger" aria-haspopup="listbox" aria-expanded="false">
+                <span class="character-picker-name" id="characterPickerName"></span>
+                <span class="character-picker-caret" aria-hidden="true">▾</span>
+              </button>
+              <div class="character-picker-menu" id="characterPickerMenu" role="listbox" hidden></div>
+            </div>
+            <textarea id="messageInput" rows="1" placeholder="给 Harry 发消息" aria-label="消息输入"></textarea>
+            <div class="composer-footer">
+              <span class="composer-hint" hidden></span>
+              <span class="composer-engine" id="composerEngine" hidden></span>
+              <button class="stop-button" id="stopButton" type="button" hidden>停止</button>
+              <button class="send-button" id="sendButton" type="button" aria-label="发送">
+                <span class="sr-only">发送</span><b aria-hidden="true">↑</b>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="settings-surface" id="settingsSurface" aria-labelledby="settingsTitle" hidden>
+      <header class="settings-topbar">
+        <div class="settings-topbar-leading">
+          <button class="plain-button settings-back-button" type="button" data-action="close-settings">返回</button>
+          <h1 id="settingsTitle">设置</h1>
+        </div>
+      </header>
+      <div class="settings-layout">
+        <nav class="settings-nav" aria-label="设置分类">
+          <button class="settings-nav-item is-active" type="button" data-settings-section="appearance">外观</button>
+          <button class="settings-nav-item" type="button" data-settings-section="conversation">对话</button>
+          <button class="settings-nav-item" type="button" data-settings-section="characters">角色管理</button>
+          <button class="settings-nav-item" type="button" data-settings-section="layout">布局</button>
+          <button class="settings-nav-item" type="button" data-settings-section="account">账户</button>
+          <button class="settings-nav-item" type="button" data-settings-section="admin-users" data-admin-only hidden>账号管理</button>
+          <button class="settings-nav-item" type="button" data-settings-section="local-data">本地数据</button>
+        </nav>
+        <div class="settings-content">
+          <section class="settings-section is-active" id="settings-appearance" data-settings-panel="appearance">
+            <div class="settings-section-heading"><h2>外观</h2><p>调整阅读节奏与界面密度。</p></div>
+            <div class="settings-card">
+              <label class="settings-row" for="themeSelect"><div><strong>主题</strong><span>在黑色与白色界面之间切换。</span></div><select id="themeSelect"><option value="dark">黑色</option><option value="light">白色</option></select></label>
+              <label class="settings-row" for="densitySelect"><div><strong>显示密度</strong><span>控制导航、列表与消息之间的留白。</span></div><select id="densitySelect"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+              <label class="settings-row" for="motionSelect"><div><strong>动效</strong><span>控制面板、滚动与尺寸变化的动量表现。</span></div><select id="motionSelect"><option value="full">完整</option><option value="reduced">减少</option></select></label>
+            </div>
+          </section>
+
+          <section class="settings-section" id="settings-conversation" data-settings-panel="conversation">
+            <div class="settings-section-heading"><h2>对话</h2><p>发送行为与历史默认值。</p></div>
+            <div class="settings-card"><label class="settings-row" for="sendModeSelect"><div><strong>发送方式</strong><span>同时作用于 Harry 与通用 AI 输入框。</span></div><select id="sendModeSelect"><option value="enter">Enter 发送，Shift+Enter 换行</option><option value="ctrl-enter">Ctrl+Enter 发送，Enter 换行</option></select></label><label class="settings-row" for="chatModelSelectSettings"><div><strong>对话模型</strong><span>角色对话用本地模型或 DeepSeek 官方 API（记忆书与角色卡照常注入）。</span></div><select id="chatModelSelectSettings"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label><div class="settings-row settings-row-key"><div><strong>DeepSeek API Key</strong><span id="chatDeepseekKeyStatus">正在读取…</span></div><div class="key-actions"><input type="password" id="chatDeepseekKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" id="chatDeepseekKeySave" type="button">保存</button><button class="plain-button" id="chatDeepseekKeyDelete" type="button">删除</button></div></div></div>
+          </section>
+
+          <section class="settings-section" id="settings-characters" data-settings-panel="characters">
+            <div class="settings-section-heading"><h2>角色管理</h2><p>创建、导入或删除当前账户的角色卡。删除会同时删除该角色的全部聊天，不可恢复。</p></div>
+            <div class="settings-card">
+              <div class="character-manage-toolbar"><span id="characterManageCount">0 个角色</span><button class="plain-button" type="button" data-action="character-ai-create">AI 创建角色</button><button class="plain-button" type="button" data-action="character-import">导入角色文件</button><button class="plain-button" type="button" data-action="character-refresh">刷新</button></div>
+              <div class="character-manage-list" id="characterManageList"></div>
+              <p class="settings-empty" id="characterManageEmpty">正在加载角色…</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="settings-layout" data-settings-panel="layout">
+            <div class="settings-section-heading"><h2>布局</h2><p>当前用户的面板状态与宽度会在本设备上单独保存。</p></div>
+            <div class="settings-card"><div class="settings-row"><div><strong>Harry 面板</strong><span>左侧导航、记忆栏的收起状态和拖动宽度。</span></div><span class="settings-value">已保存</span></div><div class="settings-row"><div><strong>恢复默认布局</strong><span>只重置当前用户的面板状态与宽度，不影响主题、发送方式或聊天。</span></div><button class="plain-button" id="resetLayoutButton" type="button">恢复默认布局</button></div></div>
+          </section>
+
+          <section class="settings-section" id="settings-account" data-settings-panel="account">
+            <div class="settings-section-heading"><h2>账户</h2><p>当前登录身份与账户信息；改名和改密即时生效。</p></div>
+            <div class="settings-card">
+              <div class="settings-row settings-action-row"><div><strong>改名</strong><span>修改显示名，不影响档案名（账户标识）。</span></div><button class="plain-button" type="button" data-action="open-rename">改名</button></div>
+              <div class="settings-row settings-action-row"><div><strong>改密</strong><span>修改登录密钥，改密后当前会话保持有效。</span></div><button class="plain-button" type="button" data-action="open-password">改密</button></div>
+            </div>
+            <div class="settings-card"><div class="settings-row"><div><strong>显示名</strong><span>来自当前登录身份。</span></div><span class="settings-value" id="settingsUserName">用户</span></div><div class="settings-row"><div><strong>账户</strong><span>当前账户标识。</span></div><span class="settings-value" id="settingsUserHandle">@未登录</span></div><div class="settings-row"><div><strong>角色</strong><span>来自服务端当前身份。</span></div><span class="settings-value" id="settingsUserRole">用户</span></div><div class="settings-row settings-action-row"><div><strong>退出登录</strong><span>界面偏好和对话不会被删除。</span></div><button class="danger-button" type="button" data-action="open-logout">退出登录</button></div><div class="settings-row settings-action-row"><div><strong>服务条款与免责声明</strong><span>查看《角色世界 · 服务条款与免责声明》。</span></div><a class="plain-button" href="terms.html" target="_blank" rel="noopener">查看条款</a></div></div>
+            <div class="settings-card danger-card" id="selfDeleteCard">
+              <div class="settings-row settings-action-row"><div><strong>注销账户</strong><span>永久删除当前账户及其角色卡、会话与 Memory Books，不可恢复。</span></div><button class="danger-button" type="button" data-action="open-self-delete">注销账户</button></div>
+            </div>
+          </section>
+
+          <section class="settings-section" id="settings-admin-users" data-settings-panel="admin-users" data-admin-only hidden>
+            <div class="settings-section-heading"><h2>账号管理</h2><p>查看全部账号，启用/停用、提升/降级、重置密码或删除账户。仅管理员可见。</p></div>
+            <div class="settings-card">
+              <div class="admin-users-toolbar"><span id="adminUsersCount">0 个账户</span><button class="plain-button" id="adminUsersCreateButton" type="button">新建账号</button><button class="plain-button" id="adminUsersRefresh" type="button">刷新</button></div>
+              <div class="admin-users-list" id="adminUsersList"></div>
+              <p class="settings-empty" id="adminUsersEmpty">正在加载账号列表…</p>
+            </div>
+          </section>
+
+          <section class="settings-section" id="settings-local-data" data-settings-panel="local-data">
+            <div class="settings-section-heading"><h2>本地数据</h2><p>只管理当前账户在本设备上的前端数据，不影响 Harry 服务端对话。</p></div>
+            <div class="settings-card"><div class="settings-row settings-action-row" id="generalAiDataRow" hidden><div><strong>清除本账户的通用 AI 对话</strong><span>只删除当前账户对应的本地通用 AI 会话。</span></div><button class="danger-button" id="clearGeneralAiButton" type="button">清除对话</button></div><div class="settings-row settings-action-row"><div><strong>重置本账户界面偏好</strong><span>恢复主题、密度、动效、发送方式和布局默认值，不删除聊天。</span></div><button class="plain-button" id="resetPreferencesButton" type="button">重置偏好</button></div></div>
+            <div class="settings-card"><div class="settings-card-heading"><div><strong>归档对话 <span class="settings-count" id="archivedChatCount">0 个</span></strong><span>已归档对话只在这里显示，可恢复到主列表。</span></div><label class="settings-search"><span class="sr-only">搜索归档对话</span><input id="archivedChatSearch" type="search" autocomplete="off" placeholder="搜索标题或文件名" aria-label="搜索归档对话"></label></div><div id="archivedChatList"></div><p class="settings-empty" id="archivedChatEmpty">暂无归档对话</p></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <div class="panel-resizer panel-resizer-right" id="rightResizeHandle" role="separator" aria-label="调整右侧记忆栏宽度" aria-orientation="vertical" tabindex="0"></div>
+    <aside class="inspector-column" aria-label="记忆面板" aria-hidden="true">
+      <div class="inspector-header">
+        <div class="inspector-title">
+          <span>记忆</span>
+          <small>拖动边缘调整宽度</small>
+        </div>
+        <button class="icon-button" type="button" data-action="close-memories" aria-label="关闭记忆面板" title="关闭">×</button>
+      </div>
+
+      <section class="inspector-view" id="memoryView" data-panel="memories">
+        <div class="inspector-heading">
+          <div>
+            <h2>记忆书</h2>
+            <p>查看与纠正当前角色记忆。</p>
+          </div>
+          <div class="inspector-heading-actions"><span class="book-count">04 本</span><button class="plain-button compact-button" id="newMemoryBookButton" type="button">新增记忆书</button></div>
+        </div>
+        <div class="memory-summary" aria-label="记忆摘要">
+          <div><strong id="memoryEntryCount">10</strong><span>条目</span></div>
+          <div><strong id="memoryBookCount">04</strong><span>记忆书</span></div>
+        </div>
+        <div class="memory-list" id="memoryList"></div>
+      </section>
+    </aside>
+  </div>
+
+  <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" type="button" data-action="close-mobile-drawer" aria-label="关闭主导航" hidden></button>
+
+  <nav class="mobile-bottom-nav" aria-label="手机版导航">
+    <button class="mobile-bottom-nav-item is-active" type="button" data-mobile-view="chat" data-action="mobile-view-chat" aria-current="page">
+      <span class="mobile-bottom-nav-icon nav-icon-chat" aria-hidden="true"></span>
+      <span>对话</span>
+    </button>
+    <button class="mobile-bottom-nav-item" type="button" data-mobile-view="characters" data-action="mobile-view-characters" aria-current="false">
+      <span class="mobile-bottom-nav-icon nav-icon-character" aria-hidden="true"></span>
+      <span>角色</span>
+    </button>
+    <button class="mobile-bottom-nav-item" type="button" data-mobile-view="account" data-action="mobile-view-account" aria-current="false">
+      <span class="mobile-bottom-nav-icon mobile-bottom-nav-account-icon" aria-hidden="true">◎</span>
+      <span>我的</span>
+    </button>
+  </nav>
+
+  <div class="modal-backdrop" id="memoryModal" hidden>
+    <section class="memory-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" type="button" data-action="close-modal" aria-label="关闭">×</button>
+      <p class="modal-label" id="modalBookLabel">记忆书</p>
+      <input class="modal-title-input" id="modalTitle" value="记忆条目" aria-label="记忆条目名称">
+      <div class="modal-source-row"><span id="modalStatus">当前</span><span id="modalSource">来源</span></div>
+      <label class="modal-field"><span>记忆内容</span><textarea id="modalCurrent" rows="6" placeholder="输入记忆内容"></textarea></label>
+      <p class="modal-helper">修改会直接覆盖当前条目，不保留旧版本。</p>
+      <div class="modal-actions"><button class="danger-button" id="deleteMemoryButton" type="button">删除条目</button><button class="plain-button" type="button" data-action="close-modal">取消</button><button class="primary-button" id="saveCorrection" type="button">保存</button></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="confirm-backdrop" id="aiCreateDialog" hidden>
+    <section class="memory-modal" role="dialog" aria-modal="true" aria-labelledby="aiCreateTitle">
+      <button class="modal-close" type="button" data-action="close-ai-create" aria-label="关闭">×</button>
+      <h2 class="modal-label" id="aiCreateTitle">创建角色</h2>
+
+      <div id="aiCreateDescriptionPhase">
+        <label class="modal-field"><span>角色描述</span><textarea id="aiDescriptionInput" rows="6" placeholder="用自然语言描述你想创建的角色（至少 20 字，最多 4000 字）"></textarea></label>
+        <label class="modal-field"><span>角色语言</span><select id="aiLanguageSelect">
+          <option value="auto">自动判断</option>
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select></label>
+        <p class="modal-helper" id="aiDescriptionCount"></p>
+        <p class="confirm-error" id="aiCreateError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="plain-button" type="button" data-action="close-ai-create">取消</button>
+          <button class="primary-button" id="aiGenerateButton" type="button">生成角色草稿</button>
+        </div>
+      </div>
+
+      <div id="aiCreateEditPhase" hidden>
+        <label class="modal-field"><span>名称</span><input id="aiEditName" maxlength="80" autocomplete="off"></label>
+        <label class="modal-field"><span>描述</span><textarea id="aiEditDescription" rows="3" maxlength="4000"></textarea></label>
+        <label class="modal-field"><span>性格</span><textarea id="aiEditPersonality" rows="3" maxlength="2000"></textarea></label>
+        <label class="modal-field"><span>场景</span><textarea id="aiEditScenario" rows="3" maxlength="2000"></textarea></label>
+        <label class="modal-field"><span>开场白</span><textarea id="aiEditFirstMes" rows="3" maxlength="2000"></textarea></label>
+        <label class="modal-field"><span>示例对话</span><textarea id="aiEditMesExample" rows="4" maxlength="6000"></textarea></label>
+        <label class="modal-field"><span>标签（逗号分隔，最多 12 项）</span><input id="aiEditTags" maxlength="200" autocomplete="off"></label>
+        <label class="modal-field"><span>角色语言（聊天时角色固定用该语言）</span><select id="aiEditLanguage">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select></label>
+        <p class="confirm-error" id="aiEditError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="plain-button" id="aiRegenerateButton" type="button">重新生成</button>
+          <button class="plain-button" id="aiBackButton" type="button">返回修改描述</button>
+          <button class="plain-button" type="button" data-action="close-ai-create">取消</button>
+          <button class="primary-button" id="aiSaveButton" type="button">保存角色</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <input type="file" id="characterImportInput" accept=".json,.png,.charx,.yaml,.yml" hidden>
+
+  <div class="confirm-backdrop" id="logoutDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="logoutDialogTitle" aria-describedby="logoutDialogDescription">
+      <h2 id="logoutDialogTitle">退出登录？</h2>
+      <p id="logoutDialogDescription">当前设备上的界面偏好和对话不会被删除。</p>
+      <p class="confirm-error" id="logoutError" role="alert" hidden>退出失败，请重试</p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelLogoutButton" type="button">取消</button><button class="danger-button" id="confirmLogoutButton" type="button">退出登录</button></div>
+    </section>
+  </div>
+
+  <div class="confirm-backdrop" id="renameDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="renameDialogTitle">
+      <h2 id="renameDialogTitle">修改显示名</h2>
+      <p>新的显示名只影响展示，不改动档案名（账户标识）。</p>
+      <label class="dialog-field" for="renameInput">显示名<input id="renameInput" type="text" maxlength="64" autocomplete="off"></label>
+      <p class="confirm-error" id="renameError" role="alert" hidden></p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelRenameButton" type="button">取消</button><button class="primary-button" id="confirmRenameButton" type="button">保存</button></div>
+    </section>
+  </div>
+
+  <div class="confirm-backdrop" id="passwordDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="passwordDialogTitle" aria-describedby="passwordDialogDescription">
+      <h2 id="passwordDialogTitle">修改密钥</h2>
+      <p id="passwordDialogDescription">输入当前密钥后设置新密钥。</p>
+      <label class="dialog-field" id="oldPasswordField" for="oldPasswordInput">当前密钥<input id="oldPasswordInput" type="password" autocomplete="current-password" maxlength="128"></label>
+      <label class="dialog-field" for="newPasswordInput">新密钥<input id="newPasswordInput" type="password" autocomplete="new-password" maxlength="128"></label>
+      <label class="dialog-field" for="confirmPasswordInput">确认新密钥<input id="confirmPasswordInput" type="password" autocomplete="new-password" maxlength="128"></label>
+      <p class="confirm-error" id="passwordError" role="alert" hidden></p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelPasswordButton" type="button">取消</button><button class="primary-button" id="confirmPasswordButton" type="button">保存</button></div>
+    </section>
+  </div>
+
+  <div class="confirm-backdrop" id="adminDeleteDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="adminDeleteDialogTitle" aria-describedby="adminDeleteDialogDescription">
+      <h2 id="adminDeleteDialogTitle">删除账户</h2>
+      <p id="adminDeleteDialogDescription">删除后该账户及其数据不可恢复。请输入账户名以确认。</p>
+      <label class="dialog-field" for="adminDeleteInput">账户名<input id="adminDeleteInput" type="text" autocomplete="off" maxlength="64"></label>
+      <p class="confirm-error" id="adminDeleteError" role="alert" hidden></p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelAdminDeleteButton" type="button">取消</button><button class="danger-button" id="confirmAdminDeleteButton" type="button" disabled>删除</button></div>
+    </section>
+  </div>
+
+  <div class="confirm-backdrop" id="selfDeleteDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="selfDeleteDialogTitle" aria-describedby="selfDeleteDialogDescription">
+      <h2 id="selfDeleteDialogTitle">注销账户</h2>
+      <p id="selfDeleteDialogDescription">将永久删除当前账户及其角色卡、会话与 Memory Books，不可恢复。请输入账户名以确认。</p>
+      <label class="dialog-field" for="selfDeletePasswordInput">登录密钥<input id="selfDeletePasswordInput" type="password" autocomplete="current-password" maxlength="128"></label>
+      <label class="dialog-field" for="selfDeleteInput">账户名<input id="selfDeleteInput" type="text" autocomplete="off" maxlength="64"></label>
+      <p class="confirm-error" id="selfDeleteError" role="alert" hidden></p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelSelfDeleteButton" type="button">取消</button><button class="danger-button" id="confirmSelfDeleteButton" type="button" disabled>永久注销</button></div>
+    </section>
+  </div>
+
+  <div class="confirm-backdrop" id="adminCreateDialog" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="adminCreateDialogTitle" aria-describedby="adminCreateDialogDescription">
+      <h2 id="adminCreateDialogTitle">新建账号</h2>
+      <p id="adminCreateDialogDescription">创建一个新账户，可指定是否为管理员。</p>
+      <label class="dialog-field" for="adminCreateHandleInput">档案名<input id="adminCreateHandleInput" type="text" autocomplete="off" maxlength="32"></label>
+      <label class="dialog-field" for="adminCreateNameInput">显示名<input id="adminCreateNameInput" type="text" autocomplete="off" maxlength="64"></label>
+      <label class="dialog-field" for="adminCreatePasswordInput">密钥<input id="adminCreatePasswordInput" type="password" autocomplete="new-password" maxlength="128"></label>
+      <label class="dialog-check" for="adminCreateAdminCheck"><input id="adminCreateAdminCheck" type="checkbox">设为管理员</label>
+      <p class="confirm-error" id="adminCreateError" role="alert" hidden></p>
+      <div class="confirm-actions"><button class="plain-button" id="cancelAdminCreateButton" type="button">取消</button><button class="primary-button" id="confirmAdminCreateButton" type="button">创建</button></div>
+    </section>
+  </div>
+
+  <script src="product-routing.js"></script>
+  <script src="account-core.js"></script>
+  <script src="app.js"></script>
+  <script src="task22-core.js"></script>
+  <script src="task29-character-core.js"></script>
+  <script src="st-api.js"></script>
+  <script src="integration.js"></script>
+  <script src="seasonal-surprise.js"></script>
+</body>
+</html>

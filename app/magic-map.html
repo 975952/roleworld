@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="角色世界 · 剧情模式：多角色同场，自己写场景">
+  <title>角色世界 · 剧情模式</title>
+  <link rel="stylesheet" href="magic-map.css">
+</head>
+<body>
+  <div class="map-app" id="mapApp">
+    <header class="map-header">
+      <div class="map-brand">
+        <span class="map-brand-seal" aria-hidden="true">剧</span>
+        <span class="map-brand-copy">
+          <strong>剧情模式</strong>
+          <span>多角色同场</span>
+        </span>
+      </div>
+      <div class="map-header-spacer"></div>
+      <div class="map-header-actions">
+        <span class="map-account" id="mapAccount">正在确认身份…</span>
+        <a class="map-link" href="./">返回对话</a>
+      </div>
+    </header>
+
+    <div class="map-body" id="mapBody">
+      <section class="setup-band" id="stageSetup" aria-label="场景设置">
+        <div class="setup-grid">
+          <div class="setup-block">
+            <h2 class="setup-title">这一幕发生在哪里</h2>
+            <div class="preset-row" id="mapNodes" role="group" aria-label="常用场景"></div>
+            <input class="setup-input" id="sceneLocationInput" type="text" maxlength="140"
+                   placeholder="任何世界都行，例如：深夜的研究室 / 雨后的天台 / 三把扫帚的角落">
+            <div class="setup-actions">
+              <button class="map-button" id="useCardScenario" type="button">用角色卡的场景</button>
+              <button class="map-button" id="clearScenePreset" type="button">清空</button>
+            </div>
+          </div>
+
+          <div class="setup-block">
+            <h2 class="setup-title">在场角色（可多选）</h2>
+            <div class="map-cast" id="castList" role="group" aria-label="选择同场角色"></div>
+            <p class="map-field-meta" id="castMeta">正在读取角色…</p>
+            <label class="map-switch"><input type="checkbox" id="userInSceneToggle" checked> 我在场（角色可以直接和我说话）</label>
+            <p class="map-field-meta">取消勾选后你只是导演：角色之间互相交谈，你的插话会作为【导演指示】。</p>
+          </div>
+
+          <div class="setup-block">
+            <h2 class="setup-title">这一幕的目标（可选）</h2>
+            <textarea id="sceneGoal" rows="2" maxlength="400"
+                      placeholder="例如：让两个人把误会说开，但别太快和解"></textarea>
+            <label class="map-switch"><input type="checkbox" id="diceToggle" checked> 命运骰子（关键时刻掷 d20）</label>
+            <div class="map-controls">
+              <button class="map-button map-button-primary" id="startScene" type="button">开演</button>
+              <button class="map-button" id="collapseSetup" type="button">收起设置</button>
+            </div>
+            <p class="map-status" id="mapStatus" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="stage-main" aria-label="场景记录">
+        <div class="stage-bar">
+          <p class="stage-scene" id="mapHint">先写下（或选一个）场景，再挑同场角色。</p>
+          <span class="stage-meta" id="sceneMeta">尚未开始</span>
+        </div>
+
+        <div class="map-scroll" id="sceneScroll" aria-live="polite" aria-label="场景记录">
+          <p class="map-scroll-empty" id="sceneEmpty">选好场景与角色后按「开演」，我会让每个人依次开口。</p>
+        </div>
+
+        <div class="stage-composer">
+          <div class="interject-row">
+            <input id="interjectInput" type="text" maxlength="400" placeholder="我插一句话；导演模式下就是一条导演指示">
+            <button class="map-button map-button-primary" id="interjectSend" type="button">送出</button>
+          </div>
+          <div class="stage-tools">
+            <button class="map-button" id="nextRound" type="button" disabled>继续一幕</button>
+            <button class="map-button map-button-seal" id="stopScene" type="button" disabled>停</button>
+            <button class="map-button" id="exportScene" type="button">导出剧本</button>
+            <button class="map-button" id="clearScene" type="button">清空场景</button>
+            <button class="map-button" id="expandSetup" type="button" hidden>展开设置</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="product-routing.js"></script>
+  <script src="account-core.js"></script>
+  <script src="task22-core.js"></script>
+  <script src="st-api.js"></script>
+  <script src="magic-map.js"></script>
+</body>
+</html>
