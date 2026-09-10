@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 打包（${{ matrix.platform }} ${{ matrix.args }}）
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      # Tauri 在 Linux 上依赖 WebKitGTK 与 appindicator。
+      - name: 安装 Linux 依赖
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+
+      - name: 打包并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "角色世界 ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+          releaseBody: |
+            本地优先的开源角色对话应用：没有服务器，没有账号，没有遥测。
+            角色卡、对话记录、记忆书、API Key 全部只存在你自己的设备上。
+
+            ### 下载哪个
+
+            | 平台 | 文件 |
+            |---|---|
+            | Windows 10/11 (x64) | `*_x64-setup.exe` |
+            | macOS (Apple Silicon) | `*_aarch64.dmg` |
+            | macOS (Intel) | `*_x64.dmg` |
+            | Linux (x64) | `*.AppImage` 或 `*.deb` |
+
+            Windows 安装包未做代码签名，SmartScreen 可能提示"未知发布者"，选「更多信息 → 仍要运行」即可。
+
+            ### 第一次打开
+
+            1. 「设置 → 模型」选服务商（DeepSeek 官方 / OpenAI / OpenRouter / 硅基流动 / 自定义），
+               填接口地址与 API Key，点「测试连接」；
+            2. 回到对话页，内置内容包会自动装好 6 个角色和 4 本记忆书；
+            3. 也可以换成自己的模型：地址填本地推理服务（llama.cpp / Ollama / LM Studio 的
+               `/v1/chat/completions`），Key 留空。
+
+            ### 数据在哪
+
+            全部是磁盘上的普通文件，可直接备份、编辑、用 Git 管理：
+
+            - Windows `%APPDATA%\app.roleworld.desktop\data\`
+            - macOS `~/Library/Application Support/app.roleworld.desktop/data/`
+            - Linux `~/.local/share/app.roleworld.desktop/data/`
+
+            ### 内置内容包说明
+
+            `packs/harry-potter` 是同人二次创作，仅供个人非商业使用，版权归原作者及权利方所有，
+            与本项目无关联。不想要它：删掉该目录即可，应用会以空书架启动。
+
+            MIT License。

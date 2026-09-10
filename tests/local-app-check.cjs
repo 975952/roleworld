@@ -24,6 +24,12 @@ const CHROME = process.env.CHROME_PATH || [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   process.env.LOCALAPPDATA + "\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ].find((candidate) => candidate && fs.existsSync(candidate)) || "";
 const REPLY = "合成回复：你好，我是本地模型。";
 

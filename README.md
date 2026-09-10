@@ -134,10 +134,18 @@ packs/<包名>/pack.json               # 包的说明与授权信息
 ```bash
 node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / SSE / ZIP（不需要浏览器）
 node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的能跑起来
+node tests/desktop-smoke.cjs     # 启动真 exe，验证数据以普通文件落盘（需先 desktop:build）
 ```
 
 `local-app-check.cjs` 会自己起一个静态服务器和一个假的 OpenAI 兼容端点，
-不联网、不用真实模型；需要本机装有 Chrome 或 Edge（可用 `CHROME_PATH` 指定）。
+不联网、不用真实模型；需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
+CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
+
+## 发布
+
+打包与发布步骤（GitHub 建仓库 / 打标签自动出四平台安装包 / Gitee 镜像 / 本机出包）
+见 [docs/PUBLISH.md](docs/PUBLISH.md)。需要凭据的动作全部由你自己执行，
+仓库与代码里不会出现任何 token。
 
 ## 项目状态
 
@@ -163,9 +171,12 @@ app/                 前端（原生 HTML/CSS/JS，无构建）
   magic-map.js       剧情模式逻辑
   assistant.js       通用 AI 页逻辑
   task22-core.js     提示词编排（角色卡 + 记忆书 + 样例对话）
-packs/               内容包（默认是空的）
+packs/               内容包（默认自带 harry-potter）
 tests/               回归测试
+scripts/             本地服务器、图标生成、打包前准备
+src-tauri/           桌面端外壳（Tauri v2）
 docs/PORTING.md      从 SillyTavern 迁移的对照表与设计说明
+docs/PUBLISH.md      打包与发布流程
 ```
 
 ## 许可
