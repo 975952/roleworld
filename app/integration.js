@@ -804,12 +804,21 @@
   function renderCostLine() {
     const node = document.querySelector("#chatCostLine");
     if (!node) return;
+    const pricing = window.RoleWorldPricing;
+    const settings = liveState.localSettings || {};
+    // 悬停给出完整口径：币种、当前时段、高峰翻倍、来源。免得对着官方英文页（美元报价）以为价格不对。
+    const info = pricing.describe(liveState.modelName, {
+      input: settings.price_input,
+      output: settings.price_output,
+    }, new Date());
+    node.title = info.title;
     const totals = liveState.cost || emptyCost();
     if (!totals.turns) { node.textContent = ""; return; }
-    const pricing = window.RoleWorldPricing;
     const prices = currentPrices();
     const approx = totals.last && totals.last.exact === false ? "≈" : "";
-    const unit = prices.output > 0 ? ` · 输出 ¥${prices.output}/M（${prices.period}）` : "";
+    const unit = prices.output > 0
+      ? ` · 单价 ¥${prices.input}/¥${prices.output} 每百万 tokens（${prices.period}时段）`
+      : "";
     node.textContent = `本对话 ${totals.turns} 轮 · 输入 ${pricing.formatTokens(totals.input)} / 输出 ${pricing.formatTokens(totals.output)} tokens · 累计 ${approx}${pricing.formatCost(totals.cost)}${unit}`;
   }
 

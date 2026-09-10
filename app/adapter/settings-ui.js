@@ -76,19 +76,17 @@
       if (document.activeElement !== node) node.value = Number(settings.price_output) > 0 ? settings.price_output : "";
     });
 
-    // 单价提示：没填就用内置官方价，填了就按用户填的算。
+    // 单价提示：把币种、时段、高峰翻倍一次说清（官方英文页用美元报价，容易被误读成"价格不对"）。
     const pricing = global.RoleWorldPricing;
     if (pricing) {
       const modelNode = first("model");
       const model = (modelNode && modelNode.value.trim()) || settings.model || "";
       const hasCustom = Number(settings.price_input) > 0 || Number(settings.price_output) > 0;
-      const now = pricing.pricesFor(model, { input: settings.price_input, output: settings.price_output }, new Date());
+      const info = pricing.describe(model, { input: settings.price_input, output: settings.price_output }, new Date());
       pick("price-hint").forEach((node) => {
-        setStatus(node, hasCustom
-          ? `按你填的单价计费：输出 ¥${now.output}/M`
-          : (now.output > 0
-            ? `内置官方价（${now.label}）· 现在${now.period}：输入 ¥${now.input}/M、输出 ¥${now.output}/M`
-            : "这个模型没有内置价格，填上才会显示费用估算"), false);
+        const note = hasCustom ? "" : `　（高峰时段为 2 倍；来源：${pricing.SOURCE}）`;
+        setStatus(node, info.text + note, false);
+        node.title = info.title;
       });
     }
 

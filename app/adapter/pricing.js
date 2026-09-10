@@ -184,6 +184,38 @@
     return "输入 " + formatTokens(usage.input) + " / 输出 " + formatTokens(usage.output);
   }
 
+  const SOURCE = "DeepSeek 官方开放平台（2026-09-10 12:00 生效）";
+
+  /**
+   * 把「现在哪个时段、单价多少、高峰翻不翻倍、什么币种」讲清楚。
+   * 之前界面只写「输出 ¥4/M（闲时）」，看不出币种、也看不出高峰会翻倍，
+   * 对着官方英文页（那里用美元报价：输入 $0.15 / 输出 $0.6）看就会以为价格不对。
+   */
+  function describe(model, override, when) {
+    const now = pricesFor(model, override, when);
+    const custom = Number((override || {}).input) > 0 || Number((override || {}).output) > 0;
+    if (now.output <= 0) {
+      return { text: "未设置单价", title: "这个模型没有内置价格，在「设置 → 模型」里填上单价才会显示费用。" };
+    }
+    if (custom) {
+      return {
+        text: `输入 ¥${now.input} · 输出 ¥${now.output} / 百万 tokens（自定义单价）`,
+        title: `按你在设置里填的单价计算（元 / 百万 tokens）：输入 ¥${now.input}、输出 ¥${now.output}。\n填了自定义单价就不再区分高峰与空闲时段。`,
+      };
+    }
+    // 固定取一个高峰时刻，只为说明"翻倍后是多少"。
+    const peak = pricesFor(model, null, new Date("2026-09-11T02:00:00Z")); // 北京 10:00
+    return {
+      text: `输入 ¥${now.input} · 输出 ¥${now.output} / 百万 tokens（${now.period}时段）`,
+      title: [
+        `${now.label} · 当前${now.period}时段：输入 ¥${now.input}、输出 ¥${now.output}、缓存命中输入 ¥${now.cacheHit}（元 / 百万 tokens）`,
+        `高峰时段为 2 倍：输入 ¥${peak.input}、输出 ¥${peak.output}、缓存命中 ¥${peak.cacheHit}`,
+        "高峰时段＝北京时间周一至周五 9:00-12:00、14:00-18:00；其余时间（含周末）为空闲时段",
+        `价格来源：${SOURCE}`,
+      ].join("\n"),
+    };
+  }
+
   const Pricing = {
     DEFAULT_TABLE,
     PEAK_RANGES,
@@ -198,6 +230,8 @@
     formatTokens,
     formatCost,
     formatUsage,
+    describe,
+    SOURCE,
   };
 
   global.RoleWorldPricing = Pricing;

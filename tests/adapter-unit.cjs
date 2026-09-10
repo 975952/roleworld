@@ -568,6 +568,38 @@ async function main() {
     assert.ok(guess.input > 0 && guess.output > 0);
   });
 
+  await test("官方价表钉住（对过官方中文页 2026-09-10 12:00 生效那版）", () => {
+    const off = new Date("2026-09-10T10:30:00Z");   // 北京 18:30 周四 → 空闲
+    const peak = new Date("2026-09-11T02:00:00Z");  // 北京 10:00 周五 → 高峰
+    const flashOff = Pricing.pricesFor("deepseek-flash", null, off);
+    assert.equal(flashOff.input, 1);
+    assert.equal(flashOff.output, 4);
+    assert.equal(flashOff.cacheHit, 0.02);
+    const flashPeak = Pricing.pricesFor("deepseek-flash", null, peak);
+    assert.equal(flashPeak.input, 2);
+    assert.equal(flashPeak.output, 8);
+    assert.equal(flashPeak.cacheHit, 0.04);
+    const proOff = Pricing.pricesFor("deepseek-v4-pro", null, off);
+    assert.equal(proOff.input, 4.5);
+    assert.equal(proOff.output, 13.5);
+    assert.equal(proOff.cacheHit, 0.15);
+    const proPeak = Pricing.pricesFor("deepseek-v4-pro", null, peak);
+    assert.equal(proPeak.input, 9);
+    assert.equal(proPeak.output, 27);
+    assert.equal(proPeak.cacheHit, 0.3);
+  });
+
+  await test("单价说明写清楚币种、时段与高峰翻倍", () => {
+    const off = new Date("2026-09-10T10:30:00Z");
+    const info = Pricing.describe("deepseek-flash", null, off);
+    assert.ok(/元|¥/.test(info.text), "没写币种：" + info.text);
+    assert.ok(/闲时|空闲/.test(info.text), "没写时段：" + info.text);
+    assert.ok(info.title.indexOf("高峰") >= 0 && info.title.indexOf("¥2") >= 0, "没说明高峰翻倍：" + info.title);
+    assert.ok(info.title.indexOf("北京时间") >= 0, "没写高峰时段口径");
+    const custom = Pricing.describe("gpt-4o", { input: 18, output: 72 }, off);
+    assert.ok(custom.text.indexOf("自定义") >= 0, "自定义单价没有标注：" + custom.text);
+  });
+
   console.log("== ZIP ==");
 
   await test("ZIP 写入后能原样读回（含中文文件名与二进制）", async () => {

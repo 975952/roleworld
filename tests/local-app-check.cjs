@@ -316,7 +316,7 @@ async function main() {
     assert(/本对话 \d+ 轮/.test(line), "费用行没有轮次：" + line);
     assert(/输入 [\d.]+k? \/ 输出 [\d.]+k? tokens/.test(line), "费用行没有 token 用量：" + line);
     assert(/累计 [≈]?¥[\d.]+/.test(line), "费用行没有金额：" + line);
-    assert(/输出 ¥[\d.]+\/M（(高峰|闲时)）/.test(line), "费用行没带单价与峰谷：" + line);
+    assert(/单价 ¥[\d.]+\/¥[\d.]+ 每百万 tokens（(高峰|闲时)时段）/.test(line), "费用行没带单价与峰谷：" + line);
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {
