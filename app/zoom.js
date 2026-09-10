@@ -64,6 +64,11 @@
   function syncViewport() {
     const viewport = global.visualViewport;
     const root = document.documentElement;
+    // --viewport-w/h：给 #appShell 算宽度/高度用的绝对 px（zoom 会缩放 vw，
+    // 用 vw 做缩放补偿会算错，右边会空出一条）。
+    const layoutWidth = Number(document.documentElement.clientWidth || viewport?.width || global.innerWidth || 0);
+    if (layoutWidth > 0) root.style.setProperty("--viewport-w", `${Math.round(layoutWidth)}px`);
+    root.style.setProperty("--viewport-h", `${Math.round(viewport?.height || global.innerHeight)}px`);
     root.style.setProperty("--visual-viewport-width", `${viewport?.width || global.innerWidth}px`);
     root.style.setProperty("--visual-viewport-height", `${viewport?.height || global.innerHeight}px`);
   }

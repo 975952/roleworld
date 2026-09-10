@@ -98,6 +98,12 @@ function updateVisualViewportMetrics() {
   const width = Number(viewport?.width || window.innerWidth || 0);
   const height = Number(viewport?.height || window.innerHeight || 0);
   const offsetTop = Number(viewport?.offsetTop || 0);
+  // --viewport-w/h 是给 #appShell 算宽度用的：必须是"绝对 px"，
+  // 因为 zoom 会把 vw 一起缩放（见 glass.css 里的注释）。
+  // 宽度取 clientWidth：有没有滚动条都以实际可用宽度为准。
+  const layoutWidth = Number(document.documentElement.clientWidth || width || 0);
+  if (layoutWidth > 0) root.style.setProperty("--viewport-w", `${Math.round(layoutWidth)}px`);
+  if (height > 0) root.style.setProperty("--viewport-h", `${Math.round(height)}px`);
   if (width > 0) root.style.setProperty("--visual-viewport-width", `${Math.round(width)}px`);
   if (height > 0) root.style.setProperty("--visual-viewport-height", `${Math.round(height)}px`);
   root.style.setProperty("--visual-viewport-offset-top", `${Math.round(offsetTop)}px`);
@@ -1842,6 +1848,9 @@ window.addEventListener("roleworld:scale-changed", (event) => {
 
 window.TASK25C_UI = {
   layoutConfig,
+  // 外观偏好写入口：返校季信件（seasonal-surprise.js）要在用户点「保留」时
+  // 真正落盘，否则它只改了 DOM，下一次 applyPreferences 就会把金色抹掉。
+  savePreference,
   setSidebarCollapsed,
   setMemoryPanelOpen,
   setWaiting,

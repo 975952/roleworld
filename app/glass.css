@@ -6,14 +6,24 @@
   --glass-shadow: 0 24px 72px rgb(0 0 0 / 24%), inset 0 1px 0 var(--glass-edge);
 }
 
-/* Use viewport pixels, not percentages: percentage widths already account for zoom. */
+/* 宽度/高度用 JS 写进来的 px 值（--viewport-w / --viewport-h），不用 vw：
+   Chrome 的 zoom 会把 vw 也一起缩放 —— zoom:0.9 时 100vw 只有 324px，
+   calc(100vw/0.9) 于是算成 360px，壳子再被 zoom 缩到 324px，
+   右边就空出一条（用户看到的"右侧空一块"就是它）。px 是绝对长度，
+   除以缩放、再被 zoom 放大，正好铺满；JS 没写上时退回 100%。 */
 #appShell {
-  width: calc(var(--visual-viewport-width, 100vw) / var(--ui-scale));
-  height: calc(var(--visual-viewport-height, 100dvh) / var(--ui-scale));
-  min-height: 0;
+  width: calc(var(--viewport-w, 100%) / var(--ui-scale));
+  height: calc(var(--viewport-h, 100%) / var(--ui-scale));
+  /* 窄屏那条 .app-shell { max-width: 100vw } 会把缩小后的壳子卡回去：
+     scale<1 时宽度本来是 360/0.9=400px，被 100vw 一夹只剩 360px，
+     再被 zoom 缩成 324px —— 右边那条空隙就是这么来的。 */
+  max-width: none;
 }
+/* 内侧面板同理：壳子放大后的百分比宽度不该再被 100vw 夹一次。 */
+.app-shell .main-stage,
+.app-shell .settings-surface { max-width: none; }
 .app-shell > *, .settings-layout > *, .interject-row > * { min-width: 0; min-height: 0; }
-.map-app { width: min(1180px, calc(var(--visual-viewport-width, 100vw) / var(--ui-scale))); }
+.map-app { width: min(1180px, calc(var(--viewport-w, 100%) / var(--ui-scale))); }
 .modal-backdrop, .confirm-backdrop {
   background: rgb(0 0 0 / 32%);
   backdrop-filter: blur(16px) saturate(120%);
@@ -116,7 +126,7 @@
   .app-shell .main-stage { grid-template-rows: auto minmax(0, 1fr); }
   .topbar { padding: 10px 12px; }
   .chat-model { display: grid; }
-  .chat-model select { max-width: calc(100vw / var(--ui-scale) - 48px); }
+  .chat-model select { max-width: calc(var(--viewport-w, 100%) / var(--ui-scale) - 48px); }
   .composer-box { padding: 10px; }
 }
 @media (min-width: 761px) {
@@ -451,3 +461,58 @@
 }
 .character-manage-sidebar:hover { color: var(--main-text); background: var(--hover); }
 .character-manage-sidebar input { margin: 0; accent-color: var(--focus); cursor: pointer; }
+
+/* =====================================================================
+   风格「返校金」：金色只以渐变的形式落在具体表面上
+   ---------------------------------------------------------------------
+   要求（2026-09-10）：亮色不能整个界面蒙一层，要做成渐变；羊皮纸那类
+   "整张纸"的质感另走一路（在 tokens.css 的 data-style="paper" 里）。
+   所以这里只给顶栏、主区、侧栏、主按钮、焦点各加一道金色渐变，
+   底色仍然是中性近黑（tokens.css 的 data-style="gold"）。
+   ===================================================================== */
+html[data-style="gold"] .topbar {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 8%, transparent), transparent 100%);
+}
+html[data-style="gold"] .main-stage {
+  background:
+    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 13%, transparent), transparent 62%),
+    radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 7%, transparent), transparent 52%),
+    var(--canvas);
+}
+html[data-style="gold"] .archive-sidebar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--focus) 7%, transparent), transparent 44%),
+    var(--navigation);
+}
+/* 剧情模式页的对应表面：顶栏、设置带、舞台。 */
+html[data-style="gold"] .map-header {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 8%, transparent), transparent 100%);
+}
+html[data-style="gold"] .map-app .setup-band {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--focus) 6%, transparent), transparent 70%),
+    var(--canvas);
+}
+html[data-style="gold"] .map-app .stage-main {
+  background:
+    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 12%, transparent), transparent 60%),
+    radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 6%, transparent), transparent 50%),
+    var(--canvas);
+}
+html[data-style="gold"] .primary-button,
+html[data-style="gold"] #seasonLetterEnter,
+html[data-style="gold"] .map-app .map-button-primary {
+  color: var(--button-text);
+  background: var(--focus-grad);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--focus) 20%, transparent);
+}
+html[data-style="gold"] .primary-button:hover,
+html[data-style="gold"] .map-app .map-button-primary:hover:not(:disabled) {
+  background: var(--focus-grad);
+  filter: brightness(1.06);
+}
+html[data-style="gold"] .composer-box:focus-within {
+  box-shadow: 0 12px 38px rgb(0 0 0 / 20%), 0 0 0 2px color-mix(in srgb, var(--focus) 32%, transparent);
+}
+html[data-style="gold"] .settings-nav-item.is-active,
+html[data-style="gold"] .sidebar-manage-characters:hover { background: color-mix(in srgb, var(--focus) 12%, var(--hover)); }

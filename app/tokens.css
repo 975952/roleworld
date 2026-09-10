@@ -24,6 +24,8 @@
   --success: #58a875;
   --error: #c58e88;
   --focus: #8d95ff;
+  /* 强调色统一用渐变，不用平涂：需要"亮色"的地方都取这个变量。 */
+  --focus-grad: linear-gradient(160deg, color-mix(in srgb, var(--focus) 84%, #ffffff), var(--focus));
   --topbar-bg: rgba(14,15,18,.94);
   --button-text: #121317;
   --overlay: rgba(14,15,18,.92);
@@ -226,61 +228,69 @@
    不再依赖"当月是九月 + 首次进入 + 没关过"这几个条件）
    --------------------------------------------------------------------- */
 :root[data-style="gold"] {
-  --canvas: #120e08;
-  --navigation: #1a1409;
-  --raised: #221a0e;
-  --hover: #2c2213;
-  --selected: #382c17;
-  --hairline: #3d3018;
-  --strong-line: #55431f;
-  --main-text: #fbf0d8;
-  --secondary-text: #e3d0aa;
-  --muted-text: #ad9569;
-  --quiet-text: #87704b;
-  --focus: #e9b750;
-  --topbar-bg: rgba(18,14,8,.94);
-  --overlay: rgba(18,14,8,.93);
-  --accent-soft: rgba(233,183,80,.15);
+  /* 底色一律中性近黑，不带黄 —— 之前把表面也染了暖色，整体发闷像"土黄"。
+     金色只出现在强调色（--focus）与选中/悬停上，才是"黑底 + 纯金"。 */
+  --canvas: #0a0a0a;
+  --navigation: #111110;
+  --raised: #171717;
+  --hover: #1f1f1e;
+  --selected: #282725;
+  --hairline: #2c2c2a;
+  --strong-line: #3f3e3a;
+  --main-text: #f7f5ef;
+  --secondary-text: #ded9cd;
+  --muted-text: #a9a396;
+  --quiet-text: #837d72;
+  --focus: #f5c518;
+  /* 纯金：亮的那一头接近 #ffe07a，暗的一头 #e9ad00，颜色本身不发灰。 */
+  --focus-grad: linear-gradient(160deg, #ffe07a, #e9ad00);
+  --topbar-bg: rgba(10,10,10,.94);
+  --overlay: rgba(10,10,10,.93);
+  --accent-soft: rgba(245,197,24,.14);
 }
 :root[data-style="gold"][data-theme="light"] {
-  --canvas: #fdf6e6;
-  --navigation: #f7ecd4;
-  --raised: #fffdf6;
-  --hover: #f2e4c6;
-  --selected: #ead9b4;
-  --hairline: #e6d6b4;
-  --strong-line: #d0bb92;
-  --main-text: #2b2110;
-  --secondary-text: #4d3d20;
-  --muted-text: #7c6842;
-  --quiet-text: #9a8659;
-  --focus: #a97a17;
-  --topbar-bg: rgba(253,246,230,.94);
-  --button-text: #ffffff;
-  --overlay: rgba(253,246,230,.94);
-  --accent-soft: rgba(169,122,23,.12);
+  --canvas: #fbfaf6;
+  --navigation: #f5f3ec;
+  --raised: #ffffff;
+  --hover: #f1ede0;
+  --selected: #e9e4d3;
+  --hairline: #e6e1d1;
+  --strong-line: #cdc6ab;
+  --main-text: #201d16;
+  --secondary-text: #443e2e;
+  --muted-text: #6d6650;
+  --quiet-text: #928a74;
+  --focus: #b8860b;
+  --focus-grad: linear-gradient(160deg, #d9a316, #a9780a);
+  --topbar-bg: rgba(251,250,246,.94);
+  --button-text: #241a03;
+  --overlay: rgba(251,250,246,.94);
+  --accent-soft: rgba(184,134,11,.13);
 }
 
 /* ---------------------------------------------------------------------
-   秋季金色氛围：原来只在"九月的第一次进入"里出现，现在跟着风格走 ——
-   选「返校金」就一定有，其它风格可以在外观里单独打开。
+   秋日金色氛围：亮色一律做成"渐变"，不给整个界面蒙一层。
+   原来这里是一张 fixed inset:0 的双径向渐变，等于替全站盖了层黄膜；
+   现在压成顶部一条竖向渐隐的光带，金色主要落在具体表面上（见 glass.css
+   里的 data-style="gold" 段）。羊皮纸那类"整张纸"的质感不走这条路。
    --------------------------------------------------------------------- */
 html.season-ambient-on::after,
 html[data-style="gold"]::after {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto 0;
+  height: min(340px, 48vh);
   z-index: 30;
   pointer-events: none;
-  opacity: .5;
-  background:
-    radial-gradient(60% 40% at 15% 0%, rgba(233,183,80,.16) 0%, transparent 70%),
-    radial-gradient(50% 45% at 85% 100%, rgba(200,120,40,.14) 0%, transparent 70%);
+  opacity: .8;
+  background: linear-gradient(180deg,
+    rgba(245,197,24,.06) 0%,
+    rgba(245,197,24,.024) 46%,
+    transparent 100%);
   animation: season-drift 26s var(--motion-ease) infinite alternate;
 }
-html.season-ambient-on::after { opacity: .42; }
-html[data-theme="light"].season-ambient-on::after { mix-blend-mode: multiply; opacity: .3; }
-html[data-theme="light"][data-style="gold"]::after { mix-blend-mode: multiply; opacity: .34; }
+html[data-theme="light"][data-style="gold"]::after,
+html[data-theme="light"].season-ambient-on::after { opacity: .7; }
 
 @keyframes season-drift {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }

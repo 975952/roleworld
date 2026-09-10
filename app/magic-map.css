@@ -175,6 +175,42 @@ body {
 }
 .map-switch input { accent-color: var(--focus); }
 
+/* 「我在场 / 导演模式」状态卡。
+   原来只是一行不起眼的小复选框，用户反馈"太不明显"。
+   改成整块可点、带状态标题与说明的卡片：靠底色区分状态，不用边框。 */
+.scene-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  background: var(--hover);
+  transition: background var(--hover-motion) var(--motion-ease);
+}
+.scene-presence:hover { background: var(--selected); }
+.scene-presence.is-on { background: var(--accent-soft); }
+.scene-presence.is-on:hover { background: color-mix(in srgb, var(--focus) 22%, transparent); }
+.scene-presence input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: var(--focus); cursor: pointer; }
+.scene-presence-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.scene-presence-title { color: var(--main-text); font-size: 14px; font-weight: 600; }
+.scene-presence-copy { color: var(--muted-text); font-size: 12px; line-height: 1.6; }
+.scene-presence-flag {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--muted-text);
+  background: color-mix(in srgb, var(--main-text) 8%, transparent);
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+.scene-presence.is-on .scene-presence-flag {
+  color: var(--button-text);
+  background: var(--focus);
+  font-weight: 600;
+}
+
 /* ---------- 人物 chips ---------- */
 
 .map-cast { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -242,7 +278,28 @@ body {
 .stage-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .stage-meta { color: var(--muted-text); font-size: 12px; }
 .stage-scene { color: var(--secondary-text); font-size: 13px; }
-.stage-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+/* 工具行：四个按钮一律等距（10px），不分组 —— 之前组间 16px、组内 8px，
+   看起来像"没对齐"而不是"分了组"。层次改用样式区分：次要操作是低对比纯文字，
+   主要操作是实底，不再靠间距。 */
+.stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.stage-tools #exportScene,
+.stage-tools #clearScene,
+.stage-tools #expandSetup {
+  color: var(--muted-text);
+  background: transparent;
+}
+.stage-tools #exportScene:hover:not(:disabled),
+.stage-tools #clearScene:hover:not(:disabled),
+.stage-tools #expandSetup:hover:not(:disabled) {
+  color: var(--main-text);
+  background: var(--hover);
+}
 
 .map-scroll {
   display: flex;
@@ -280,13 +337,17 @@ body {
   right: 0;
   bottom: 0;
   z-index: 25;
+  /* 输入行与工具行之间必须有间距，否则两排按钮会直接贴在一起。 */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 10px max(20px, calc((100% - 1180px) / 2 + 20px)) calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--hairline);
   background: var(--topbar-bg);
   backdrop-filter: blur(12px);
 }
 
-.interject-row { display: flex; align-items: flex-end; gap: 10px; }
+.interject-row { display: flex; align-items: center; gap: 10px; }
 
 #interjectInput {
   flex: 1;

@@ -13,6 +13,7 @@
  */
 (function () {
   var HANDLE_KEY = "task27a.current-account-handle.v1";
+  var PREF_PREFIX = "task27a.preferences.v1.";
   var STATE_PREFIX = "task29.seasonal-surprise.v1.";
   var SEASON_MONTH = 8; /* 9 月（0 起始） */
   var MOTE_COUNT = 14;
@@ -20,6 +21,7 @@
   var layer = null;
   var state = { seen: false, ambient: true };
   var dismissed = false;
+  var initialStyle = ""; /* 打开这封信之前用户自己选的风格，取消勾选时要还回去 */
 
   function storage(kind) {
     try { return window[kind] || null; } catch (_) { return null; }
@@ -96,8 +98,48 @@
     return name;
   }
 
-  function applyAmbient(on) {
-    document.documentElement.classList.toggle("season-ambient-on", !!on);
+  /* 用户在这封信里点「保留返校金」时，必须真的写进外观偏好：
+     以前只改了 DOM 的 class，随后 app.js 的 applyPreferences() 按偏好
+     （ambient 默认 false）把它抹掉，于是"选了保留却没显示出来"。 */
+  function savedStyle() {
+    var s = storage("localStorage");
+    var handle = currentHandle();
+    if (!s || !handle) return "";
+    try {
+      var prefs = JSON.parse(s.getItem(PREF_PREFIX + handle) || "null");
+      return prefs && typeof prefs.style === "string" ? prefs.style : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function applyLook(on) {
+    var root = document.documentElement;
+    if (!on) {
+      root.classList.remove("season-ambient-on");
+      root.dataset.style = initialStyle || savedStyle() || "default";
+      return;
+    }
+    // 用户已经单独挑过别的配色就尊重他，只加氛围；否则连配色一起给成返校金。
+    var current = savedStyle();
+    if (!current || current === "default") root.dataset.style = "gold";
+    root.classList.add("season-ambient-on");
+  }
+
+  function persistLook(on) {
+    var ui = window.TASK25C_UI;
+    if (!ui || typeof ui.savePreference !== "function") return false;
+    applyLook(on);
+    try {
+      ui.savePreference("ambient", !!on);
+      var current = savedStyle();
+      if (on && (!current || current === "default")) ui.savePreference("style", "gold");
+      // 取消勾选：把"信里临时给的"金色还回用户原来的风格，别锁死成金色。
+      else if (!on && current === "gold" && initialStyle && initialStyle !== "gold") ui.savePreference("style", initialStyle);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function makeMotes(host) {
@@ -177,7 +219,7 @@
     checkbox.id = "seasonAmbientToggle";
     checkbox.checked = state.ambient !== false;
     toggle.appendChild(checkbox);
-    toggle.appendChild(document.createTextNode("开启返校季氛围（金色微光，本月内可随时关闭）"));
+    toggle.appendChild(document.createTextNode("保留返校金外观（黑底纯金 + 一层金色微光，随时可在设置里改）"));
     card.appendChild(toggle);
 
     var actions = document.createElement("div");
@@ -215,7 +257,11 @@
     state.seen = true;
     state.ambient = !!(checkbox && checkbox.checked);
     saveState(handle, state);
-    applyAmbient(state.ambient && !prefersReduced());
+    /* 注意：这里不能再用 prefersReduced() 决定要不要保留金色。
+       把"减少动画"打开的用户（含无头浏览器默认值）会因此永远看不到返校金，
+       金色只是配色，不是动画；动画由 CSS 的 data-motion="reduced" 单独关掉。 */
+    var keep = state.ambient;
+    if (!persistLook(keep)) applyLook(keep);
     root.classList.remove("is-open");
     root.classList.add("is-closing");
     window.setTimeout(function () {
@@ -247,6 +293,11 @@
       document.removeEventListener("keydown", onKey);
       dismiss(handle, root, built.checkbox);
     });
+    // 勾选/取消立刻生效，不用等关门 —— 之前只有关掉信才应用，用户以为"没反应"。
+    built.checkbox.addEventListener("change", function () {
+      var on = built.checkbox.checked;
+      if (!persistLook(on)) applyLook(on);
+    });
     root.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onKey);
 
@@ -262,8 +313,9 @@
     var inSeason = new Date().getMonth() === SEASON_MONTH;
     state = loadState(handle);
     if (!allowed || !inSeason) return;
-    if (state.ambient !== false && !prefersReduced()) applyAmbient(true);
-    if (state.seen) return;
+    if (state.seen) return; /* 信已看过：外观完全交给偏好，季节层不再抢控制权 */
+    initialStyle = savedStyle() || "default";
+    if (state.ambient !== false) applyLook(true);
     showLetter(handle, name);
   }
 

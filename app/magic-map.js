@@ -324,6 +324,24 @@
     } catch (_) { return {}; }
   }
 
+  /* 「我在场 / 导演模式」状态卡：整块的标题、说明和角标都跟着状态走。
+     以前只有一行小复选框，用户反馈"太不明显"。 */
+  function renderPresence() {
+    var inScene = state.userInScene !== false;
+    var card = document.getElementById("presenceCard");
+    var title = document.getElementById("presenceTitle");
+    var copy = document.getElementById("presenceCopy");
+    var flag = document.getElementById("presenceFlag");
+    if (card) card.classList.toggle("is-on", inScene);
+    if (title) title.textContent = inScene ? "我在场" : "导演模式";
+    if (copy) {
+      copy.textContent = inScene
+        ? "角色可以直接和我说话，我的插话就是我说的话。"
+        : "我不在场：角色之间互相交谈，我的插话会作为【导演指示】。";
+    }
+    if (flag) flag.textContent = inScene ? "开" : "关";
+  }
+
   function booksFor(avatar) {
     var entry = null;
     for (var i = 0; i < runtime.characters.length; i += 1) {
@@ -723,6 +741,7 @@
     els.userInScene.addEventListener("change", function () {
       state.userInScene = !!els.userInScene.checked;
       saveScene();
+      renderPresence();
       setStatus(state.userInScene
         ? "你已进入场景：角色可以直接和你说话。"
         : "已切换为导演视角：角色之间互相交谈，你的插话会作为导演指示。");
@@ -761,6 +780,7 @@
     els.sceneInput.value = state.scene;
     els.dice.checked = state.dice;
     els.userInScene.checked = state.userInScene !== false;
+    renderPresence();
     renderPresets();
     renderHint();
     renderCast();

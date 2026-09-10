@@ -6,7 +6,30 @@
   <meta name="color-scheme" content="dark light">
   <meta name="description" content="角色世界 · 角色对话与记忆工作台">
   <title>角色世界 · 对话</title>
-  <script>(function () { var theme = ""; try { var encodedHandle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || ""; var preferenceKey = encodedHandle ? "task27a.preferences.v1." + encodedHandle : ""; var stored = preferenceKey ? JSON.parse(window.localStorage.getItem(preferenceKey) || "null") : null; if (stored && (stored.theme === "light" || stored.theme === "dark")) theme = stored.theme; } catch (_) {} document.documentElement.classList.add("theme-pending"); document.documentElement.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); /* Task-27H：看门狗兜底 —— 正常路径由启动落定/登录门/页面错误摘除遮罩；若脚本链路异常导致遮罩残留，20 秒后强制摘除，杜绝永久灰屏。 */ setTimeout(function () { document.documentElement.classList.remove("theme-pending"); }, 20000); })();</script>
+  <script>(function () {
+    /* 首帧落定外观：主题 / 风格 / 返校季氛围，与剧情模式读同一份偏好。
+       以前这里只读主题，用户选了「返校金」也要等 app.js 启动才变色，
+       首屏会先闪一下默认石墨色，看着就像"选了没生效"。 */
+    var theme = "", style = "default", ambient = false;
+    try {
+      var handle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || "";
+      var key = handle ? "task27a.preferences.v1." + handle : "";
+      var stored = key ? JSON.parse(window.localStorage.getItem(key) || "null") : null;
+      if (stored && typeof stored === "object") {
+        if (stored.theme === "light" || stored.theme === "dark") theme = stored.theme;
+        if (typeof stored.style === "string" && stored.style) style = stored.style;
+        ambient = stored.ambient === true;
+      }
+    } catch (_) { /* 读不到就用默认值 */ }
+    var root = document.documentElement;
+    root.classList.add("theme-pending");
+    root.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    root.dataset.style = style;
+    if (ambient || style === "gold") root.classList.add("season-ambient-on");
+    /* Task-27H：看门狗兜底 —— 正常路径由启动落定/登录门/页面错误摘除遮罩；
+       若脚本链路异常导致遮罩残留，3 秒后强制摘除，杜绝永久灰屏。 */
+    setTimeout(function () { root.classList.remove("theme-pending"); }, 3000);
+  })();</script>
   <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="glass.css">

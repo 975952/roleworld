@@ -64,8 +64,14 @@
             <h2 class="setup-title">在场角色（可多选）</h2>
             <div class="map-cast" id="castList" role="group" aria-label="选择同场角色"></div>
             <p class="map-field-meta" id="castMeta">正在读取角色…</p>
-            <label class="map-switch"><input type="checkbox" id="userInSceneToggle" checked> 我在场（角色可以直接和我说话）</label>
-            <p class="map-field-meta">取消勾选后你只是导演：角色之间互相交谈，你的插话会作为【导演指示】。</p>
+            <label class="map-switch scene-presence" id="presenceCard">
+              <input type="checkbox" id="userInSceneToggle" checked>
+              <span class="scene-presence-body">
+                <strong class="scene-presence-title" id="presenceTitle">我在场</strong>
+                <span class="scene-presence-copy" id="presenceCopy">角色可以直接和我说话，我的插话就是我说的话。</span>
+              </span>
+              <span class="scene-presence-flag" id="presenceFlag" aria-hidden="true">开</span>
+            </label>
           </div>
 
           <div class="setup-block">

@@ -55,7 +55,11 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html.theme-pending .app-shell { visibility: hidden; pointer-events: none; }
+/* 以前这里把整个 app-shell 设成 visibility:hidden 来避免主题闪烁，
+   结果启动只要有一点点异常（或超过兜底时限），用户看到的就是**全空白屏**。
+   首帧主题已由 head 里的内联脚本按存好的偏好设好，闪白风险很小，
+   不值得拿"整屏消失"来换 —— 改成只关掉过渡动画。 */
+html.theme-pending .app-shell { transition: none; }
 html, body { width: 100%; height: 100%; }
 body { margin: 0; overflow: hidden; color: var(--main-text); background: var(--navigation); }
 button, textarea, select, a { font: inherit; }

@@ -86,6 +86,9 @@ RoleWorld_0.1.10_x64-setup.exe      ← 就是安装包（NSIS 安装向导）�
 - 主题：暗 / 亮。
 - **风格（配色）6 种**：默认（石墨）/ 羊皮纸 / 水墨 / 深林 / 樱 / **返校金**。
   对话页与剧情模式一起变。
+- **亮色一律做成渐变，不整屏蒙一层**：返校金只用"中性近黑底 + 一束金色渐变"
+  （顶栏/主区/侧栏/主按钮/焦点环各一道），顶部另有一条向下渐隐的光带；
+  羊皮纸那类"整张纸"的质感另走一路（`tokens.css` 的 `data-style="paper"`）。
 - **界面大小**：90%–120% 七档，5% 一档；`Ctrl/⌘` + `-` / `=` 调、`Ctrl/⌘` + `0` 复位。
 - 显示密度、动效、秋季金色氛围开关。
 
@@ -135,8 +138,9 @@ roleworld/
 
 | | |
 |---|---|
-| `node tests/adapter-unit.cjs` | **42/42** —— 数据层、请求翻译、SSE、ZIP、价格、记忆归属、草稿解析、BOM 检查 |
+| `node tests/adapter-unit.cjs` | **46/46** —— 数据层、请求翻译、SSE、ZIP、价格、记忆归属、草稿解析、BOM 检查 |
 | `node tests/local-app-check.cjs` | **22/22** —— 无头 Chrome 跑真实页面（合成 fixture + 假模型端点，不联网） |
+| `node tests/gold-visual-check.cjs` | **32/32** —— 返校金配色/渐变、首帧落定、第一封信保留外观、窄屏宽度、灰屏兜底（需先起本地服务） |
 | `node tests/desktop-smoke.cjs` | 1/1 —— 启动真 exe，验证数据真的落盘 |
 | CI（`.github/workflows/ci.yml`） | 每次 push 在 Windows 上跑前两项 |
 | Release（`.github/workflows/release.yml`） | 推 `v*` 标签 → 自动构建 NSIS 安装包并挂到 Release |
@@ -220,3 +224,40 @@ roleworld 完全不依赖服务器。
 4. 缩放（Ctrl +/-）与新增侧栏元素的叠加效果。
 
 > 上一轮的 `glass.css` / `choice-menu.js` 等视觉改动本轮一起发布，回归通过，但视觉细节仍需人眼确认。
+
+---
+
+## 九、配色与宽度返工（2026-09-11，未发布）
+
+用户这一轮的四个现象，逐条对应到根因，都已修掉：
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| 金色"还是太浓，背景该偏黑，还不够纯金" | 表面色被染了暖色（`#1c1811` 一类），整片发闷；强调色是偏土的 `#f2c14e` | 底色改成中性近黑（画布 `#0a0a0a`，其余按灰阶递进，不带黄）；强调色改纯金 `#f5c518`，并按 `#ffe07a → #e9ad00` 做渐变 |
+| "亮色应该做成渐变，而不是整个界面蒙上一层" | 氛围层是一张 `position:fixed; inset:0` 的双径向渐变，等于替全站盖了层黄膜 | 氛围层压成**顶部一条向下渐隐的光带**（高度 `min(340px, 48vh)`）；金色改落到具体表面的渐变上：顶栏、主区、侧栏、剧情模式顶栏/设置带/舞台、主按钮（`--focus-grad`）、焦点环 |
+| 第一次进入勾选"保留返校金"却没显示出来 | ① 信件只切了一个 CSS class，没写进外观偏好，随后 `applyPreferences()` 按偏好（默认关）把它抹掉；② 是否保留被 `prefers-reduced-motion` 卡住——开了"减少动画"的用户永远看不到；③ 信件只给氛围、从来没给过金色配色；④ 首帧只读主题不读风格，先闪一下石墨色 | ① `TASK25C_UI` 导出 `savePreference`，信件勾选即真正落盘；② 金色是配色不是动画，去掉 `prefersReduced()` 判断（动画仍由 `data-motion="reduced"` 单独关）；③ 勾选时把风格一并设为 `gold`（用户已自选过别的配色则尊重他），取消勾选再还回去；④ `index.html` 首帧脚本改为同时落定主题 / 风格 / 氛围 |
+| 窄屏时右侧空一块 | Chrome 的 `zoom` 会把 `vw` 一起缩放：`zoom:0.9` 时 `100vw` 只有 324px，`calc(100vw/0.9)` 算成 360px，壳子再被缩成 324px；同时窄屏那条 `.app-shell { max-width: 100vw }` 把补偿后的宽度又夹了回去 | 宽度改用 JS 写进来的绝对 px（`--viewport-w` / `--viewport-h`）做补偿，并覆盖窄屏的 `max-width`；`zoom.js` 与 `app.js` 都写这两个变量 |
+| 有时屏幕上什么都没有 | `theme-pending` 期间 `.app-shell` 是 `visibility: hidden`，启动链路上任何一点异常都会留下整屏空白 | 只关过渡动画，不再隐藏界面；看门狗兜底从 20s 收到 3s |
+
+### 改动文件
+
+| 文件 | 改了什么 |
+|---|---|
+| `app/tokens.css` | 返校金暗/亮两套色板改成中性近黑 + 纯金；新增 `--focus-grad`；氛围层由整屏双径向改成顶部渐隐光带 |
+| `app/glass.css` | `#appShell` 宽度补偿改用 `--viewport-w/--viewport-h` 并取消 `max-width` 夹取；新增 `data-style="gold"` 段（顶栏/主区/侧栏/剧情模式表面/主按钮/焦点环的金色渐变） |
+| `app/styles.css` | `theme-pending` 不再隐藏界面 |
+| `app/index.html` | 首帧脚本同时落定主题、风格、氛围；看门狗 3s |
+| `app/seasonal-surprise.js` | 信件勾选/取消即时生效并写入外观偏好；取消勾选会把风格还回原样；不再受 `prefers-reduced-motion` 影响 |
+| `app/app.js` | `TASK25C_UI` 导出 `savePreference`；`updateVisualViewportMetrics()` 额外写 `--viewport-w/--viewport-h` |
+| `app/zoom.js` | `syncViewport()` 同步写 `--viewport-w/--viewport-h` |
+| `tests/gold-visual-check.cjs` | 新增：32 项外观回归（配色、渐变、第一封信保留/取消、窄屏 1/0.9/1.2 三档宽度、灰屏兜底） |
+
+### 测试情况
+
+| 套件 | 结果 |
+|---|---|
+| `node tests/adapter-unit.cjs` | **46/46** |
+| `node tests/local-app-check.cjs` | **22/22** |
+| `node tests/gold-visual-check.cjs` | **32/32** |
+
+**还需要人眼确认的**：金色渐变的浓度是否合适（这是主观项，数值上已经是"近黑底 + 低透明度渐变"）。
