@@ -34,17 +34,18 @@ git grep -nE "sk-[A-Za-z0-9]{16,}|authtoken=|Y5yWeb" -- .    # 期望：无输�
 
 **CI**（每次 push 都跑）
 
-- 两个作业：`测试（ubuntu-latest）` 与 `测试（windows-latest）`
-- 每个作业里两条绿色步骤：`单元测试（适配层）` 19/19、`端到端测试` 13/13
+- 一个作业：`测试（Windows）`
+- 里面两条绿色步骤：`单元测试（适配层）` 19/19、`端到端测试` 13/13
 - 期望全部 ✅
 
 **Release**（推 `v0.1.0` 触发）
 
-- 四个作业：`windows-latest`、`ubuntu-22.04`、`macos-latest --target aarch64-apple-darwin`、`macos-latest --target x86_64-apple-darwin`
-- 首次构建约 10–20 分钟（macOS 两个作业最慢）
-- 期望全部 ✅
+- 一个作业：`打包（windows-latest --bundles nsis）`
+- 首次构建约 5–8 分钟
+- 期望 ✅
 
-> 如果 Release 只在部分平台失败：Linux 多半是缺系统依赖（`release.yml` 里的 `apt-get` 那段），
+> 只在部分平台失败的情况已经不会再出现了 —— 现在只发 Windows。
+> 如果以后加回 macOS / Linux：Linux 多半是缺系统依赖（`release.yml` 里的 `apt-get` 那段），
 > macOS 多半是 target 没装（`dtolnay/rust-toolchain` 的 `targets` 参数）。
 
 ## 四、Release 内容
@@ -54,10 +55,9 @@ git grep -nE "sk-[A-Za-z0-9]{16,}|authtoken=|Y5yWeb" -- .    # 期望：无输�
 | 检查 | 期望 |
 |---|---|
 | 标题 | `角色世界 v0.1.0` |
-| 正文 | 有下载对照表、首次打开三步、数据目录（三平台路径）、内容包同人声明、SmartScreen 提示 |
-| 附件数量 | 至少 4 个：Windows 安装包、两个 macOS `.dmg`、Linux `.AppImage` 或 `.deb` |
-| Windows 附件名 | `角色世界_0.1.0_x64-setup.exe` |
-| 体积 | Windows 安装包 1–2 MB（Tauri 走的系统 WebView，所以很小） |
+| 正文 | 有下载表（只有 Windows）、首次打开三步、数据目录、内容包同人声明、SmartScreen 提示 |
+| 附件数量 | 1 个：`角色世界_0.1.0_x64-setup.exe` |
+| 体积 | 1–2 MB（Tauri 用系统 WebView，所以很小） |
 
 ## 五、装完要手动验一遍（这条最重要）
 

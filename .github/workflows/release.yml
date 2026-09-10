@@ -76,16 +76,14 @@ jobs:
             本地优先的开源角色对话应用：没有服务器，没有账号，没有遥测。
             角色卡、对话记录、记忆书、API Key 全部只存在你自己的设备上。
 
-            ### 下载哪个
+            ### 下载
 
             | 平台 | 文件 |
             |---|---|
-            | Windows 10/11 (x64) | `*_x64-setup.exe` |
-            | macOS (Apple Silicon) | `*_aarch64.dmg` |
-            | macOS (Intel) | `*_x64.dmg` |
-            | Linux (x64) | `*.AppImage` 或 `*.deb` |
+            | Windows 10/11 (x64) | `角色世界_0.1.0_x64-setup.exe` |
 
-            Windows 安装包未做代码签名，SmartScreen 可能提示"未知发布者"，选「更多信息 → 仍要运行」即可。
+            安装包未做代码签名，SmartScreen 可能提示"未知发布者"，选「更多信息 → 仍要运行」即可。
+            macOS / Linux 暂未提供构建（Tauri 配置里已留好，见 `.github/workflows/release.yml`）。
 
             ### 第一次打开
 
@@ -99,9 +97,7 @@ jobs:
 
             全部是磁盘上的普通文件，可直接备份、编辑、用 Git 管理：
 
-            - Windows `%APPDATA%\app.roleworld.desktop\data\`
-            - macOS `~/Library/Application Support/app.roleworld.desktop/data/`
-            - Linux `~/.local/share/app.roleworld.desktop/data/`
+            `%APPDATA%\app.roleworld.desktop\data\`
 
             ### 内置内容包说明
 

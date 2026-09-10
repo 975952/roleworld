@@ -34,8 +34,8 @@ git push -u origin main
 
 ### 3. 打标签，自动出包
 
-`release.yml` 已经在监听 `v*` 标签。推标签就会自动在四个平台上构建，
-并把安装包挂到 Releases 里：
+`release.yml` 已经在监听 `v*` 标签。推标签就会自动构建 Windows 安装包，
+并挂到 Releases 里：
 
 ```powershell
 git tag v0.1.0
@@ -44,18 +44,19 @@ git push origin v0.1.0
 
 也可以在 Actions 页面手动触发 `Release` 工作流（`workflow_dispatch`）。
 
-产物：
+产物：`角色世界_0.1.0_x64-setup.exe`（NSIS 安装包）。
 
-| 平台 | 文件 |
-|---|---|
-| Windows 10/11 (x64) | `角色世界_0.1.0_x64-setup.exe` |
-| macOS (Apple Silicon) | `角色世界_0.1.0_aarch64.dmg` |
-| macOS (Intel) | `角色世界_0.1.0_x64.dmg` |
-| Linux (x64) | `角色世界_0.1.0_amd64.AppImage` / `.deb` |
+> **为什么只有 Windows**：macOS 要正式发布得买签名证书（否则用户打开会看到"未知开发者"），
+> Linux 各发行版依赖差异大，当前都不出包。Tauri 配置本身是跨平台的，
+> 想加回来就取消 `release.yml` 里 matrix 的注释。
+>
+> **为什么只出 NSIS 不出 MSI**：MSI 要经过 WiX 3 的 `light.exe`，它在中文产品名
+> （`角色世界`）上会直接失败：`failed to run ...\WixTools314\light.exe`。
+> NSIS 对中文路径与名称没有问题。所以 Windows 固定 `--bundles nsis`。
 
 ### 4. CI
 
-`ci.yml` 在每次 push 和 PR 上跑：`adapter-unit`（无浏览器）与 `local-app-check`
+`ci.yml` 在每次 push 和 PR 上跑（Windows）：`adapter-unit`（无浏览器）与 `local-app-check`
 （无头 Chrome + 假模型端点）。两个作业都不联网、不调用真实模型、不需要任何密钥。
 
 ## 二、Gitee

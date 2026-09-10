@@ -46,14 +46,19 @@ node scripts/serve.cjs          # 或者 python -m http.server 8080
 
 > 直接双击 `index.html`（`file://`）在部分浏览器里无法使用本地数据库，请用上面的本地服务器方式。
 
-### 桌面版（Windows / macOS / Linux）
+### 桌面版（Windows）
 
 桌面版和网页版是**同一份前端代码**，区别只有一个：数据存成磁盘上看得见的普通文件，
 而不是浏览器数据库。想备份，直接拷目录；想看内容，直接用编辑器打开。
 
+直接下载 GitHub Releases 里的 `角色世界_x.y.z_x64-setup.exe` 安装即可
+（未做代码签名，SmartScreen 会提示"未知发布者"，选「更多信息 → 仍要运行」）。
+
+想自己构建：
+
 ```bash
 pnpm install                    # 只装打包工具 @tauri-apps/cli
-pnpm desktop:build              # 产出安装包（Windows 为 NSIS 安装程序）
+pnpm desktop:build              # 产出 NSIS 安装程序
 ```
 
 需要 [Rust 工具链](https://rustup.rs/)；Windows 还需要 MSVC 生成工具与 WebView2
@@ -61,11 +66,9 @@ pnpm desktop:build              # 产出安装包（Windows 为 NSIS 安装程�
 
 数据目录（应用里「设置 → 关于」也会显示实际路径）：
 
-| 平台 | 路径 |
-|---|---|
-| Windows | `%APPDATA%\app.roleworld.desktop\data\` |
-| macOS | `~/Library/Application Support/app.roleworld.desktop/data/` |
-| Linux | `~/.local/share/app.roleworld.desktop/data/` |
+```
+%APPDATA%\app.roleworld.desktop\data\
+```
 
 ```
 data/characters/<角色>.json     角色卡
@@ -74,6 +77,9 @@ data/worlds/<记忆书>.json        记忆书
 data/kv/<键>.json               设置与偏好
 data/blobs/<id>                 头像等图片
 ```
+
+> macOS / Linux 的构建配置已经在 `src-tauri/` 里留好（Tauri 本身跨平台），
+> 但当前没有出包 —— 见 `.github/workflows/release.yml` 里被注释掉的 matrix 项。
 
 然后：
 
@@ -150,13 +156,13 @@ CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
 ## 项目状态
 
 已完成：本地适配层、去掉账号系统、三个页面接入适配层、内容包机制（含哈利·波特内置包）、
-存档导出导入、桌面端打包（Tauri v2，Windows 安装包已产出）、回归测试
+存档导出导入、Windows 桌面端打包、GitHub Actions 自动出包、回归测试
 （13 项端到端 + 19 项单元 + 1 项桌面冒烟）。
 
-计划中（见 issue / roadmap）：
+计划中：
 
-- [ ] 发布首个 GitHub / Gitee Release（附 Windows 安装包）
-- [ ] macOS / Linux 打包（需要对应平台构建，或接 GitHub Actions）
+- [ ] macOS / Linux 构建（Tauri 配置已留好，取消 `release.yml` 里 matrix 的注释即可；
+      macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
 - [ ] PWA（manifest + service worker，可装到手机桌面）
 - [ ] Android（Capacitor）
 - [ ] 把 `app.js` / `assistant.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
