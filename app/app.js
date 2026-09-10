@@ -1246,7 +1246,16 @@ function renderCharacterManagement(cards) {
       // Task-33E: card.avatar is a bare filename (e.g. "Harry Potter (EN).png");
       // serve it from the per-user /characters/ route instead of resolving it
       // relative to /chat/ (which 404s and broke every character avatar).
-      img.src = "/characters/" + encodeURIComponent(card.avatar);
+      // 本地版：头像来自本机数据库的 blob URL；没有适配层时才回退到服务器路由。
+      if (window.STApi && typeof window.STApi.assetUrlSync === "function") {
+        const localUrl = window.STApi.assetUrlSync(card.avatar);
+        if (localUrl) img.src = localUrl;
+        else if (typeof window.STApi.assetUrl === "function") {
+          window.STApi.assetUrl(card.avatar).then((url) => { if (url) img.src = url; }).catch(() => {});
+        }
+      } else {
+        img.src = "/characters/" + encodeURIComponent(card.avatar);
+      }
       img.alt = "";
       head.appendChild(img);
     }

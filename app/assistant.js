@@ -109,6 +109,11 @@
   function isAuthStatus(value) { return value === 401 || value === 403; }
 
   async function getCurrentUser() {
+    // 本地版：身份来自本机档案，没有登录服务。
+    if (window.STApi && typeof window.STApi.getCurrentUser === "function") {
+      try { return { ok: true, user: await window.STApi.getCurrentUser() }; }
+      catch (error) { return { ok: false, status: (error && error.status) || 500 }; }
+    }
     const response = await fetch("/api/users/me", { credentials: "same-origin", cache: "no-store" });
     if (!response.ok) return { ok: false, status: response.status };
     try { return { ok: true, user: await response.json() }; } catch (_) { return { ok: false, status: 500 }; }
@@ -127,7 +132,20 @@
     state.csrfToken = data.token;
   }
 
+  // 本地版：原先指向 SillyTavern 的这几条接口由适配层直接实现，不再发网络请求。
+  function localPost(path, body) {
+    if (!window.RoleWorld || !window.RoleWorld.secrets || typeof window.RoleWorld.secrets.read !== "function") return null;
+    const secrets = window.RoleWorld.secrets;
+    if (path === "/api/settings/get") return window.STApi.getSettings();
+    if (path === "/api/secrets/read") return secrets.read();
+    if (path === "/api/secrets/write") return secrets.write(body && body.key, body && body.value, body && body.label);
+    if (path === "/api/secrets/delete") return secrets.delete(body && body.key, body && body.id);
+    return null;
+  }
+
   async function postJson(path, body) {
+    const local = localPost(path, body);
+    if (local) return local;
     const attempt = async () => {
       const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify(body || {}) });
       if (!response.ok) throw Object.assign(new Error("request failed"), { status: response.status });
@@ -145,6 +163,12 @@
   }
 
   async function loadCustomUrl() {
+    // 本地版：端点直接来自本机设置，允许任意 http(s) 地址（本地 llama.cpp 或第三方服务）。
+    if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
+      const local = await window.RoleWorld.getLocalSettings();
+      const url = local.endpoint || window.RoleWorldModel.endpointFor(local);
+      return String(url || "").trim().replace(/\/$/, "");
+    }
     const data = await postJson("/api/settings/get", {});
     let settings = {};
     try { settings = typeof data.settings === "string" ? JSON.parse(data.settings) : (data.settings || {}); } catch (_) { settings = {}; }
@@ -152,7 +176,7 @@
     if (typeof url !== "string" || !url.trim()) throw new Error("unavailable");
     let parsed;
     try { parsed = new URL(url.trim(), window.location.href); } catch (_) { throw new Error("unavailable"); }
-    if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !(parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")) throw new Error("unavailable");
+    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) throw new Error("unavailable");
     return parsed.toString().replace(/\/$/, "");
   }
 
@@ -213,8 +237,8 @@
       return;
     }
     node.textContent = state.deepseekKeySaved
-      ? "已保存 · 密钥存放在服务器端加密存储，不会写入浏览器"
-      : "未保存 · 密钥只保存在服务器端加密存储，页面不回显";
+      ? "已保存 · 密钥保存在本机数据库，不会上传到任何服务器"
+      : "未保存 · 密钥只保存在本机，页面不回显";
     node.classList.remove("is-error");
   }
 
@@ -675,7 +699,14 @@
   }
 
   async function generateOnceNonStreaming(payload, signal, onDelta) {
-    const fallback = await fetch("/api/backends/chat-completions/generate", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify(Object.assign({}, payload, { stream: false })), signal });
+    const body = Object.assign({}, payload, { stream: false });
+    if (window.STApi && typeof window.STApi.generate === "function") {
+      const data = await window.STApi.generate(body, signal);
+      const parsed = core.parseGenerateResponse(data);
+      if (parsed.content) { onDelta(parsed.content); return parsed.content; }
+      return "";
+    }
+    const fallback = await fetch("/api/backends/chat-completions/generate", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify(body), signal });
     if (!fallback.ok) throw Object.assign(new Error("generation failed"), { status: fallback.status });
     const data = await fallback.json();
     const parsed = core.parseGenerateResponse(data);
@@ -683,11 +714,19 @@
     return "";
   }
 
+  // 本地版：生成请求直接打到用户配置的模型端点，返回原始 Response 供 SSE 解析。
+  function generateRequest(payload, signal) {
+    if (window.STApi && typeof window.STApi.generateStream === "function") {
+      return window.STApi.generateStream(payload, signal);
+    }
+    return fetch("/api/backends/chat-completions/generate", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify(payload), signal });
+  }
+
   /* 说明：SillyTavern 的 forwardFetchResponse 只转发状态码与 body，不复制响应头，
    * 因此生产环境的流式响应可能没有 text/event-stream 头。这里只在“确实没有可读
    * body”时才走整段解析，其余情况一律按流读取，用内容本身判断是否为 SSE。 */
   async function generateStream(payload, signal, onDelta) {
-    const response = await fetch("/api/backends/chat-completions/generate", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify(payload), signal });
+    const response = await generateRequest(payload, signal);
     if (!response.ok) throw Object.assign(new Error("generation failed"), { status: response.status });
     const sink = {
       content: "",
@@ -1645,15 +1684,14 @@
   async function start() {
     if (!core) { setGate("页面暂时不可用", "请返回角色聊天后重试。"); return; }
     const current = await getCurrentUser();
-    if (!current.ok) { redirectAfterGate(routes.productLoginUrl(), "请先登录", "登录后即可继续使用。"); return; }
-    if (!current.user || current.user.admin !== true) { redirectAfterGate(routes.productHomeUrl(), "暂时无法打开", "请使用有权限的账户登录后继续使用。"); return; }
-    if (!setUserContext(current.user)) { redirectAfterGate(routes.productLoginUrl(), "请先登录", "登录后即可继续使用。"); return; }
+    // 本地版没有登录页：拿不到身份时直接给错误提示，绝不跳转。
+    if (!current.ok || !current.user) { setGate("暂时无法打开", "请稍后重试。"); return; }
+    if (!setUserContext(current.user)) { setGate("暂时无法打开", "请稍后重试。"); return; }
     try {
       await initializeCsrf();
       state.customUrl = await loadCustomUrl();
     } catch (error) {
-      if (error && isAuthStatus(error.status)) redirectAfterGate(routes.productLoginUrl(), "登录状态已失效", "请重新登录后继续使用。");
-      else setGate("暂时无法打开", "请稍后重试。");
+      setGate("暂时无法打开", "请在设置里配置模型端点后重试。");
       return;
     }
     loadSessions();

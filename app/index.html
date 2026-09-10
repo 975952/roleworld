@@ -67,7 +67,7 @@
           <span class="nav-icon nav-icon-map" aria-hidden="true"></span>
           <span class="nav-label">剧情模式</span>
         </a>
-        <a class="nav-item admin-assistant-link" id="adminAssistantLink" data-admin-only href="./assistant.html" hidden>
+        <a class="nav-item admin-assistant-link" id="adminAssistantLink" href="./assistant.html">
           <span class="nav-icon nav-icon-assistant" aria-hidden="true"></span>
           <span class="nav-label">通用 AI</span>
         </a>
@@ -93,20 +93,20 @@
             <span class="menu-row-icon menu-row-icon-map" aria-hidden="true"></span>
             <span>剧情模式</span>
           </a>
-          <button class="user-menu-row" type="button" data-action="open-rename" role="menuitem">
+          <button class="user-menu-row" type="button" data-action="open-rename" role="menuitem" hidden>
             <span class="menu-row-icon menu-row-icon-account" aria-hidden="true"></span>
             <span>改名</span>
           </button>
-          <button class="user-menu-row" type="button" data-action="open-password" role="menuitem">
+          <button class="user-menu-row" type="button" data-action="open-password" role="menuitem" hidden>
             <span class="menu-row-icon menu-row-icon-account" aria-hidden="true"></span>
             <span>改密</span>
           </button>
-          <a class="user-menu-row" id="menuAssistantLink" href="./assistant.html" data-admin-only role="menuitem" hidden>
+          <a class="user-menu-row" id="menuAssistantLink" href="./assistant.html" role="menuitem">
             <span class="menu-row-icon menu-row-icon-assistant" aria-hidden="true"></span>
             <span>通用 AI</span>
           </a>
           <div class="user-menu-separator" aria-hidden="true"></div>
-          <button class="user-menu-row user-menu-row-danger" type="button" data-action="open-logout" role="menuitem">
+          <button class="user-menu-row user-menu-row-danger" type="button" data-action="open-logout" role="menuitem" hidden>
             <span class="menu-row-icon menu-row-icon-logout" aria-hidden="true"></span>
             <span>退出登录</span>
           </button>
@@ -209,7 +209,8 @@
           <button class="settings-nav-item" type="button" data-settings-section="conversation">对话</button>
           <button class="settings-nav-item" type="button" data-settings-section="characters">角色管理</button>
           <button class="settings-nav-item" type="button" data-settings-section="layout">布局</button>
-          <button class="settings-nav-item" type="button" data-settings-section="account">账户</button>
+          <button class="settings-nav-item" type="button" data-settings-section="model">模型</button>
+          <button class="settings-nav-item" type="button" data-settings-section="about">关于</button>
           <button class="settings-nav-item" type="button" data-settings-section="admin-users" data-admin-only hidden>账号管理</button>
           <button class="settings-nav-item" type="button" data-settings-section="local-data">本地数据</button>
         </nav>
@@ -242,14 +243,27 @@
             <div class="settings-card"><div class="settings-row"><div><strong>Harry 面板</strong><span>左侧导航、记忆栏的收起状态和拖动宽度。</span></div><span class="settings-value">已保存</span></div><div class="settings-row"><div><strong>恢复默认布局</strong><span>只重置当前用户的面板状态与宽度，不影响主题、发送方式或聊天。</span></div><button class="plain-button" id="resetLayoutButton" type="button">恢复默认布局</button></div></div>
           </section>
 
-          <section class="settings-section" id="settings-account" data-settings-panel="account">
-            <div class="settings-section-heading"><h2>账户</h2><p>当前登录身份与账户信息；改名和改密即时生效。</p></div>
+          <section class="settings-section" data-settings-panel="model">
+            <div class="settings-section-heading"><h2>模型</h2><p>请求从这台设备直接发出，不经过任何中转服务器。</p></div>
             <div class="settings-card">
-              <div class="settings-row settings-action-row"><div><strong>改名</strong><span>修改显示名，不影响档案名（账户标识）。</span></div><button class="plain-button" type="button" data-action="open-rename">改名</button></div>
-              <div class="settings-row settings-action-row"><div><strong>改密</strong><span>修改登录密钥，改密后当前会话保持有效。</span></div><button class="plain-button" type="button" data-action="open-password">改密</button></div>
+              <label class="settings-row"><div><strong>服务商</strong><span>选择预设，或自定义一个 OpenAI 兼容端点。</span></div><select data-roleworld="provider"><option value="deepseek">DeepSeek 官方</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="siliconflow">硅基流动</option><option value="custom">自定义 / 本地模型</option></select></label>
+              <label class="settings-row"><div><strong>接口地址</strong><span>留空则用服务商默认地址；本地模型填 http://127.0.0.1:8080/v1/chat/completions。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
+              <label class="settings-row"><div><strong>模型名</strong><span>例如 deepseek-chat、gpt-4o-mini、qwen3-27b。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-v4-flash" spellcheck="false" autocomplete="off"></label>
+              <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
+              <div class="settings-row settings-action-row"><div><strong>保存</strong><span>改完点保存立即生效。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="save">保存设置</button><button class="plain-button" type="button" data-roleworld="test">测试连接</button></div></div>
+              <p class="settings-empty rw-status" data-roleworld="test-result"></p>
             </div>
-            <div class="settings-card"><div class="settings-row"><div><strong>显示名</strong><span>来自当前登录身份。</span></div><span class="settings-value" id="settingsUserName">用户</span></div><div class="settings-row"><div><strong>账户</strong><span>当前账户标识。</span></div><span class="settings-value" id="settingsUserHandle">@未登录</span></div><div class="settings-row"><div><strong>角色</strong><span>来自服务端当前身份。</span></div><span class="settings-value" id="settingsUserRole">用户</span></div><div class="settings-row settings-action-row"><div><strong>退出登录</strong><span>界面偏好和对话不会被删除。</span></div><button class="danger-button" type="button" data-action="open-logout">退出登录</button></div><div class="settings-row settings-action-row"><div><strong>服务条款与免责声明</strong><span>查看《角色世界 · 服务条款与免责声明》。</span></div><a class="plain-button" href="terms.html" target="_blank" rel="noopener">查看条款</a></div></div>
-            <div class="settings-card danger-card" id="selfDeleteCard">
+          </section>
+          <section class="settings-section" id="settings-account" data-settings-panel="about">
+            <div class="settings-section-heading"><h2>关于</h2><p>角色世界是本地开源应用：所有数据只存在这台设备上，不经过任何服务器。</p></div>
+            <div class="settings-card"><div class="settings-row"><div><strong>开源许可</strong><span>MIT License · 源码与问题反馈见仓库 README。</span></div><a class="plain-button" href="about.html" target="_blank" rel="noopener">查看说明</a></div><div class="settings-row"><div><strong>同人作品声明</strong><span>内置角色包属于同人二次创作，仅供个人非商业使用，版权归原作者所有。</span></div><span class="settings-value">非商业</span></div><div class="settings-row"><div><strong>数据位置</strong><span>角色卡、对话与记忆书都保存在本机数据库，可直接导出备份。</span></div><span class="settings-value">仅本机</span></div></div>
+            <div class="settings-card">
+              <div class="settings-row settings-action-row" hidden><div><strong>改名</strong><span>修改显示名，不影响档案名（账户标识）。</span></div><button class="plain-button" type="button" data-action="open-rename">改名</button></div>
+              <div class="settings-row settings-action-row" hidden><div><strong>改密</strong><span>修改登录密钥，改密后当前会话保持有效。</span></div><button class="plain-button" type="button" data-action="open-password">改密</button></div>
+            </div>
+            <div class="settings-card"><div class="settings-row"><div><strong>备份与迁移</strong><span>导出全部角色、对话与记忆书为一个 .zip；换电脑时再导入回来。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="export">导出存档</button><button class="plain-button" type="button" data-roleworld="import">导入存档</button><button class="danger-button" type="button" data-roleworld="wipe">清空本机数据</button></div></div><p class="settings-empty rw-status" data-roleworld="archive-status"></p></div>
+            <div class="settings-card"><div class="settings-row"><div><strong>显示名</strong><span>只在本机使用，随时可改。</span></div><span class="settings-value" id="settingsUserName">我</span></div><div class="settings-row"><div><strong>档案标识</strong><span>本地档案，不是账号：没有密码，也不会同步到任何服务器。</span></div><span class="settings-value" id="settingsUserHandle">@local</span></div><div class="settings-row"><div><strong>运行方式</strong><span>模型由你自己配置，请求从这台设备直接发出。</span></div><span class="settings-value" id="settingsUserRole">本地</span></div></div>
+            <div class="settings-card danger-card" id="selfDeleteCard" hidden>
               <div class="settings-row settings-action-row"><div><strong>注销账户</strong><span>永久删除当前账户及其角色卡、会话与 Memory Books，不可恢复。</span></div><button class="danger-button" type="button" data-action="open-self-delete">注销账户</button></div>
             </div>
           </section>
@@ -445,7 +459,14 @@
   <script src="app.js"></script>
   <script src="task22-core.js"></script>
   <script src="task29-character-core.js"></script>
-  <script src="st-api.js"></script>
+  <script src="adapter/store.js"></script>
+<script src="adapter/model.js"></script>
+<script src="adapter/zip.js"></script>
+<script src="adapter/cards.js"></script>
+<script src="adapter/packs.js"></script>
+<script src="adapter/index.js"></script>
+<script src="adapter/settings-ui.js"></script>
+<script src="adapter/archive-ui.js"></script>
   <script src="integration.js"></script>
   <script src="seasonal-surprise.js"></script>
 </body>

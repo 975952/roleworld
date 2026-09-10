@@ -1,0 +1,159 @@
+"use strict";
+
+/*
+ * adapter/packs.js —— 内置内容包
+ *
+ * 应用本身不含任何角色数据；角色、记忆书、示例对话都以「包」的形式放在 packs/ 目录下。
+ * 这样做的好处：
+ *   - 想换题材（奇幻 / 校园 / 原创世界观）只要换一个包，不用改代码；
+ *   - 用户可以随时停用或删除某个包，数据完全在自己手里；
+ *   - 仓库可以只带一个空的 packs/index.json，由使用者自行放置内容。
+ *
+ * 目录约定：
+ *   packs/index.json                     { "packs": [ { id, name, version, path, description } ] }
+ *   packs/<id>/characters/<avatar>.json  CCv3 角色卡
+ *   packs/<id>/worlds/<name>.json        SillyTavern 世界书（{ entries: { uid: {...} } }）
+ *   packs/<id>/chats/<avatar>/<file>.json 可选的示例对话
+ *
+ * 安装规则：只补齐缺失的条目，绝不覆盖用户自己改过的角色或记忆书；
+ * 每个包记录已安装版本，版本变化时才重新补齐。
+ */
+
+(function (global) {
+  const Store = global.RoleWorldStore;
+  const INSTALLED_KEY = "packs:installed";
+  const DISABLED_KEY = "packs:disabled";
+  const MANIFEST_URL = "packs/index.json";
+
+  let installing = null;
+
+  async function fetchJson(url) {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(url + " → HTTP " + response.status);
+    return response.json();
+  }
+
+  async function manifest() {
+    try {
+      const data = await fetchJson(MANIFEST_URL);
+      return Array.isArray(data && data.packs) ? data.packs : [];
+    } catch (_) {
+      // 没有内容包是完全正常的状态：应用照常运行，只是书架上没有预置角色。
+      return [];
+    }
+  }
+
+  async function listPacks() {
+    const [available, installed, disabled] = await Promise.all([
+      manifest(),
+      Store.getKV(INSTALLED_KEY, {}),
+      Store.getKV(DISABLED_KEY, []),
+    ]);
+    return available.map((pack) => ({
+      id: pack.id,
+      name: pack.name || pack.id,
+      version: String(pack.version || "1"),
+      description: pack.description || "",
+      path: pack.path || ("packs/" + pack.id),
+      files: pack.files || {},
+      installedVersion: (installed || {})[pack.id] || null,
+      enabled: !(disabled || []).includes(pack.id),
+    }));
+  }
+
+  async function setEnabled(packId, enabled) {
+    const disabled = new Set(await Store.getKV(DISABLED_KEY, []));
+    if (enabled) disabled.delete(packId);
+    else disabled.add(packId);
+    await Store.setKV(DISABLED_KEY, Array.from(disabled));
+    return !disabled.has(packId);
+  }
+
+  async function installAll(options) {
+    if (installing) return installing;
+    installing = (async () => {
+      const report = { installed: [], skipped: [], errors: [] };
+      let packs = [];
+      try {
+        packs = await listPacks();
+      } catch (error) {
+        report.errors.push(String(error && error.message ? error.message : error));
+        return report;
+      }
+      const installedMap = await Store.getKV(INSTALLED_KEY, {});
+      for (const pack of packs) {
+        if (!pack.enabled) continue;
+        if (pack.installedVersion === pack.version) continue;
+        try {
+          const counts = await installPack(pack);
+          installedMap[pack.id] = pack.version;
+          await Store.setKV(INSTALLED_KEY, installedMap);
+          report.installed.push({ id: pack.id, ...counts });
+        } catch (error) {
+          report.errors.push(pack.id + ": " + (error && error.message ? error.message : error));
+        }
+      }
+      return report;
+    })();
+    try {
+      return await installing;
+    } finally {
+      installing = null;
+    }
+  }
+
+  async function installPack(pack) {
+    const counts = { characters: 0, worlds: 0, chats: 0 };
+    const existingCharacters = new Set((await Store.listCharacters()).map((card) => card.avatar));
+    const existingWorlds = new Set((await Store.listWorlds()).map((world) => world.name));
+
+    for (const name of pack.files.characters || []) {
+      const avatar = fileNameOf(name);
+      if (existingCharacters.has(avatar)) continue;
+      const card = await fetchJson(joinPath(pack.path, "characters", name));
+      const record = Object.assign({}, card, {
+        avatar,
+        name: card.name || (card.data && card.data.name) || avatar.replace(/\.\w+$/, ""),
+        date_added: new Date().toISOString(),
+      });
+      record.chat = avatar;
+      await Store.putCharacter(record);
+      existingCharacters.add(avatar);
+      counts.characters += 1;
+    }
+
+    for (const name of pack.files.worlds || []) {
+      if (existingWorlds.has(name)) continue;
+      const entries = await fetchJson(joinPath(pack.path, "worlds", name));
+      await Store.putWorld(name, entries && entries.entries ? entries : { entries: entries || {} });
+      existingWorlds.add(name);
+      counts.worlds += 1;
+    }
+
+    for (const chat of pack.files.chats || []) {
+      const lines = await fetchJson(joinPath(pack.path, "chats", chat.avatar, chat.file));
+      if ((await Store.getChat(chat.avatar, chat.file)).length > 0) continue;
+      await Store.saveChat(chat.avatar, chat.file, lines);
+      counts.chats += 1;
+    }
+
+    return counts;
+  }
+
+  function joinPath() {
+    return Array.prototype.slice.call(arguments)
+      .map((part) => String(part).replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean)
+      .join("/");
+  }
+
+  function fileNameOf(path) {
+    const parts = String(path).split("/");
+    return parts[parts.length - 1];
+  }
+
+  const Packs = { listPacks, installAll, setEnabled, manifest };
+
+  global.RoleWorldPacks = Packs;
+  if (typeof module !== "undefined" && module.exports) module.exports = Packs;
+})(typeof globalThis !== "undefined" ? globalThis : this);

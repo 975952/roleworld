@@ -1,0 +1,326 @@
+"use strict";
+
+/*
+ * local-app-check.cjs —— 本地模式端到端回归（无 SillyTavern、无外网）
+ *
+ * 起一个静态服务器托管 app/ 与 packs/，再起一个假的 OpenAI 兼容模型端点，
+ * 用无头 Chrome 真正打开三个页面，验证：
+ *   1. 对话页能启动（没有登录跳转、没有遮罩、输入框可用）
+ *   2. 发送消息能拿到流式回复并落到界面上
+ *   3. 剧情模式页能读角色与记忆书
+ *   4. 通用 AI 页不再被"仅管理员"挡住
+ *   5. 设置面板能读写本机模型配置与密钥
+ */
+
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const { CDP, launchChrome, sleep } = require("./cdp.js");
+
+const APP = path.join(__dirname, "..", "app");
+const PACKS = path.join(__dirname, "..", "packs");
+const CHROME = process.env.CHROME_PATH || [
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  process.env.LOCALAPPDATA + "\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+].find((candidate) => candidate && fs.existsSync(candidate)) || "";
+const REPLY = "合成回复：你好，我是本地模型。";
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+};
+
+function startServer() {
+  const requests = [];
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://127.0.0.1");
+    let p = decodeURIComponent(url.pathname);
+
+    if (p === "/v1/chat/completions") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      let body = {};
+      try { body = JSON.parse(raw); } catch (_) { /* 保持空对象 */ }
+      requests.push({ path: p, stream: body.stream === true, model: body.model, auth: req.headers.authorization || "" });
+      if (body.stream === true) {
+        res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        const pieces = ["合成回复：", "你好，", "我是本地模型。"];
+        for (const piece of pieces) {
+          res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta: { content: piece } }] }) + "\n\n");
+        }
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ model: body.model || "synthetic", choices: [{ message: { role: "assistant", content: REPLY }, finish_reason: "stop" }] }));
+      return;
+    }
+
+    if (p === "/__requests") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(requests));
+      return;
+    }
+
+    if (p === "/") p = "/index.html";
+    const root = p.startsWith("/packs/") ? PACKS : APP;
+    const rel = p.startsWith("/packs/") ? p.slice("/packs/".length) : p.replace(/^\/+/, "");
+    const file = path.join(root, rel);
+    if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream" });
+    fs.createReadStream(file).pipe(res);
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port, requests }));
+  });
+}
+
+const results = [];
+let failures = 0;
+
+async function check(name, fn) {
+  try {
+    await fn();
+    results.push({ name, ok: true });
+    console.log("  PASS  " + name);
+  } catch (error) {
+    failures += 1;
+    results.push({ name, ok: false, error });
+    console.log("  FAIL  " + name + "\n        " + (error && error.message ? error.message : String(error)));
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+async function main() {
+  if (!fs.existsSync(CHROME)) {
+    console.log("找不到 Chrome：" + CHROME + "（可用 CHROME_PATH 指定）");
+    process.exitCode = 1;
+    return;
+  }
+
+  const { server, port, requests } = await startServer();
+  const base = "http://127.0.0.1:" + port;
+  const chrome = await launchChrome(CHROME, { debugPort: 9411 });
+  const cdp = await CDP.connect(chrome.ver.webSocketDebuggerUrl);
+
+  const fixture = `
+    (function () {
+      try {
+        localStorage.setItem("task22.chat-model.v1.local", JSON.stringify({ mode: "local" }));
+        sessionStorage.setItem("task27a.current-account-handle.v1", "local");
+      } catch (_) {}
+      window.__ROLEWORLD_FIXTURE__ = {
+        characters: [
+          { avatar: "Harry Potter (EN).png", name: "Harry Potter", description: "被选中的男孩。",
+            personality: "勇敢", scenario: "霍格沃茨", first_mes: "你好。", mes_example: "",
+            spec: "chara_card_v3", spec_version: "3.0",
+            data: { name: "Harry Potter", description: "被选中的男孩。", personality: "勇敢",
+                    scenario: "霍格沃茨", first_mes: "你好。", mes_example: "", tags: [] } },
+          { avatar: "Hermione Granger (EN).png", name: "Hermione Granger", description: "最聪明的女巫。",
+            first_mes: "你好。", spec: "chara_card_v3", spec_version: "3.0",
+            data: { name: "Hermione Granger", description: "最聪明的女巫。", first_mes: "你好。", tags: [] } }
+        ],
+        worlds: [
+          { name: "MB Harry — fact clips (EN)", entries: {
+            "0": { uid: 0, key: ["哈利"], keysecondary: [], comment: "测试条目", content: "合成记忆内容", disable: false, constant: false } } }
+        ],
+        settings: {
+          provider: "custom",
+          endpoint: "${base}/v1/chat/completions",
+          model: "synthetic-model"
+        }
+      };
+    })();
+  `;
+
+  const target = await cdp.send("Target.createTarget", { url: "about:blank" });
+  const attached = await cdp.send("Target.attachToTarget", { targetId: target.targetId, flatten: true });
+  const session = attached.sessionId;
+  await cdp.sessionSend(session, "Page.enable");
+  await cdp.sessionSend(session, "Runtime.enable");
+  await cdp.sessionSend(session, "Page.addScriptToEvaluateOnNewDocument", { source: fixture });
+
+  async function evaluate(expression) {
+    const out = await cdp.sessionSend(session, "Runtime.evaluate", {
+      expression, awaitPromise: true, returnByValue: true,
+    });
+    if (out.exceptionDetails) {
+      throw new Error("页面脚本异常：" + (out.exceptionDetails.exception && out.exceptionDetails.exception.description
+        || out.exceptionDetails.text));
+    }
+    return out.result.value;
+  }
+
+  async function goto(url) {
+    await cdp.sessionSend(session, "Page.navigate", { url });
+    for (let i = 0; i < 100; i += 1) {
+      await sleep(150);
+      try {
+        const ready = await evaluate("document.readyState === 'complete'");
+        if (ready) return;
+      } catch (_) { /* 导航中 */ }
+    }
+    throw new Error("页面加载超时：" + url);
+  }
+
+  // 页面脚本一旦抛错，这里能直接把原始错误打出来，省得靠猜。
+  function pageErrors() {
+    const out = [];
+    cdp.events.forEach((event) => {
+      if (event.method === "Runtime.exceptionThrown") {
+        const details = event.params && event.params.exceptionDetails;
+        out.push("EXCEPTION: " + (details && details.exception && details.exception.description || (details && details.text) || "unknown"));
+      } else if (event.method === "Runtime.consoleAPICalled" && event.params && event.params.type === "error") {
+        out.push("CONSOLE: " + (event.params.args || []).map((arg) => arg.value || arg.description || "").join(" "));
+      }
+    });
+    cdp.events.length = 0;
+    return out;
+  }
+
+  function reportErrors(label) {
+    const errors = pageErrors();
+    if (errors.length) {
+      console.log("  ---- " + label + " 页面报错 ----");
+      errors.slice(0, 8).forEach((line) => console.log("  " + line.slice(0, 300)));
+    }
+  }
+
+  async function waitFor(expression, timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      let value = null;
+      try { value = await evaluate(expression); } catch (_) { value = null; }
+      if (value) return value;
+      if (Date.now() > deadline) throw new Error("等待超时：" + expression);
+      await sleep(200);
+    }
+  }
+
+  console.log("== 角色对话页 ==");
+
+  await goto(base + "/index.html");
+
+  // 摘掉 theme-pending 是 bootLive 的最后一步，用它当"启动完成"信号最可靠。
+  await waitFor("!document.documentElement.classList.contains('theme-pending')", 25000);
+  reportErrors("index.html");
+
+  await check("页面留在 index.html，没有跳转到登录页", async () => {
+    const href = await evaluate("location.pathname");
+    assert(href.endsWith("/index.html"), "被跳转到了 " + href);
+  });
+
+  await check("启动遮罩已摘除，登录门与模板门都隐藏", async () => {
+    assert(await evaluate("!document.documentElement.classList.contains('theme-pending')"), "theme-pending 仍存在（灰屏）");
+    assert(await evaluate("document.querySelector('#authGate').hidden === true"), "#authGate 仍然可见");
+    assert(await evaluate("document.querySelector('#chatTemplateGate').hidden === true"), "#chatTemplateGate 仍然可见");
+  });
+
+  await check("角色与记忆书从本机数据库读出", async () => {
+    const counts = await evaluate("(async () => ({ c: (await RoleWorld.store.listCharacters()).length, w: (await RoleWorld.store.listWorlds()).length, adapter: typeof RoleWorld, sta: typeof window.STApi }))()");
+    if (counts.c !== 2) reportErrors("index.html");
+    assert(counts.c === 2, "角色数量应为 2，实际 " + counts.c + "（适配层 " + counts.adapter + "，STApi " + counts.sta + "）");
+    assert(counts.w === 1, "记忆书数量应为 1，实际 " + counts.w);
+  });
+
+  await check("输入框可用（说明角色卡、端点、会话三个条件都满足）", async () => {
+    assert(await evaluate("document.querySelector('#messageInput').disabled === false"), "输入框被禁用");
+    assert(await evaluate("document.querySelector('#sendButton').disabled === false"), "发送按钮被禁用");
+  });
+
+  await check("发送消息能收到流式回复", async () => {
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '你好';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitFor(`document.querySelector('#dynamicMessages').textContent.indexOf('我是本地模型') >= 0`, 20000);
+  });
+
+  await check("模型请求走的是本机配置的端点，并且带了流式标记", async () => {
+    const sent = requests.filter((row) => row.stream === true);
+    assert(sent.length >= 1, "没有收到流式请求");
+    assert(sent[sent.length - 1].model === "synthetic-model", "模型名被改写成了 " + sent[sent.length - 1].model);
+  });
+
+  await check("设置面板能读到本机模型配置", async () => {
+    const value = await evaluate("document.querySelector('[data-roleworld=\"endpoint\"]').value");
+    assert(value === base + "/v1/chat/completions", "端点显示为 " + value);
+  });
+
+  await check("账号相关入口不可见", async () => {
+    const visible = await evaluate(`(() => {
+      const result = { hidden: [], rows: [] };
+      const card = document.querySelector('#selfDeleteCard');
+      if (card && !card.hidden && !card.closest('[hidden]')) result.hidden.push('#selfDeleteCard');
+      const wrong = ['#settings-admin-users', '#adminAssistantLink'].filter((id) => {
+        const node = document.querySelector(id);
+        return node && !node.hidden && !node.closest('[hidden]') && id === '#settings-admin-users';
+      });
+      Array.from(document.querySelectorAll('[data-action="open-rename"],[data-action="open-password"],[data-action="open-logout"],[data-action="open-self-delete"]'))
+        .forEach((row) => {
+          if (!row.hidden && !row.closest('[hidden]')) result.rows.push(row.dataset.action);
+        });
+      result.wrong = wrong;
+      return result;
+    })()`);
+    assert(visible.hidden.length === 0, "仍然可见：" + visible.hidden.join(","));
+    assert(visible.rows.length === 0, "仍然可见的账号按钮：" + visible.rows.join(","));
+    assert(visible.wrong.length === 0, "仍然可见的管理面板：" + visible.wrong.join(","));
+  });
+
+  console.log("== 剧情模式页 ==");
+
+  await goto(base + "/magic-map.html");
+
+  await check("剧情模式页正常启动并可读取角色", async () => {
+    await waitFor("document.querySelector('#castMeta') && document.querySelector('#castMeta').textContent.indexOf('正在读取') < 0", 20000);
+    const names = await evaluate("document.querySelector('#castMeta').textContent");
+    assert(names.length > 0, "演职员信息为空");
+  });
+
+  await check("剧情模式没有跳转到登录页", async () => {
+    const href = await evaluate("location.pathname");
+    assert(href.endsWith("/magic-map.html"), "被跳转到了 " + href);
+  });
+
+  console.log("== 通用 AI 页 ==");
+
+  await goto(base + "/assistant.html");
+
+  await check("通用 AI 页不再要求管理员身份", async () => {
+    await waitFor("document.querySelector('#assistantApp') && document.querySelector('#assistantApp').hidden === false", 20000);
+    assert(await evaluate("document.querySelector('#assistantGate').hidden === true"), "还是停在错误提示页");
+    assert(await evaluate("location.pathname.endsWith('/assistant.html')"), "被跳转走了");
+  });
+
+  cdp.close();
+  chrome.proc.kill();
+  server.close();
+
+  console.log("");
+  const passed = results.filter((row) => row.ok).length;
+  console.log(`LOCAL_APP=${passed}/${results.length}`);
+  if (failures > 0) process.exitCode = 1;
+}
+
+main().catch((error) => {
+  console.error("测试运行失败：", error);
+  process.exitCode = 1;
+});

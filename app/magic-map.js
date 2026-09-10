@@ -94,6 +94,11 @@
   }
 
   function avatarUrl(avatar) {
+    // 本地版：角色头像存在本机数据库里，listCharacters() 已经预加载成 blob URL。
+    if (window.STApi && typeof window.STApi.assetUrlSync === "function") {
+      const local = window.STApi.assetUrlSync(avatar);
+      if (local) return local;
+    }
     return "/characters/" + encodeURIComponent(avatar || "");
   }
 

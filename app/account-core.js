@@ -28,7 +28,7 @@
     density: ["comfortable", "compact"],
     motion: ["full", "reduced"],
     sendMode: ["enter", "ctrl-enter"],
-    lastSettingsSection: ["appearance", "conversation", "characters", "layout", "account", "admin-users", "local-data"],
+    lastSettingsSection: ["appearance", "conversation", "model", "characters", "layout", "about", "local-data"],
   });
   const LIMITS = Object.freeze({
     harrySidebarWidth: [196, 420],

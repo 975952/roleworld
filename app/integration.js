@@ -144,6 +144,11 @@
     if (gate) gate.hidden = false;
     disableComposer("登录后即可开始对话。");
     const routes = window.TASK31_ROUTING;
+    // 本地版没有登录页：只提示，不跳转（否则会跳到一个不存在的地址）。
+    if (window.STApi && window.STApi.isLocal === true) {
+      disableComposer("出现了一个需要重新加载的问题，请刷新页面。");
+      return;
+    }
     if (!authRedirecting && window.location.pathname !== routes.productLoginUrl()) {
       authRedirecting = true;
       window.location.replace(routes.productLoginUrl());
@@ -215,7 +220,12 @@
       // pre-existing accounts without the Tom builtin card.
       await window.STApi.initializeChatTemplate();
       const verified = await window.STApi.getChatTemplateStatus();
-      if (!verified || verified.ready !== true || verified.memoryBookCount < 4 || verified.modelConnectionReady !== true || verified.initialChatReady !== true) {
+      // 本地版没有"账户模板"概念：只要数据库就绪即可。记忆书数量取决于用户装了哪些内容包，
+      // 不能拿固定的 4 本当门槛，否则空库用户会被永远挡在门外。
+      const localMode = !!(window.STApi && window.STApi.isLocal === true);
+      const ok = !!verified && verified.ready === true && verified.modelConnectionReady === true
+        && (localMode || (verified.memoryBookCount >= 4 && verified.initialChatReady === true));
+      if (!ok) {
         const error = new Error("chat template verification failed");
         error.code = "CHAT_TEMPLATE_VERIFY_FAILED";
         throw error;
@@ -313,7 +323,9 @@
   async function loadBooks() {
     const worlds = await window.STApi.listWorlds();
     const names = worlds.filter((world) => typeof world.name === "string" && world.name.startsWith("MB ")).map((world) => world.name);
-    if (!REQUIRED_BOOKS.every((name) => names.includes(name))) {
+    // 本地版允许一本记忆书都没有（用户没装内置包）。只有连着一台真正的 SillyTavern
+    // 后端时才要求那套固定模板书，避免把空库用户挡在门外。
+    if (!(window.STApi && window.STApi.isLocal === true) && !REQUIRED_BOOKS.every((name) => names.includes(name))) {
       const error = new Error("required memory books unavailable");
       error.code = "CHAT_TEMPLATE_BOOKS_MISSING";
       throw error;
@@ -975,7 +987,17 @@
   async function refreshCharacterRegistry() {
     const cards = await window.STApi.listCharacters();
     const cardList = (Array.isArray(cards) ? cards : []).filter((card) => card && card.avatar);
-    if (!cardList.length) throw new Error("Harry character unavailable");
+    if (!cardList.length) {
+      if (window.STApi && window.STApi.isLocal === true) {
+        liveState.characters = [];
+        liveState.harryAvatar = "";
+        liveState.defaultCharacter = null;
+        renderCharacterPicker();
+        updateComposerLive();
+        return liveState.characters;
+      }
+      throw new Error("Harry character unavailable");
+    }
     // Task-33A：Harry 判定只用固定 avatar 文件名，不再用「列表第一项」兜底。
     const harry = findHarry(cardList) || cardList[0];
     liveState.characters = sortCharacterEntries(cardList).map((card) => ({ avatar: String(card.avatar), charName: String(card.name || card.avatar) }));
@@ -1034,7 +1056,24 @@
   async function loadCharacterAndChat() {
     const cards = await window.STApi.listCharacters();
     const cardList = (Array.isArray(cards) ? cards : []).filter((card) => card && card.avatar);
-    if (!cardList.length) throw new Error("Harry character unavailable");
+    if (!cardList.length) {
+      // 本地版允许还没有任何角色卡：给出空状态，等用户导入，而不是把整页打挂。
+      if (window.STApi && window.STApi.isLocal === true) {
+        liveState.characters = [];
+        liveState.harryAvatar = "";
+        liveState.defaultCharacter = null;
+        liveState.avatar = null;
+        liveState.charName = "";
+        liveState.card = null;
+        liveState.cardCache = new Map();
+        liveState.chatModel = null;
+        setChatListStatus("还没有角色卡，先导入一个再开始对话。", false);
+        renderCharacterPicker();
+        syncActiveSession();
+        return;
+      }
+      throw new Error("Harry character unavailable");
+    }
     // Task-33A：Harry 判定只用固定 avatar 文件名；不把第一个自定义角色当 Harry。
     const harry = findHarry(cardList) || cardList[0];
 
@@ -1409,26 +1448,30 @@
 
   async function generateChatStream(payload, signal, onDelta) {
     const token = (window.STApi && window.STApi._token) || "";
-    const request = (body) => fetch("/api/backends/chat-completions/generate", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "x-csrf-token": token },
-      body: JSON.stringify(body),
-      signal: signal,
-    });
+    // 本地版：适配层直接把请求发到用户配置的模型端点，并原样返回 Response。
+    const request = (body) => (window.STApi && typeof window.STApi.generateStream === "function")
+      ? window.STApi.generateStream(body, signal)
+      : fetch("/api/backends/chat-completions/generate", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "x-csrf-token": token },
+        body: JSON.stringify(body),
+        signal: signal,
+      });
     const response = await request(payload);
-    if (response.status === 401 || response.status === 403) {
-      throw Object.assign(new Error("请先登录"), { status: response.status, authRequired: true, code: "AUTH_REQUIRED" });
-    }
     if (!response.ok) throw Object.assign(new Error("generation failed"), { status: response.status });
 
     const sink = { content: "", reasoning: "", chunks: 0, emit: () => onDelta(sink.content || sink.reasoning) };
     liveState.streamChunks = 0;
     const finish = () => (sink.content || sink.reasoning).trim();
     const retryNonStream = async () => {
-      const res = await request(Object.assign({}, payload, { stream: false }));
-      if (!res.ok) throw Object.assign(new Error("generation failed"), { status: res.status });
-      const data = await res.json();
+      const data = (window.STApi && typeof window.STApi.generate === "function")
+        ? await window.STApi.generate(Object.assign({}, payload, { stream: false }), signal)
+        : await (async () => {
+          const res = await request(Object.assign({}, payload, { stream: false }));
+          if (!res.ok) throw Object.assign(new Error("generation failed"), { status: res.status });
+          return res.json();
+        })();
       const parsed = window.TASK22_CORE.parseGenerateResponse(data);
       liveState.streamChunks = sink.chunks;
       if (parsed.content) { onDelta(parsed.content); return parsed.content; }
@@ -1661,6 +1704,13 @@
   }
 
   async function postSecret(path, body) {
+    // 本地版：密钥存在本机数据库，不再有服务端 secrets 接口。
+    const local = window.RoleWorld && window.RoleWorld.secrets;
+    if (local && typeof local.read === "function") {
+      if (path === "/api/secrets/read") return local.read();
+      if (path === "/api/secrets/write") return local.write(body && body.key, body && body.value, body && body.label);
+      if (path === "/api/secrets/delete") return local.delete(body && body.key, body && body.id);
+    }
     const token = (window.STApi && window.STApi._token) || "";
     const res = await fetch(path, {
       method: "POST",

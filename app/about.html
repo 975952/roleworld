@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>关于 · 角色世界</title>
+<style>
+  :root {
+    --bg: #0d0f13;
+    --panel: #161a21;
+    --line: #262c36;
+    --text: #e6e9ef;
+    --muted: #98a2b3;
+    --accent: #6f8cff;
+  }
+  html[data-theme="light"] {
+    --bg: #f6f7fa;
+    --panel: #ffffff;
+    --line: #e3e6ec;
+    --text: #1a1d23;
+    --muted: #5b6472;
+    --accent: #3355ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 20px 80px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.75 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 16px;
+  }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  p:last-child, ul:last-child { margin-bottom: 0; }
+  ul { margin: 0 0 10px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  code {
+    background: rgba(127, 127, 127, .18);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-size: 13px;
+  }
+  a { color: var(--accent); }
+  footer { color: var(--muted); text-align: center; margin-top: 28px; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>角色世界</h1>
+  <p class="lead">本地优先的开源角色对话应用。数据、密钥、对话记录都只存在你自己的设备上。</p>
+
+  <section>
+    <h2>它是怎么运行的</h2>
+    <p>这个应用没有服务器，也没有账号系统。角色卡、对话记录、记忆书保存在浏览器/应用的本地数据库里；
+      你要配置一个模型接口（DeepSeek 官方、OpenAI 兼容端点，或者你自己电脑上的 llama.cpp），
+      请求从这台设备直接发出去。</p>
+    <p>因此：没有人能替你看到对话，也没有人能替你删掉它。代价是重装系统前记得自己导出备份。</p>
+  </section>
+
+  <section>
+    <h2>开源许可</h2>
+    <p>本项目以 <strong>MIT License</strong> 发布：可以自由使用、修改、分发，包括商业用途，
+      只需保留版权声明与许可文本。完整文本见仓库根目录的 <code>LICENSE</code>。</p>
+  </section>
+
+  <section>
+    <h2>内置角色包 · 同人作品声明</h2>
+    <p>仓库内的 <code>packs/</code> 目录可能包含由社区制作的同人角色卡（例如《哈利·波特》相关角色）。
+      这些内容属于原作者的衍生同人创作：</p>
+    <ul>
+      <li>仅供个人、非商业用途使用；</li>
+      <li>相关角色与世界观版权归原作者及权利方所有，本项目与权利方无任何关联，也未获得其授权或背书；</li>
+      <li>如果你是权利方并希望移除某份内容，请在仓库提 issue，我们会立即删除。</li>
+    </ul>
+    <p>不想看到这些内容也很简单：删掉 <code>packs/</code> 下对应的目录，或者在设置里停用该内容包。
+      应用本身不含任何角色数据。</p>
+  </section>
+
+  <section>
+    <h2>你的数据在哪里</h2>
+    <ul>
+      <li>角色卡、对话、记忆书：本机数据库（浏览器为 IndexedDB）；</li>
+      <li>API Key：本机数据库明文保存。它不会上传到任何服务器，但任何能打开这台设备的人都能读到它 ——
+        公用电脑上请不要保存密钥；</li>
+      <li>界面偏好与当前模型选择：本机 localStorage。</li>
+    </ul>
+    <p>换电脑或换浏览器时，用「设置 → 本地数据」里的导出/导入迁移。</p>
+  </section>
+
+  <section>
+    <h2>致谢</h2>
+    <p>角色卡的 CCv2 / CCv3 规范、世界书（World Info）数据格式来自
+      <a href="https://github.com/SillyTavern/SillyTavern" target="_blank" rel="noopener">SillyTavern</a> 社区，
+      本项目沿用了这些格式以便互相迁移。</p>
+  </section>
+
+  <footer>角色世界 · MIT License</footer>
+</main>
+</body>
+</html>
