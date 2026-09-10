@@ -62,6 +62,9 @@
     pick("model").forEach((node) => {
       if (document.activeElement !== node) node.value = settings.model || "";
     });
+    pick("thinking").forEach((node) => {
+      node.checked = settings.thinking === true;
+    });
 
     const provider = (first("provider") && first("provider").value) || settings.provider;
     const keyName = global.RoleWorldModel.secretKeyFor({ provider });
@@ -71,18 +74,26 @@
     });
   }
 
+  function notify(patch) {
+    global.dispatchEvent(new global.CustomEvent("roleworld:settings-changed", { detail: patch }));
+  }
+
   async function saveAll() {
     const adapter = global.RoleWorld;
     if (!adapter) return;
     const providerNode = first("provider");
     const endpointNode = first("endpoint");
     const modelNode = first("model");
+    const thinkingNode = first("thinking");
     const patch = {};
     if (providerNode) patch.provider = providerNode.value;
     if (endpointNode) patch.endpoint = endpointNode.value.trim();
     if (modelNode && modelNode.value.trim()) patch.model = modelNode.value.trim();
+    if (thinkingNode) patch.thinking = thinkingNode.checked === true;
     await adapter.saveLocalSettings(patch);
     await refresh();
+    // 页面里的模型徽标、剧情模式的模型都要跟着变。
+    notify(patch);
     return patch;
   }
 
@@ -137,6 +148,11 @@
     pick("key-delete").forEach((node) => node.addEventListener("click", () => { deleteKey(); }));
     pick("test").forEach((node) => node.addEventListener("click", () => { testConnection(); }));
     pick("provider").forEach((node) => node.addEventListener("change", () => { refresh(); }));
+    // 思考模式是即时开关：先让页面立刻按新值走，再落盘，避免"刚打开就发送"用不上。
+    pick("thinking").forEach((node) => node.addEventListener("change", () => {
+      notify({ thinking: node.checked === true });
+      saveAll();
+    }));
     // 端点留空时用所选服务商的默认地址做占位提示，减少"不知道该填什么"的困惑。
     pick("endpoint").forEach((node) => {
       node.addEventListener("focus", async () => {

@@ -64,6 +64,7 @@
     running: false,
     forcedDice: null,
     modelMode: "local",
+    modelName: "",
   };
 
   function $(id) { return document.getElementById(id); }
@@ -466,6 +467,8 @@
       settings: runtime.settings,
       engine: "A",
       mode: runtime.modelMode,
+      modelName: runtime.modelName,
+      thinking: runtime.thinking === true,
       stream: false,
     });
     payload.messages = messages;
@@ -628,17 +631,17 @@
   }
 
   /* ---------- 启动 ---------- */
-  /* 剧情模式沿用对话页的模型选择（同一份本机偏好），两处切换保持一致。 */
-  var CHAT_MODEL_KEY_PREFIX = "task22.chat-model.v1.";
-
-  function loadModelMode() {
-    runtime.modelMode = "local";
-    var store = storage("localStorage");
-    if (!store) return;
+  /* 剧情模式与对话页共用同一份模型配置（「设置 → 模型」），不再各自记一套。 */
+  async function loadModelMode() {
+    var core = window.TASK22_CORE;
+    var settings = {};
     try {
-      var parsed = JSON.parse(store.getItem(CHAT_MODEL_KEY_PREFIX + runtime.handle) || "null");
-      if (parsed && (parsed.mode === "local" || window.TASK22_CORE.isDeepSeekChatMode(parsed.mode))) runtime.modelMode = parsed.mode;
-    } catch (_) { /* 忽略损坏的偏好 */ }
+      if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
+        settings = await window.RoleWorld.getLocalSettings();
+      }
+    } catch (_) { /* 读不到就用默认值 */ }
+    runtime.modelName = String(settings.model || "");
+    runtime.modelMode = settings.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
   }
 
   async function useCardScenario() {
@@ -745,7 +748,7 @@
 
     var restored = loadScene();
     state.cast = state.cast.filter(function (avatar) { return !!characterByAvatar(avatar); });
-    loadModelMode();
+    await loadModelMode();
     els.goal.value = state.goal;
     els.sceneInput.value = state.scene;
     els.dice.checked = state.dice;

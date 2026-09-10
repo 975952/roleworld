@@ -234,7 +234,8 @@
       const thinking = opts.thinking === true;
       return {
         messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText),
-        model: mode,
+        // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
+        model: (opts.modelName && String(opts.modelName).trim()) || mode,
         chat_completion_source: "deepseek",
         stream: opts.stream === true,
         // 思考过程默认关闭：开着的话用户会先看到一段思维链、随后被正文顶掉。

@@ -97,13 +97,12 @@
     aiDraft: null,
     aiBusy: false,
     draftFlow: null,
-    // 2026-09-09：对话模型（本地 / DeepSeek）与 DeepSeek 密钥状态
+    // 2026-09-10：模型配置统一由「设置 → 模型」决定（provider / endpoint / model / thinking）
     modelMode: "local",
+    modelName: "",
     // 思考模式默认关闭：开着的时候接口会先回一段思维链，正文到了再把它顶掉，
     // 看起来像"闪一下"。关掉之后思维链直接不请求也不显示。
     thinking: false,
-    modelStorageKey: "",
-    deepseekKeySaved: false,
     streamChunks: 0,
   };
 
@@ -1582,6 +1581,7 @@
         settings: liveState.settings,
         engine: state.engine,
         mode: liveState.modelMode,
+        modelName: liveState.modelName,
         thinking: liveState.thinking === true,
         stream: true,
       });
@@ -1654,157 +1654,65 @@
     }
   }
 
-  /* ---------- 对话模型（本地 / DeepSeek）与密钥（2026-09-09） ----------
-   * 模式只存本机（按账号）；密钥只写服务端加密 secrets，页面不回显。 */
-  const CHAT_MODEL_STORAGE_PREFIX = "task22.chat-model.v1.";
-  const DEEPSEEK_SECRET_KEY = "api_key_deepseek";
-
-  function chatModelStorageKeyFor(handle) {
-    return CHAT_MODEL_STORAGE_PREFIX + encodeURIComponent(String(handle || "unknown"));
-  }
-
-  function loadChatModelMode() {
+  /* ---------- 对话模型（统一由「设置 → 模型」决定，2026-09-10） ----------
+   * 以前这里另有一套"对话模型"下拉（本地模型 / DeepSeek V4 Flash / V4 Pro / V4.1），
+   * 和「设置 → 模型」里的服务商 + 模型名互相覆盖：在下拉里选一个就会把你在模型页
+   * 填的模型名顶掉，Key 也在两个地方各有一个输入框。
+   * 现在只认一份配置：provider 决定走哪条通道，model 决定模型名，thinking 决定是否要思维链。
+   */
+  function modelLabel() {
     const core = window.TASK22_CORE;
-    liveState.modelMode = core.CHAT_MODES.LOCAL;
-    liveState.thinking = false;
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(liveState.modelStorageKey) || "null");
-      if (stored && (stored.mode === core.CHAT_MODES.LOCAL || core.isDeepSeekChatMode(stored.mode))) liveState.modelMode = stored.mode;
-      if (stored && stored.thinking === true) liveState.thinking = true;
-    } catch (_) { /* 忽略损坏的偏好 */ }
-    syncChatModelControls();
+    const name = String(liveState.modelName || "").trim();
+    const channel = core.isDeepSeekChatMode(liveState.modelMode) ? "DeepSeek" : "自定义";
+    return name ? `${name} · ${channel}` : "未配置（设置 → 模型）";
   }
 
-  function persistChatModelMode() {
-    if (!liveState.modelStorageKey) return;
+  async function loadChatModelSettings() {
+    const core = window.TASK22_CORE;
+    let settings = { provider: "deepseek", model: "", thinking: false };
     try {
-      window.localStorage.setItem(liveState.modelStorageKey, JSON.stringify({
-        mode: liveState.modelMode,
-        thinking: liveState.thinking === true,
-      }));
-    } catch (_) { /* 存储不可用时不影响当前会话 */ }
+      if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
+        settings = await window.RoleWorld.getLocalSettings();
+      }
+    } catch (_) { /* 读不到就用默认值，页面照常起来 */ }
+    liveState.modelName = String(settings.model || "");
+    liveState.thinking = settings.thinking === true;
+    // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
+    liveState.modelMode = settings.provider === "deepseek"
+      ? core.CHAT_MODES.DEEPSEEK_FLASH
+      : core.CHAT_MODES.LOCAL;
+    syncChatModelControls();
   }
 
   function renderChatKeyStatus(text, isError) {
+    // 密钥输入已经统一到「设置 → 模型」，这里保留空实现只为兼容旧调用点。
     const node = document.querySelector("#chatDeepseekKeyStatus");
     if (!node) return;
-    if (typeof text === "string") {
-      node.textContent = text;
-      node.classList.toggle("is-error", !!isError);
-      return;
-    }
-    node.textContent = liveState.deepseekKeySaved
-      ? "已保存 · 密钥存放在服务器端加密存储，不会写入浏览器"
-      : "未保存 · 密钥只保存在服务器端加密存储，页面不回显";
-    node.classList.remove("is-error");
+    node.textContent = typeof text === "string" ? text : "";
+    node.classList.toggle("is-error", !!isError);
   }
 
   function syncChatModelControls() {
-    const topbar = document.querySelector("#chatModelSelect");
-    const settings = document.querySelector("#chatModelSelectSettings");
-    if (topbar) topbar.value = liveState.modelMode;
-    if (settings) settings.value = liveState.modelMode;
-    // 思考模式只对 DeepSeek 系模型有效；本地模型没有这个概念。
+    const badge = document.querySelector("#chatModelName");
+    if (badge) {
+      badge.textContent = modelLabel();
+      badge.classList.toggle("is-warning", !String(liveState.modelName || "").trim());
+    }
     const thinking = document.querySelector("#chatThinkingToggle");
-    if (thinking) {
-      thinking.checked = liveState.thinking === true;
-      const deepseek = window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode);
-      thinking.disabled = !deepseek;
-      const row = thinking.closest(".settings-row");
-      if (row) row.classList.toggle("is-disabled", !deepseek);
-    }
-    renderChatKeyStatus();
+    if (thinking) thinking.checked = liveState.thinking === true;
   }
 
-  function setChatThinking(value) {
-    liveState.thinking = value === true;
-    persistChatModelMode();
-    syncChatModelControls();
-  }
-
-  function setChatModelMode(mode) {
-    const core = window.TASK22_CORE;
-    liveState.modelMode = (mode === core.CHAT_MODES.LOCAL || core.isDeepSeekChatMode(mode)) ? mode : core.CHAT_MODES.LOCAL;
-    persistChatModelMode();
-    syncChatModelControls();
-    if (core.isDeepSeekChatMode(liveState.modelMode)) refreshChatDeepseekKeyStatus();
-    updateComposerLive();
-  }
-
-  async function postSecret(path, body) {
-    // 本地版：密钥存在本机数据库，不再有服务端 secrets 接口。
-    const local = window.RoleWorld && window.RoleWorld.secrets;
-    if (local && typeof local.read === "function") {
-      if (path === "/api/secrets/read") return local.read();
-      if (path === "/api/secrets/write") return local.write(body && body.key, body && body.value, body && body.label);
-      if (path === "/api/secrets/delete") return local.delete(body && body.key, body && body.id);
-    }
-    const token = (window.STApi && window.STApi._token) || "";
-    const res = await fetch(path, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "x-csrf-token": token },
-      body: JSON.stringify(body || {}),
-    });
-    if (!res.ok) throw Object.assign(new Error("secret request failed"), { status: res.status });
-    return res.json().catch(() => ({}));
-  }
-
-  async function refreshChatDeepseekKeyStatus() {
-    try {
-      const state = await postSecret("/api/secrets/read", {});
-      liveState.deepseekKeySaved = !!(state && state[DEEPSEEK_SECRET_KEY]);
-      renderChatKeyStatus();
-    } catch (_) {
-      renderChatKeyStatus("无法读取密钥状态", true);
-    }
-  }
-
-  async function saveChatDeepseekKey() {
-    const input = document.querySelector("#chatDeepseekKeyInput");
-    const value = input ? input.value.trim() : "";
-    if (!value) { renderChatKeyStatus("请先粘贴 DeepSeek API Key", true); return; }
-    const button = document.querySelector("#chatDeepseekKeySave");
-    if (button) { button.disabled = true; button.textContent = "保存中…"; }
-    try {
-      await postSecret("/api/secrets/write", { key: DEEPSEEK_SECRET_KEY, value: value, label: "DeepSeek" });
-      if (input) input.value = "";
-      liveState.deepseekKeySaved = true;
-      renderChatKeyStatus();
-      showToast("DeepSeek API Key 已保存");
-    } catch (_) {
-      renderChatKeyStatus("保存失败，请重试", true);
-    } finally {
-      if (button) { button.disabled = false; button.textContent = "保存"; }
-    }
-  }
-
-  async function deleteChatDeepseekKey() {
-    const button = document.querySelector("#chatDeepseekKeyDelete");
-    if (button) button.disabled = true;
-    try {
-      const state = await postSecret("/api/secrets/read", {});
-      const list = state && Array.isArray(state[DEEPSEEK_SECRET_KEY]) ? state[DEEPSEEK_SECRET_KEY] : [];
-      for (const item of list) {
-        if (item && item.id) await postSecret("/api/secrets/delete", { key: DEEPSEEK_SECRET_KEY, id: item.id });
-      }
-      liveState.deepseekKeySaved = false;
-      renderChatKeyStatus();
-    } catch (_) {
-      renderChatKeyStatus("删除失败，请重试", true);
-    } finally {
-      if (button) button.disabled = false;
-    }
-  }
-
+  // 密钥与思考模式都在「设置 → 模型」里配置了，这里只保留一个"去配置"的跳转。
   function bindChatModelControls() {
-    document.querySelector("#chatModelSelect")?.addEventListener("change", (event) => setChatModelMode(event.target.value));
-    document.querySelector("#chatModelSelectSettings")?.addEventListener("change", (event) => setChatModelMode(event.target.value));
-    document.querySelector("#chatThinkingToggle")?.addEventListener("change", (event) => setChatThinking(event.target.checked));
-    document.querySelector("#chatDeepseekKeySave")?.addEventListener("click", saveChatDeepseekKey);
-    document.querySelector("#chatDeepseekKeyDelete")?.addEventListener("click", deleteChatDeepseekKey);
-    document.querySelector("#chatDeepseekKeyInput")?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); saveChatDeepseekKey(); }
+    document.querySelectorAll('[data-action="open-model-settings"]').forEach((node) => {
+      node.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (window.TASK25C_UI && typeof window.TASK25C_UI.setSettingsSection === "function") {
+          window.TASK25C_UI.setSettingsSection("model");
+        }
+        const trigger = document.querySelector('[data-action="open-settings"], #settingsButton, #assistantSettingsTrigger');
+        if (trigger) trigger.click();
+      });
     });
   }
 
@@ -1818,11 +1726,8 @@
     await loadCharacterAndChat();
     updateComposerLive();
     await loadBooks();
-    liveState.modelStorageKey = chatModelStorageKeyFor(liveState.userHandle);
     bindChatModelControls();
-    loadChatModelMode();
-    // 仅当当前选择是 DeepSeek 时才查询密钥状态，避免本地模式多打一次请求。
-    if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode)) refreshChatDeepseekKeyStatus();
+    await loadChatModelSettings();
     liveState.templateError = false;
     setChatTemplateGate("ready");
     updateComposerLive();
@@ -2082,6 +1987,21 @@
     openFileImport,
     refreshCharacterRegistryAfterDelete,
   };
+
+  window.addEventListener("roleworld:settings-changed", (event) => {
+    // 模型页改了配置（服务商 / 模型名 / 思考模式）就地生效，不用刷新。
+    // 先按事件里的新值同步一次，保证"刚改完就发送"用的是新值；随后再整体重读。
+    const patch = (event && event.detail) || {};
+    const core = window.TASK22_CORE;
+    if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
+    if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
+    if (patch.provider) {
+      liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
+    }
+    syncChatModelControls();
+    updateComposerLive();
+    loadChatModelSettings().then(updateComposerLive).catch(() => {});
+  });
 
   window.addEventListener("DOMContentLoaded", () => {
     const templateRetry = document.querySelector("#chatTemplateGateRetry");

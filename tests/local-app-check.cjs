@@ -152,7 +152,7 @@ async function main() {
             "0": { uid: 0, key: ["哈利"], keysecondary: [], comment: "测试条目", content: "合成记忆内容", disable: false, constant: false } } }
         ],
         settings: {
-          provider: "custom",
+          provider: "deepseek",
           endpoint: "${base}/v1/chat/completions",
           model: "synthetic-model"
         }
@@ -281,8 +281,15 @@ async function main() {
   await check("模型请求走的是本机配置的端点，并且带了流式标记", async () => {
     const sent = requests.filter((row) => row.stream === true);
     assert(sent.length >= 1, "没有收到流式请求");
-    // DeepSeek 模式下模型名用模式名本身；端点则被本机设置改到了假服务上。
-    assert(sent[sent.length - 1].model === "deepseek-v4-flash", "模型名不对：" + sent[sent.length - 1].model);
+    // 模型名以「设置 → 模型」里填的为准，不再由下拉框里的固定选项决定。
+    assert(sent[sent.length - 1].model === "synthetic-model", "模型名不对：" + sent[sent.length - 1].model);
+  });
+
+  await check("顶栏显示的是配置好的模型，而不是旧的固定下拉", async () => {
+    const badge = await evaluate("(document.querySelector('#chatModelName') || {}).textContent || ''");
+    assert(badge.indexOf("synthetic-model") === 0, "顶栏模型标签是：" + badge);
+    assert(await evaluate("document.querySelector('#chatModelSelect') === null"), "旧的下拉框还在");
+    assert(await evaluate("document.querySelector('#chatDeepseekKeyInput') === null"), "对话页仍有重复的密钥输入框");
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {
@@ -296,7 +303,7 @@ async function main() {
   await check("打开思考模式后请求会要求回传思维链", async () => {
     await waitFor("document.querySelector('#sendButton').disabled === false", 15000);
     await evaluate(`(() => {
-      const toggle = document.querySelector('#chatThinkingToggle');
+      const toggle = document.querySelector('[data-roleworld="thinking"]');
       toggle.checked = true;
       toggle.dispatchEvent(new Event('change', { bubbles: true }));
       const input = document.querySelector('#messageInput');
@@ -312,7 +319,7 @@ async function main() {
     // 恢复默认，免得影响后面的页面
     await waitFor("document.querySelector('#sendButton').disabled === false", 15000);
     await evaluate(`(() => {
-      const toggle = document.querySelector('#chatThinkingToggle');
+      const toggle = document.querySelector('[data-roleworld="thinking"]');
       toggle.checked = false;
       toggle.dispatchEvent(new Event('change', { bubbles: true }));
       return true;

@@ -125,7 +125,7 @@
           <h1 id="topbarTitle">Harry Potter</h1>
         </div>
          <div class="topbar-actions">
-           <label class="chat-model" for="chatModelSelect"><span>模型</span><select id="chatModelSelect"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label>
+           <div class="chat-model" id="chatModelBadge"><span>模型</span><strong id="chatModelName">未配置</strong></div>
            <button class="plain-button" type="button" data-action="open-memories" aria-expanded="false" hidden>记忆</button>
            <button class="icon-button mobile-topbar-action" type="button" data-action="open-settings" aria-label="打开设置" title="设置">
              <span aria-hidden="true">⚙</span>
@@ -218,7 +218,8 @@
 
           <section class="settings-section" id="settings-conversation" data-settings-panel="conversation">
             <div class="settings-section-heading"><h2>对话</h2><p>发送行为与历史默认值。</p></div>
-            <div class="settings-card"><label class="settings-row" for="sendModeSelect"><div><strong>发送方式</strong><span>Enter 发送，Shift+Enter 换行。</span></div><select id="sendModeSelect"><option value="enter">Enter 发送，Shift+Enter 换行</option><option value="ctrl-enter">Ctrl+Enter 发送，Enter 换行</option></select></label><label class="settings-row" for="chatModelSelectSettings"><div><strong>对话模型</strong><span>角色对话用本地模型或 DeepSeek 官方 API（记忆书与角色卡照常注入）。</span></div><select id="chatModelSelectSettings"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label><label class="settings-row" for="chatThinkingToggle"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" id="chatThinkingToggle"></label><div class="settings-row settings-row-key"><div><strong>DeepSeek API Key</strong><span id="chatDeepseekKeyStatus">正在读取…</span></div><div class="key-actions"><input type="password" id="chatDeepseekKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" id="chatDeepseekKeySave" type="button">保存</button><button class="plain-button" id="chatDeepseekKeyDelete" type="button">删除</button></div></div></div>
+            <div class="settings-card"><label class="settings-row" for="sendModeSelect"><div><strong>发送方式</strong><span>Enter 发送，Shift+Enter 换行。</span></div><select id="sendModeSelect"><option value="enter">Enter 发送，Shift+Enter 换行</option><option value="ctrl-enter">Ctrl+Enter 发送，Enter 换行</option></select></label></div>
+            <div class="settings-card"><div class="settings-row"><div><strong>模型</strong><span>用哪个服务商、哪个模型、用哪把 Key，统一在「设置 → 模型」里配置，这里不再重复。</span></div><a class="plain-button" href="#" data-action="open-model-settings">去配置</a></div></div>
           </section>
 
           <section class="settings-section" id="settings-characters" data-settings-panel="characters">
@@ -242,6 +243,7 @@
               <label class="settings-row"><div><strong>接口地址</strong><span>留空则用服务商默认地址；本地模型填 http://127.0.0.1:8080/v1/chat/completions。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
               <label class="settings-row"><div><strong>模型名</strong><span>例如 deepseek-chat、gpt-4o-mini、qwen3-27b。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-v4-flash" spellcheck="false" autocomplete="off"></label>
               <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
+              <label class="settings-row"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" data-roleworld="thinking"></label>
               <div class="settings-row settings-action-row"><div><strong>保存</strong><span>改完点保存立即生效。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="save">保存设置</button><button class="plain-button" type="button" data-roleworld="test">测试连接</button></div></div>
               <p class="settings-empty rw-status" data-roleworld="test-result"></p>
             </div>

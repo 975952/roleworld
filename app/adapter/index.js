@@ -45,6 +45,8 @@
     temperature: 0.8,
     top_p: 0.9,
     max_tokens: 32768,
+    // 思考模式（DeepSeek 系）：关掉时既不请求也不显示思维链。
+    thinking: false,
     request_extras: {},
   });
 

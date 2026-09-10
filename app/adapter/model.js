@@ -97,8 +97,9 @@
 
   // 不是采样参数，但必须原样透传给模型接口的字段。
   // include_reasoning 尤其重要：它决定接口回不回 reasoning_content（思考过程）。
+  // 注意别把本机设置里的 thinking 布尔值放进来 —— 那会把 "thinking" 当成接口参数发出去。
   const PASSTHROUGH_FIELDS = [
-    "include_reasoning", "reasoning_effort", "thinking", "response_format", "tool_choice", "tools",
+    "include_reasoning", "reasoning_effort", "response_format", "tool_choice", "tools",
   ];
 
   // 把 SillyTavern 风格的 generate 载荷翻译成 OpenAI Chat Completions 请求体。
