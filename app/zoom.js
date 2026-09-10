@@ -61,9 +61,18 @@
       || document.body;
   }
 
+  function syncViewport() {
+    const viewport = global.visualViewport;
+    const root = document.documentElement;
+    root.style.setProperty("--visual-viewport-width", `${viewport?.width || global.innerWidth}px`);
+    root.style.setProperty("--visual-viewport-height", `${viewport?.height || global.innerHeight}px`);
+  }
+
   function apply(scale) {
+    syncViewport();
     const element = target();
     document.documentElement.dataset.scale = String(scale);
+    document.documentElement.style.setProperty("--ui-scale", String(scale));
     if (!element) return;
     if (scale === 1) element.style.removeProperty("zoom");
     else element.style.zoom = String(scale);
@@ -138,6 +147,8 @@
 
   function boot() {
     document.addEventListener("keydown", onKeydown, true);
+    global.addEventListener("resize", syncViewport);
+    global.visualViewport?.addEventListener("resize", syncViewport);
     const prefs = readPrefs();
     const value = Number(prefs && prefs.scale);
     apply(LADDER.indexOf(value) >= 0 ? value : 1);

@@ -22,13 +22,8 @@
       label: "DeepSeek 官方",
       endpoint: "https://api.deepseek.com/chat/completions",
       secretKey: "api_key_deepseek",
-      models: [
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "deepseek-v4.1-flash-expires-on-0910",
-        "deepseek-chat",
-        "deepseek-reasoner",
-      ],
+      // Official catalog checked 2026-09-11: https://api-docs.deepseek.com/updates/
+      models: ["deepseek-flash", "deepseek-v4-pro"],
     },
     openai: {
       label: "OpenAI",
@@ -58,7 +53,7 @@
 
   const DEFAULT_SETTINGS = {
     provider: "deepseek",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     endpoint: "",
     stream: true,
     temperature: 0.8,

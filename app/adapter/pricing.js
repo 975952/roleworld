@@ -25,7 +25,7 @@
     },
     {
       match: /flash/i,
-      label: "DeepSeek Flash 系列",
+      label: "DeepSeek V4.1 Flash",
       off: { cacheHit: 0.02, input: 1, output: 4 },
     },
     {
@@ -83,7 +83,9 @@
    * @param {Date} when 计费时刻
    */
   function pricesFor(model, override, when) {
-    const preset = defaultPrices(model);
+    // Official V4 Pro retirement begins at noon Beijing time on September 14.
+    const routedModel = /^deepseek-v4-pro$/i.test(String(model)) && new Date(when || Date.now()).getTime() >= Date.parse("2026-09-14T12:00:00+08:00") ? "deepseek-flash" : model;
+    const preset = defaultPrices(routedModel);
     const custom = override || {};
     const hasCustom = Number(custom.input) > 0 || Number(custom.output) > 0;
     const base = {

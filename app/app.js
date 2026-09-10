@@ -674,6 +674,7 @@ function applyPreferences() {
   // 实测这片页面会给 body 上的 zoom 忽略掉（连手设 2 都算回 1），所以加在 appShell 上。
   const scale = Number(preferences.scale) || 1;
   document.documentElement.dataset.scale = String(scale);
+  document.documentElement.style.setProperty("--ui-scale", String(scale));
   const scaleTarget = $("#appShell");
   if (scaleTarget) {
     if (scale === 1) scaleTarget.style.removeProperty("zoom");
@@ -694,6 +695,9 @@ function applyPreferences() {
   if (scaleSelect) scaleSelect.value = String(scale);
   if (styleSelect) styleSelect.value = preferences.style || "default";
   if (ambientToggle) ambientToggle.checked = preferences.ambient === true;
+  // 侧栏显示哪些角色来自偏好，而偏好是异步加载的 —— 每次应用完都重刷一次侧栏，
+  // 否则用户已选好角色、侧栏却还停在"未设置"的引导状态。
+  if (window.TASK21 && typeof window.TASK21.renderChatList === "function") window.TASK21.renderChatList();
 }
 
 function savePreference(key, value) {
@@ -1244,11 +1248,60 @@ async function refreshCharacterManagement() {
   }
 }
 
+// ---- 侧栏角色选择 ----
+// 侧栏显示哪些角色完全由用户决定：不自动挑、不按最近使用排序、不限制数量。
+// preferences.sidebarCharacters === null 表示"从未设置"（引导用户去挑），
+// 空数组表示"用户主动全部隐藏" —— 两者提示文案不同，绝不互相替代。
+
+function isSidebarCharacter(avatar) {
+  const chosen = state.preferences && state.preferences.sidebarCharacters;
+  return Array.isArray(chosen) && chosen.indexOf(String(avatar || "")) >= 0;
+}
+
+function sidebarCharacterCount() {
+  const chosen = state.preferences && state.preferences.sidebarCharacters;
+  return Array.isArray(chosen) ? chosen.length : 0;
+}
+
+function setSidebarCharacter(avatar, visible) {
+  const key = String(avatar || "");
+  if (!key) return;
+  const current = Array.isArray(state.preferences.sidebarCharacters)
+    ? state.preferences.sidebarCharacters.slice()
+    : [];
+  const index = current.indexOf(key);
+  if (visible === true && index < 0) current.push(key);
+  if (visible !== true && index >= 0) current.splice(index, 1);
+  savePreference("sidebarCharacters", current);
+  updateCharacterManageHint();
+  // 立刻刷新侧栏，不用退出设置再进来。
+  if (window.TASK21 && typeof window.TASK21.renderChatList === "function") window.TASK21.renderChatList();
+}
+
+function updateCharacterManageHint() {
+  const node = $("#characterManageHint");
+  if (!node) return;
+  const chosen = state.preferences ? state.preferences.sidebarCharacters : null;
+  node.hidden = false;
+  if (chosen === null) {
+    node.textContent = "侧栏还没有角色。打开下面任意一个开关，把想常驻侧栏的角色加进去 —— 顺序就是你打开的顺序。";
+  } else if (!chosen.length) {
+    node.textContent = "侧栏已清空（你隐藏了全部角色）。角色、对话和记忆都还在，打开开关就能加回侧栏。";
+  } else {
+    node.textContent = `侧栏显示 ${chosen.length} 个角色。关掉开关只是从侧栏移走，不会删除任何数据。`;
+  }
+}
+
 function renderCharacterManagement(cards) {
   const list = $("#characterManageList");
   const empty = $("#characterManageEmpty");
   if (!list) return;
   list.textContent = "";
+  const hint = document.createElement("p");
+  hint.className = "character-manage-hint";
+  hint.id = "characterManageHint";
+  list.appendChild(hint);
+  updateCharacterManageHint();
   if (!cards.length) { if (empty) { empty.textContent = "暂无角色"; empty.hidden = false; } return; }
   if (empty) empty.hidden = true;
   for (const card of cards) {
@@ -1295,6 +1348,19 @@ function renderCharacterManagement(cards) {
     row.appendChild(copy);
     const actions = document.createElement("div");
     actions.className = "character-manage-actions";
+    // 侧栏开关：每个角色一个，状态本机持久化；关掉只影响侧栏展示。
+    const sidebarToggle = document.createElement("label");
+    sidebarToggle.className = "character-manage-sidebar";
+    sidebarToggle.title = "是否把这个角色放进左侧栏";
+    const sidebarBox = document.createElement("input");
+    sidebarBox.type = "checkbox";
+    sidebarBox.checked = isSidebarCharacter(card.avatar);
+    sidebarBox.setAttribute("aria-label", `把 ${card.name || card.avatar} 显示在侧栏`);
+    sidebarBox.addEventListener("change", () => setSidebarCharacter(card.avatar, sidebarBox.checked));
+    const sidebarText = document.createElement("span");
+    sidebarText.textContent = "显示在侧栏";
+    sidebarToggle.append(sidebarBox, sidebarText);
+    actions.appendChild(sidebarToggle);
     if (isBuiltin) {
       const note = document.createElement("span");
       note.className = "settings-value";
@@ -1449,7 +1515,7 @@ function bindPanelResizer(handle, side) {
 
     const move = (moveEvent) => {
       if (side === "left") {
-        const rawWidth = startWidth + moveEvent.clientX - startX;
+        const rawWidth = startWidth + (moveEvent.clientX - startX) / (Number(document.documentElement.dataset.scale) || 1);
         if (rawWidth <= layoutConfig.leftMin - layoutConfig.leftCollapseDistance) {
           setSidebarCollapsed(true, { skipPersist: true });
           return;
@@ -1457,7 +1523,7 @@ function bindPanelResizer(handle, side) {
         if (state.sidebarCollapsed) setSidebarCollapsed(false, { skipPersist: true });
         state.sidebarWidth = Math.max(layoutConfig.leftMin, Math.min(layoutConfig.leftMax, rawWidth));
       } else {
-        const rawWidth = startWidth - (moveEvent.clientX - startX);
+        const rawWidth = startWidth - (moveEvent.clientX - startX) / (Number(document.documentElement.dataset.scale) || 1);
         state.rightWidth = Math.max(layoutConfig.rightMin, Math.min(layoutConfig.rightMax, rawWidth));
       }
       applyLayoutWidths();
@@ -1585,7 +1651,7 @@ function openMobileView(view) {
 }
 
 function bindNavigation() {
-  document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll(".nav-item[data-view], .character-library-button[data-view], .sidebar-manage-characters[data-view]").forEach((button) => button.addEventListener("click", () => {
     const view = button.dataset.view;
     setPrimaryNavActive(view);
     if (view === "memories") openInspector("memories");
@@ -1787,6 +1853,9 @@ window.TASK25C_UI = {
   openSettings,
   closeSettings,
   setSettingsSection,
+  isSidebarCharacter,
+  setSidebarCharacter,
+  sidebarCharacterCount,
   rememberDialogFocus,
   restoreDialogFocus,
   syncOverlayScrollLock,

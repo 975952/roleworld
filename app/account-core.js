@@ -65,6 +65,8 @@
       scale: "1",
       style: "default",
       ambient: false,
+      // 侧栏显示哪些角色：null = 从未设置（引导用户挑），数组 = 用户的选择（可为空）
+      sidebarCharacters: null,
       lastSettingsSection: "appearance",
       harry: {
         sidebarCollapsed: false,
@@ -84,6 +86,21 @@
     if (!Number.isFinite(number)) return fallback;
     const integer = Math.round(number);
     return Math.max(limits[0], Math.min(limits[1], integer));
+  }
+
+  // 侧栏角色选择。
+  // 关键：必须区分「从未设置」与「用户主动全部隐藏」——
+  //   未设置 → null（要引导用户去挑，不能擅自替他挑）
+  //   设置了 → 数组，哪怕是空数组（空数组 = 用户明确要求侧栏清空）
+  // 非数组一律当"从未设置"，避免旧版本残留的脏数据被误读成"用户隐藏了全部"。
+  function sidebarCharactersValue(value) {
+    if (!Array.isArray(value)) return null;
+    const out = [];
+    for (const item of value) {
+      const text = String(item === undefined || item === null ? "" : item).trim();
+      if (text && out.indexOf(text) < 0) out.push(text);
+    }
+    return out;
   }
 
   function enumValue(value, values, fallback) {
@@ -111,6 +128,7 @@
       scale: enumValue(String(raw.scale ?? ""), ENUMS.scale, defaults.scale),
       style: enumValue(String(raw.style ?? ""), ENUMS.style, defaults.style),
       ambient: boolValue(raw.ambient, defaults.ambient),
+      sidebarCharacters: sidebarCharactersValue(raw.sidebarCharacters),
       lastSettingsSection: enumValue(raw.lastSettingsSection, ENUMS.lastSettingsSection, defaults.lastSettingsSection),
       harry: {
         sidebarCollapsed: boolValue(harry.sidebarCollapsed, defaults.harry.sidebarCollapsed),

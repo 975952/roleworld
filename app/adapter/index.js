@@ -38,7 +38,7 @@
 
   const DEFAULT_LOCAL_SETTINGS = Object.freeze({
     provider: "deepseek",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     // 留空表示用所选服务商的默认地址；填了就以这里为准（本地模型、代理、第三方端点）。
     endpoint: "",
     stream: true,
@@ -112,7 +112,13 @@
 
   async function getLocalSettings() {
     const stored = await Store.getKV(SETTINGS_KEY, null);
-    return Object.assign({}, DEFAULT_LOCAL_SETTINGS, stored || {});
+    const settings = Object.assign({}, DEFAULT_LOCAL_SETTINGS, stored || {});
+    // Upgrade retired official aliases only; third-party model IDs remain untouched.
+    if (settings.provider === "deepseek" && (!settings.endpoint || Model.providerForEndpoint(settings.endpoint) === "deepseek") &&
+        ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4.1-flash-expires-on-0910", "deepseek-chat", "deepseek-reasoner"].includes(settings.model)) {
+      settings.model = "deepseek-flash";
+    }
+    return settings;
   }
 
   async function saveLocalSettings(patch) {

@@ -133,7 +133,7 @@ async function main() {
   const fixture = `
     (function () {
       try {
-        localStorage.setItem("task22.chat-model.v1.local", JSON.stringify({ mode: "deepseek-v4-flash" }));
+        localStorage.setItem("task22.chat-model.v1.local", JSON.stringify({ mode: "deepseek-flash" }));
         sessionStorage.setItem("task27a.current-account-handle.v1", "local");
       } catch (_) {}
       window.__ROLEWORLD_FIXTURE__ = {
@@ -154,7 +154,7 @@ async function main() {
         settings: {
           provider: "deepseek",
           endpoint: "${base}/v1/chat/completions",
-          model: "deepseek-v4-flash"
+          model: "deepseek-flash"
         }
       };
     })();
@@ -282,12 +282,12 @@ async function main() {
     const sent = requests.filter((row) => row.stream === true);
     assert(sent.length >= 1, "没有收到流式请求");
     // 模型名以「设置 → 模型」里填的为准，不再由下拉框里的固定选项决定。
-    assert(sent[sent.length - 1].model === "deepseek-v4-flash", "模型名不对：" + sent[sent.length - 1].model);
+    assert(sent[sent.length - 1].model === "deepseek-flash", "模型名不对：" + sent[sent.length - 1].model);
   });
 
   await check("顶栏可以直接切换模型，并且写回同一份配置", async () => {
     const current = await evaluate("(document.querySelector('#chatModelSelect') || {}).value");
-    assert(current === "deepseek-v4-flash", "顶栏当前值不对：" + current);
+    assert(current === "deepseek-flash", "顶栏当前值不对：" + current);
     assert(await evaluate("document.querySelector('#chatDeepseekKeyInput') === null"), "对话页仍有重复的密钥输入框");
     const options = await evaluate("Array.from(document.querySelectorAll('#chatModelSelect option')).map((o) => o.value)");
     assert(options.indexOf("deepseek-v4-pro") >= 0, "已知型号没列出来：" + JSON.stringify(options));
@@ -303,11 +303,11 @@ async function main() {
 
     await evaluate(`(() => {
       const select = document.querySelector('#chatModelSelect');
-      select.value = 'deepseek-v4-flash';
+      select.value = 'deepseek-flash';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-v4-flash'", 8000);
+    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-flash'", 8000);
   });
 
   await check("对话界面显示 token 用量与费用估算", async () => {

@@ -121,8 +121,8 @@ async function main() {
     Store.resetForTests();
     Store.setBackendForTests(Store.createMemoryBackend());
     assert.equal(await Store.getKV("missing", "默认"), "默认");
-    await Store.setKV("settings", { model: "deepseek-v4-flash" });
-    assert.equal((await Store.getKV("settings")).model, "deepseek-v4-flash");
+    await Store.setKV("settings", { model: "deepseek-flash" });
+    assert.equal((await Store.getKV("settings")).model, "deepseek-flash");
     await Store.deleteKV("settings");
     assert.equal(await Store.getKV("settings", null), null);
     await Store.putBlob(Store.avatarBlobId("a.png"), new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }));
@@ -160,7 +160,7 @@ async function main() {
 
   await test("ST 载荷翻译成 OpenAI 请求体", () => {
     const body = Model.buildBody({
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       messages: [{ role: "user", content: "你好" }],
       stream: true,
       temperature: 0.9,
@@ -169,7 +169,7 @@ async function main() {
       chat_completion_source: "deepseek",
       custom_url: "https://example.com/v1/chat/completions",
     });
-    assert.equal(body.model, "deepseek-v4-flash");
+    assert.equal(body.model, "deepseek-flash");
     assert.equal(body.stream, true);
     assert.equal(body.temperature, 0.9);
     assert.equal(body.max_tokens, 32768);
@@ -297,7 +297,7 @@ async function main() {
     // 如果只按 custom 取密钥就会拿到空串 → 请求 401 → "角色生成失败"。
     await Adapter.secrets.set("api_key_deepseek", "sk-deepseek-test");
     await Adapter.saveLocalSettings({
-      provider: "deepseek", endpoint: "", model: "deepseek-v4-flash",
+      provider: "deepseek", endpoint: "", model: "deepseek-flash",
     });
     const originalFetch = globalThis.fetch;
     let seen = null;
@@ -319,7 +319,7 @@ async function main() {
     }
     assert.equal(seen.url, "https://api.deepseek.com/chat/completions");
     assert.equal(seen.auth, "Bearer sk-deepseek-test", "Key 取错了：拿到了 " + JSON.stringify(seen.auth));
-    assert.equal(seen.body.model, "deepseek-v4-flash", "model 应换成用户配置的模型名");
+    assert.equal(seen.body.model, "deepseek-flash", "model 应换成用户配置的模型名");
   });
 
   await test("思考模式开关会原样传进请求体", () => {
@@ -536,6 +536,25 @@ async function main() {
     const expected = (2000 / 1e6) * 1 + (8000 / 1e6) * 0.02 + (2000 / 1e6) * 4;
     assert.ok(Math.abs(cost - expected) < 1e-12, `应为 ${expected}，实际 ${cost}`);
     assert.equal(Pricing.formatCost(cost), "¥0.0102");
+  });
+
+  await test("官方旧别名自动迁移，第三方端点不动", async () => {
+    // 2026-09-11 起官方目录里 flash 系列统一叫 deepseek-flash；老用户本机存的旧名要自动升。
+    await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-v4-flash" });
+    assert.equal((await Adapter.getLocalSettings()).model, "deepseek-flash", "官方别名没有迁移");
+    await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-chat" });
+    assert.equal((await Adapter.getLocalSettings()).model, "deepseek-flash", "deepseek-chat 没有迁移");
+    await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "https://my-proxy.example/v1/chat/completions", model: "deepseek-v4-flash" });
+    assert.equal((await Adapter.getLocalSettings()).model, "deepseek-v4-flash", "第三方端点的模型名被误改");
+    await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-flash" });
+  });
+
+  await test("官方目录只列在售型号", () => {
+    const models = Model.PRESETS.deepseek.models;
+    assert.ok(models.indexOf("deepseek-flash") >= 0, "缺少 deepseek-flash：" + JSON.stringify(models));
+    assert.ok(models.indexOf("deepseek-v4-pro") >= 0, "缺少 deepseek-v4-pro：" + JSON.stringify(models));
+    assert.ok(models.indexOf("deepseek-v4-flash") < 0, "已下线的旧型号还在列表里：" + JSON.stringify(models));
+    assert.equal(Model.DEFAULT_SETTINGS.model, "deepseek-flash");
   });
 
   await test("接口回了 usage 就用真值，没回就按字数估", () => {

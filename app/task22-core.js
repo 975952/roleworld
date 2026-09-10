@@ -557,8 +557,8 @@
       });
     }
 
-    function createNewSession() {
-      if (active && !active.archived && Array.isArray(active.messages) && active.messages.length === 0) return active;
+    function createNewSession(options = {}) {
+      if (!options.force && active && !active.archived && Array.isArray(active.messages) && active.messages.length === 0) return active;
       const session = {
         id: `local-${randomToken()}`,
         fileName: newChatFileName(),

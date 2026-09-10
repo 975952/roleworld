@@ -380,7 +380,7 @@
     const title = document.querySelector("#topbarTitle");
     if (title) title.textContent = full;
     const brand = document.querySelector("#sidebarBrandName");
-    if (brand) brand.textContent = activeCharacterShortName();
+    if (brand) brand.textContent = "角色世界";
   }
 
   function setChatListStatus(message, canRetry = false) {
@@ -408,24 +408,114 @@
     return Number.isFinite(time) ? time : 0;
   }
 
+  const expandedCharacters = new Set();
+  let sidebarActiveSession = "";
+  function newCharacterConversation(entry) {
+    if (liveState.pending || liveState.switching || !liveState.chatModel) return;
+    const current = liveState.chatModel.getActive();
+    const sameBlank = current && isUnboundBlank(current) &&
+      (current.pendingAvatar || liveState.defaultCharacter?.avatar) === entry.avatar;
+    if (!sameBlank) liveState.chatModel.newSession({ force: true });
+    syncActiveSession();
+    setChatListStatus("");
+    selectCharacterForActive(entry.avatar);
+    expandedCharacters.add(entry.avatar);
+    renderChatList();
+    document.querySelector('.nav-item[data-view="chat"]')?.click();
+  }
+
   function renderChatList() {
     const container = $("#historyGroups");
     if (!container) return;
     container.textContent = "";
     const sessions = liveState.chatModel ? liveState.chatModel.getSessions().filter((session) => !session.archived) : [];
-    const groups = new Map([["当前", []], ["今天", []], ["最近 7 天", []], ["更早", []]]);
-    for (const session of sessions) {
-      const label = sessionDay(session);
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(session);
+    const currentAvatar = activeCharacterEntry().avatar || "";
+    const currentId = `${liveState.activeSession?.id || ""}:${currentAvatar}`;
+    if (sidebarActiveSession !== currentId) {
+      expandedCharacters.add(currentAvatar);
+      sidebarActiveSession = currentId;
     }
-    for (const [label, items] of groups) {
-      if (!items.length) continue;
+    const characters = new Map(liveState.characters.map(entry => [entry.avatar, entry]));
+    const groups = new Map([...characters.keys()].map(avatar => [avatar, []]));
+    const orphans = new Set();
+    for (const session of sessions) {
+      const avatar = session.avatar || session.pendingAvatar || liveState.defaultCharacter?.avatar || "";
+      if (!groups.has(avatar)) {
+        groups.set(avatar, []);
+        characters.set(avatar, { avatar, charName: session.charName || session.pendingCharName || "未关联角色" });
+        orphans.add(avatar);
+      }
+      groups.get(avatar).push(session);
+    }
+
+    // 侧栏显示哪些角色，完全由用户决定（设置 → 角色管理里的「显示在侧栏」）：
+    //   chosen === null → 从未设置，一个都不擅自显示，引导用户去挑；
+    //   chosen 是数组   → 就按这个顺序显示（空数组 = 用户主动全部隐藏）。
+    // 顺序始终跟随 chosen，绝不因为最近使用 / 刷新 / 切换对话而重排。
+    // 当前正在聊的角色临时出现在侧栏，但**不写进偏好** —— 从角色库点进一个没加入侧栏的
+    // 角色也能正常聊天，而且不会偷偷把它加进侧栏。
+    const chosen = state && state.preferences ? state.preferences.sidebarCharacters : null;
+    const ordered = [];
+    const seen = new Set();
+    const pushAvatar = (avatar) => {
+      if (!avatar || seen.has(avatar) || !groups.has(avatar)) return;
+      seen.add(avatar);
+      ordered.push(avatar);
+    };
+    if (Array.isArray(chosen)) chosen.forEach(pushAvatar);
+    pushAvatar(currentAvatar);
+    orphans.forEach(pushAvatar);
+
+    for (const avatar of ordered) {
+      const items = groups.get(avatar);
+      const entry = characters.get(avatar);
       const group = document.createElement("section");
-      group.className = "history-group";
-      const heading = document.createElement("h3");
-      heading.textContent = label;
-      group.appendChild(heading);
+      group.className = "character-history-group";
+      const heading = document.createElement("div");
+      heading.className = "character-history-heading";
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = `character-history-toggle${avatar === currentAvatar ? " is-current" : ""}`;
+      const expanded = expandedCharacters.has(avatar);
+      toggle.setAttribute("aria-expanded", String(expanded));
+      const caret = document.createElement("span");
+      caret.className = "character-history-caret";
+      caret.textContent = expanded ? "⌄" : "›";
+      caret.setAttribute("aria-hidden", "true");
+      const badge = document.createElement("span");
+      badge.className = "character-history-avatar";
+      badge.textContent = [...(entry.charName || "?")][0];
+      badge.setAttribute("aria-hidden", "true");
+      const name = document.createElement("span");
+      name.className = "character-history-name";
+      name.textContent = entry.charName || avatar;
+      const count = document.createElement("span");
+      count.className = "character-history-count";
+      count.textContent = String(items.length);
+      toggle.append(caret, badge, name, count);
+      const children = document.createElement("div");
+      children.className = "character-history-chats";
+      children.id = `character-chats-${container.childElementCount}`;
+      children.hidden = !expanded;
+      toggle.setAttribute("aria-controls", children.id);
+      toggle.addEventListener("click", () => {
+        const opened = !expandedCharacters.has(avatar);
+        if (opened) expandedCharacters.add(avatar); else expandedCharacters.delete(avatar);
+        children.hidden = !opened;
+        toggle.setAttribute("aria-expanded", String(opened));
+        caret.textContent = opened ? "⌄" : "›";
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "character-history-add";
+      add.textContent = "＋";
+      add.title = `与 ${entry.charName || avatar} 开始新对话`;
+      add.setAttribute("aria-label", add.title);
+      add.disabled = liveState.pending || liveState.switching || !liveState.characters.some(candidate => candidate.avatar === avatar);
+      add.dataset.unavailable = String(!liveState.characters.some(candidate => candidate.avatar === avatar));
+      add.addEventListener("click", () => newCharacterConversation(entry));
+      heading.append(toggle, add);
+      group.append(heading, children);
       for (const session of items) {
         const shell = document.createElement("div");
         shell.className = "history-row-shell";
@@ -462,15 +552,36 @@
         action.dataset.empty = String(!session.serverSaved && (!session.messages || session.messages.length === 0));
         action.disabled = liveState.pending || liveState.switching || action.dataset.empty === "true";
         shell.append(button, action);
-        group.appendChild(shell);
+        children.appendChild(shell);
+      }
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "character-history-empty";
+        empty.textContent = "点击 ＋ 开始第一段对话";
+        children.append(empty);
       }
       container.appendChild(group);
     }
-    if (!sessions.length) {
+    if (!ordered.length) {
+      const block = document.createElement("div");
+      block.className = "history-empty-block";
       const empty = document.createElement("p");
       empty.className = "history-empty";
-      empty.textContent = "还没有已保存的对话";
-      container.appendChild(empty);
+      // 两种"空"要分开说：从没设置过 / 用户自己全部隐藏了。
+      empty.textContent = Array.isArray(chosen)
+        ? "侧栏里还没有角色。你的角色、对话和记忆都还在，挑几个放进来就行。"
+        : "还没有选择要显示在侧栏的角色。";
+      const pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "history-empty-action";
+      pick.textContent = "选择角色";
+      pick.addEventListener("click", () => {
+        if (!window.TASK25C_UI) return;
+        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("characters");
+        if (typeof window.TASK25C_UI.openSettings === "function") window.TASK25C_UI.openSettings();
+      });
+      block.append(empty, pick);
+      container.appendChild(block);
     }
   }
 
@@ -821,6 +932,7 @@
     renderActiveCharacterIdentity();
     applyMemoryPanelFilter();
     renderCharacterPicker();
+    renderChatList();
     updateComposerLive();
     document.querySelector("#messageInput")?.focus();
   }
@@ -1118,6 +1230,7 @@
       try { liveState.cardCache.set(harry.avatar, await window.STApi.getCharacter(harry.avatar)); } catch (_) { /* optional */ }
     }
     renderCharacterPicker();
+    renderChatList();
     updateComposerLive();
     return liveState.characters;
   }
@@ -1142,6 +1255,7 @@
         liveState.defaultCharacter = null;
       }
       renderCharacterPicker();
+      renderChatList();
       updateComposerLive();
     } catch (_) { /* deletion best-effort; settings list reloads independently */ }
   }
@@ -1161,6 +1275,7 @@
     renderActiveCharacterIdentity();
     applyMemoryPanelFilter();
     renderCharacterPicker();
+    renderChatList();
     updateComposerLive();
   }
 
@@ -1368,6 +1483,9 @@
     if (newButton) newButton.disabled = !!disabled;
     document.querySelectorAll(".history-row").forEach((button) => { button.disabled = !allowSelection && !!disabled; });
     document.querySelectorAll(".history-row-action").forEach((button) => { button.disabled = !!disabled || button.dataset.empty === "true"; });
+    document.querySelectorAll(".character-history-add").forEach(button => {
+      button.disabled = !!disabled || liveState.pending || button.dataset.unavailable === "true";
+    });
     const retry = $("#chatListRetry");
     if (retry) retry.disabled = !!disabled;
     renderArchivedChatSettings();
@@ -1846,9 +1964,11 @@
       const price = pricing
         ? pricing.pricesFor(name, { input: settings.price_input, output: settings.price_output }, new Date())
         : null;
-      option.textContent = price && price.output > 0
-        ? `${name} · ¥${price.input}/¥${price.output}`
-        : name;
+      const official = settings.provider === "deepseek";
+      option.textContent = official && name === "deepseek-flash" ? "DeepSeek V4.1 Flash"
+        : official && name === "deepseek-v4-pro" ? (Date.now() >= Date.parse("2026-09-14T12:00:00+08:00") ? "DeepSeek V4 Pro（已转向 V4.1）" : "DeepSeek V4 Pro") : name;
+      option.title = name;
+
       select.appendChild(option);
     });
     // 末尾留一个入口，直接跳到设置里去填任意模型名。
@@ -1857,6 +1977,25 @@
     more.textContent = "自定义模型名…";
     select.appendChild(more);
     select.value = choices.indexOf(current) >= 0 ? current : choices[0];
+    const label = select.selectedOptions[0]?.textContent || current;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (context) {
+      const style = getComputedStyle(select);
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      select.style.width = `${Math.ceil(context.measureText(label).width) + 52}px`;
+    }
+    select.title = `${label} · ${current}`;
+    let detail = document.getElementById("chatModelPrice");
+    if (!detail) {
+      detail = document.createElement("span");
+      detail.id = "chatModelPrice";
+      select.parentElement.appendChild(detail);
+    }
+    const price = pricing && settings.provider === "deepseek"
+      ? pricing.pricesFor(current, { input: settings.price_input, output: settings.price_output }, new Date()) : null;
+    detail.textContent = price && price.output > 0 ? `输入 ¥${price.input} · 输出 ¥${price.output} / 百万 token` : "";
+    detail.title = price ? `${price.period}估算单价；实际账单以服务商为准` : "";
   }
 
   async function chooseChatModel(value) {
@@ -2180,6 +2319,7 @@
   }
 
   window.TASK21 = {
+    renderChatList,
     saveCorrectionLive,
     createMemoryBookLive,
     deleteMemoryBookLive,

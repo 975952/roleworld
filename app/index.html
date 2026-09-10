@@ -9,6 +9,7 @@
   <script>(function () { var theme = ""; try { var encodedHandle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || ""; var preferenceKey = encodedHandle ? "task27a.preferences.v1." + encodedHandle : ""; var stored = preferenceKey ? JSON.parse(window.localStorage.getItem(preferenceKey) || "null") : null; if (stored && (stored.theme === "light" || stored.theme === "dark")) theme = stored.theme; } catch (_) {} document.documentElement.classList.add("theme-pending"); document.documentElement.dataset.theme = theme || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); /* Task-27H：看门狗兜底 —— 正常路径由启动落定/登录门/页面错误摘除遮罩；若脚本链路异常导致遮罩残留，20 秒后强制摘除，杜绝永久灰屏。 */ setTimeout(function () { document.documentElement.classList.remove("theme-pending"); }, 20000); })();</script>
   <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="glass.css">
 </head>
 <body>
   <div class="auth-gate" id="authGate" hidden>
@@ -41,18 +42,14 @@
         </button>
       </div>
 
-      <button class="new-conversation-button" id="newConversationButton" type="button" data-action="new-conversation" aria-label="新建对话">
-        <span class="new-conversation-icon" aria-hidden="true">＋</span>
-        <span class="new-conversation-label">新建对话</span>
-      </button>
-
       <section class="history-section" aria-labelledby="historyTitle">
-        <h2 class="nav-section-title" id="historyTitle">最近对话</h2>
+        <div class="character-sidebar-title"><h2 class="nav-section-title" id="historyTitle">角色与对话</h2><button type="button" class="character-library-button" data-view="characters" aria-label="添加或管理角色" title="添加或管理角色">＋ 角色</button></div>
         <div class="chat-list-status" id="chatListStatus" role="status" aria-live="polite" hidden>
           <span id="chatListStatusText"></span>
           <button class="chat-list-retry" id="chatListRetry" type="button" data-action="retry-chat-list">重试</button>
         </div>
-        <div class="history-groups" id="historyGroups" aria-label="Harry 已保存的对话"></div>
+        <div class="history-groups" id="historyGroups" aria-label="按角色组织的对话"></div>
+        <button type="button" class="sidebar-manage-characters" data-view="characters" title="打开角色库，选择哪些角色显示在侧栏">管理角色</button>
       </section>
 
       <nav class="side-nav" aria-label="功能导航">
@@ -242,7 +239,7 @@
             <div class="settings-card">
               <label class="settings-row"><div><strong>服务商</strong><span>选择预设，或自定义一个 OpenAI 兼容端点。</span></div><select data-roleworld="provider"><option value="deepseek">DeepSeek 官方</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="siliconflow">硅基流动</option><option value="custom">自定义 / 本地模型</option></select></label>
               <label class="settings-row"><div><strong>接口地址</strong><span>留空则用服务商默认地址；本地模型填 http://127.0.0.1:8080/v1/chat/completions。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
-              <label class="settings-row"><div><strong>模型名</strong><span>例如 deepseek-chat、gpt-4o-mini、qwen3-27b。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-v4-flash" spellcheck="false" autocomplete="off"></label>
+              <label class="settings-row"><div><strong>模型名</strong><span>DeepSeek 最新：deepseek-flash（V4.1 Flash）；也可填写其他服务商的模型名。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-flash" spellcheck="false" autocomplete="off"></label>
               <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
               <label class="settings-row"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" data-roleworld="thinking"></label>
               <label class="settings-row"><div><strong>自动记忆</strong><span>让模型自己记要点：每个角色一本「自动记忆」书，跨对话保留，最多 50 条。关掉就只用手写的记忆书。</span></div><input type="checkbox" data-roleworld="auto-memory"></label>
@@ -470,5 +467,6 @@
   <script src="integration.js"></script>
 <script src="zoom.js"></script>
   <script src="seasonal-surprise.js"></script>
+  <script src="choice-menu.js"></script>
 </body>
 </html>
