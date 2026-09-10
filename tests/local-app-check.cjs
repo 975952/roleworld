@@ -414,30 +414,71 @@ async function main() {
     assert(visible.wrong.length === 0, "仍然可见的管理面板：" + visible.wrong.join(","));
   });
 
-  await check("首次启动会弹出教程，跳过之后不再出现", async () => {
-    await waitFor("!!document.querySelector('.rw-onboard-backdrop')", 15000);
-    const first = await evaluate("document.querySelector('.rw-onboard h2').textContent");
-    assert(first.indexOf("欢迎") >= 0, "教程首页标题是：" + first);
-    const steps = await evaluate("document.querySelectorAll('.rw-onboard-dots i').length");
-    assert(steps >= 4, "教程步骤太少：" + steps);
+  await check("首次启动强制走完引导：没有跳过，第二步就是填 Key 的地方", async () => {
+    await waitFor("!!document.querySelector('.rw-ob')", 15000);
+    const first = await evaluate("document.querySelector('.rw-ob h2').textContent");
+    assert(first.indexOf("欢迎") >= 0, "引导首页标题是：" + first);
+    assert(await evaluate("document.querySelector('[data-ob=\"skip\"]') === null"), "不该有「跳过」按钮");
 
-    await evaluate("document.querySelector('[data-rw=\"skip\"]').click()");
-    await waitFor("!document.querySelector('.rw-onboard-backdrop')", 5000);
+    // 之前出现过「黑字压在深色背景上完全看不见」，这里直接算对比度。
+    const contrast = await evaluate(`(() => {
+      const lum = (rgb) => {
+        const m = rgb.match(/\\d+/g).map(Number).slice(0, 3).map((v) => {
+          const c = v / 255;
+          return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+      };
+      const card = document.querySelector('.rw-ob-card');
+      const para = card.querySelector('p');
+      const a = lum(getComputedStyle(para).color);
+      const b = lum(getComputedStyle(card).backgroundColor);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      return { ratio: Math.round(ratio * 100) / 100, color: getComputedStyle(para).color, bg: getComputedStyle(card).backgroundColor };
+    })()`);
+    assert(contrast.ratio >= 3, `引导正文对比度太低（${contrast.ratio}：${contrast.color} on ${contrast.bg}）`);
+
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("!!document.querySelector('[data-ob=\"key\"]')", 5000);
+    const second = await evaluate("document.querySelector('.rw-ob h2').textContent");
+    assert(second.indexOf("API Key") >= 0, "第二步不是填 Key：" + second);
+    assert(await evaluate("!!document.querySelector('[data-ob=\"save\"]')"), "第二步缺少「保存并测试」");
+
+    // 没填 Key 不许往下走
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("document.querySelector('[data-ob=\"status\"]').textContent.length > 0", 5000);
+    const blocked = await evaluate("document.querySelector('.rw-ob h2').textContent");
+    assert(blocked.indexOf("API Key") >= 0, "没填 Key 却放行了");
+
+    // 填上 Key 并测试（夹具的端点指向本地假服务）
+    await evaluate(`(() => {
+      const input = document.querySelector('[data-ob="key"]');
+      input.value = 'sk-onboarding-test';
+      document.querySelector('[data-ob="save"]').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('[data-ob=\"status\"]').classList.contains('is-ok')", 15000);
+    const ok = await evaluate("document.querySelector('[data-ob=\"status\"]').textContent");
+    assert(ok.indexOf("连接正常") >= 0, "测试连接没有通过：" + ok);
+
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('准备就绪') >= 0", 5000);
+    assert(await evaluate("document.querySelector('[data-ob=\"next\"]').textContent.trim() === '开始使用'"), "最后一步按钮文案不对");
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("!document.querySelector('.rw-ob')", 5000);
 
     await goto(base + "/index.html");
     await waitFor("window.TASK21_READY === true", 30000);
     await evaluate("new Promise((r) => setTimeout(r, 2000))");
-    assert(await evaluate("!document.querySelector('.rw-onboard-backdrop')"), "跳过之后重载又弹了一次");
+    assert(await evaluate("!document.querySelector('.rw-ob')"), "走完之后重载又弹了一次");
   });
 
   await check("设置 → 关于里的「再看一次教程」能重新打开", async () => {
     await evaluate("document.querySelector('[data-roleworld=\"tutorial\"]').click()");
-    await waitFor("!!document.querySelector('.rw-onboard-backdrop')", 5000);
-    await evaluate("document.querySelector('[data-rw=\"next\"]').click()");
-    const second = await evaluate("document.querySelector('.rw-onboard h2').textContent");
+    await waitFor("!!document.querySelector('.rw-ob')", 5000);
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    const second = await evaluate("document.querySelector('.rw-ob h2').textContent");
     assert(second.indexOf("欢迎") < 0, "「下一步」没有翻页，标题还是：" + second);
-    await evaluate("document.querySelector('[data-rw=\"skip\"]').click()");
-    await waitFor("!document.querySelector('.rw-onboard-backdrop')", 5000);
   });
 
   console.log("== 剧情模式页 ==");
