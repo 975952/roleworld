@@ -8,6 +8,9 @@
  *   2. 第二步**直接就是填 API Key 的地方**，不用自己去找设置；
  *   3. 配色自己带，不继承页面变量 —— 之前继承导致黑字压在深色背景上完全看不见。
  *
+ * 2026-09-11 新增「怎么称呼你」这一步（用户要求：第一次登录让用户填自己的名字/称呼，
+ * 以后在设置里能改）。存进本账号的外观偏好 preferences.nickname，角色与剧情模式都用它。
+ *
  * 触发条件：本机设置里 tutorial_seen 不是 true 才弹。已经配好 Key 的老用户不会被打扰
  * （配好 Key 即视为走过流程）。想再看一次：设置 → 关于 →「再看一次教程」。
  */
@@ -15,12 +18,15 @@
 (function (global) {
   const STYLE_ID = "roleworld-onboarding-style";
   const SEEN_KEY = "tutorial_seen";
+  const NICKNAME_KEY = "nickname";
+  const NICKNAME_FALLBACK = "我";
 
-  const STEPS = ["welcome", "key", "ready"];
+  const STEPS = ["welcome", "name", "key", "ready"];
 
   let overlay = null;
   let index = 0;
   let busy = false;
+  let nickname = "";
 
   /* ------------------------------------------------------------------ *
    * 样式：全部写死，明暗两套，不依赖页面变量
@@ -90,7 +96,15 @@ html[data-theme="light"] .rw-ob{
         "<p>这是一个**完全本地**的角色对话应用：没有服务器、没有账号、没有遥测。</p>",
         "<p>角色卡、对话记录、记忆书、API Key 全部只存在这台设备上，谁也不会替你看到它们。</p>",
         "<p>代价只有一条：没人替你备份，换电脑前记得自己导出。</p>",
-        "<p>下一步需要填一个模型接口的 API Key，请先准备好。</p>",
+        "<p>接下来两步：先写一个**称呼**，再填模型接口的 **API Key**（可以先准备好）。</p>",
+      ].join("");
+    }
+    if (step === "name") {
+      return [
+        "<h2>怎么称呼你？</h2>",
+        "<p>角色会用这个名字称呼你，剧情模式里也显示它。**只存在这台设备上**，随时能改。</p>",
+        '<div class="rw-ob-field"><input type="text" data-ob="nickname" maxlength="24" autocomplete="off" spellcheck="false" placeholder="比如：小林、阿远、Wenbo" aria-label="你的称呼"></div>',
+        '<p class="rw-ob-hint">想不出就先留着默认的「我」，之后在**设置 → 关于 → 称呼**里改。</p>',
       ].join("");
     }
     if (step === "key") {
@@ -134,6 +148,68 @@ html[data-theme="light"] .rw-ob{
   }
 
   /* ------------------------------------------------------------------ *
+   * 称呼：写进本账号的外观偏好（preferences.nickname）
+   * ------------------------------------------------------------------ */
+
+  function nicknameStorageKey() {
+    try {
+      const handle = global.sessionStorage.getItem("task27a.current-account-handle.v1") || "";
+      return handle ? `task27a.preferences.v1.${handle}` : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function readSavedNickname() {
+    try {
+      const ui = global.TASK25C_UI;
+      if (ui && typeof ui.nickname === "function") return ui.nickname() || "";
+    } catch (_) { /* 下面还有 localStorage 兜底 */ }
+    try {
+      const key = nicknameStorageKey();
+      if (!key) return "";
+      const prefs = JSON.parse(global.localStorage.getItem(key) || "null");
+      return prefs && typeof prefs.nickname === "string" ? prefs.nickname : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function cleanNickname(value) {
+    const cleaned = String(value === undefined || value === null ? "" : value)
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .trim()
+      .slice(0, 24);
+    return cleaned || NICKNAME_FALLBACK;
+  }
+
+  async function saveNickname(value) {
+    nickname = cleanNickname(value);
+    try {
+      const ui = global.TASK25C_UI;
+      if (ui && typeof ui.savePreference === "function") {
+        ui.savePreference(NICKNAME_KEY, nickname);
+        return;
+      }
+    } catch (_) { /* 落到下面的直写 */ }
+    try {
+      const key = nicknameStorageKey();
+      if (!key) return;
+      const prefs = JSON.parse(global.localStorage.getItem(key) || "null") || {};
+      prefs.nickname = nickname;
+      global.localStorage.setItem(key, JSON.stringify(prefs));
+    } catch (_) { /* 存不下不影响使用 */ }
+  }
+
+  function prefillNicknameStep(input) {
+    if (!input) return;
+    const saved = readSavedNickname();
+    nickname = saved || NICKNAME_FALLBACK;
+    input.value = nickname;
+    try { input.focus({ preventScroll: true }); input.select(); } catch (_) { /* 忽略 */ }
+  }
+
+  /* ------------------------------------------------------------------ *
    * 渲染与交互
    * ------------------------------------------------------------------ */
 
@@ -150,6 +226,16 @@ html[data-theme="light"] .rw-ob{
     if (provider) provider.addEventListener("change", () => { syncKeyFields(); setStatus(""); });
     syncKeyFields();
     if (step === "key") prefillKeyStep();
+    if (step === "name") {
+      const input = overlay.querySelector('[data-ob="nickname"]');
+      prefillNicknameStep(input);
+      if (input) {
+        // 回车=下一步（和填 Key 那一步的直觉一致）
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") { event.preventDefault(); onNext(); }
+        });
+      }
+    }
   }
 
   // 把已有的服务商 / 接口地址带出来，别让「保存并测试」把用户先前的配置冲掉。
@@ -224,6 +310,10 @@ html[data-theme="light"] .rw-ob{
 
   async function onNext() {
     const step = STEPS[index];
+    if (step === "name") {
+      const input = overlay.querySelector('[data-ob="nickname"]');
+      await saveNickname(input ? input.value : nickname);
+    }
     if (step === "key" && !(await keyReady())) return;
     if (index < STEPS.length - 1) {
       index += 1;
@@ -250,6 +340,7 @@ html[data-theme="light"] .rw-ob{
       await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
     } catch (_) { /* 存不下也不能卡住用户 */ }
     notifySettings();
+    global.dispatchEvent(new global.CustomEvent("roleworld:nickname-changed", { detail: { nickname } }));
   }
 
   function close() {

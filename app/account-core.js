@@ -40,6 +40,8 @@
     harryMemoryWidth: [320, 620],
     generalSidebarWidth: [196, 420],
   });
+  // 称呼最长 24 个字符（一个汉字算一个字符）。
+  const NICKNAME_MAX = 24;
   // Task-28A 公开注册客户端镜像限制（与服务端 config.yaml 默认值一致）。
   const REGISTRATION_DEFAULTS = Object.freeze({
     maxHandleLength: 32,
@@ -67,6 +69,9 @@
       ambient: false,
       // 侧栏显示哪些角色：null = 从未设置（引导用户挑），数组 = 用户的选择（可为空）
       sidebarCharacters: null,
+      // 称呼（角色怎么叫你）：第一次引导里让用户填，之后在设置里能改。
+      // 空串 = 还没设过，界面退回档案显示名。
+      nickname: "",
       lastSettingsSection: "appearance",
       harry: {
         sidebarCollapsed: false,
@@ -107,6 +112,14 @@
     return values.includes(value) ? value : fallback;
   }
 
+  // 称呼：去掉首尾空白与不可见控制字符，最长 24 个字符（超长截断而不是丢弃，
+  // 免得用户粘贴了一长串就白白丢掉自己写的东西）。
+  function nicknameValue(value) {
+    if (typeof value !== "string") return "";
+    const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    return cleaned.length > NICKNAME_MAX ? cleaned.slice(0, NICKNAME_MAX) : cleaned;
+  }
+
   function boolValue(value, fallback) {
     if (typeof value === "boolean") return value;
     if (value === "true") return true;
@@ -129,6 +142,7 @@
       style: enumValue(String(raw.style ?? ""), ENUMS.style, defaults.style),
       ambient: boolValue(raw.ambient, defaults.ambient),
       sidebarCharacters: sidebarCharactersValue(raw.sidebarCharacters),
+      nickname: nicknameValue(raw.nickname),
       lastSettingsSection: enumValue(raw.lastSettingsSection, ENUMS.lastSettingsSection, defaults.lastSettingsSection),
       harry: {
         sidebarCollapsed: boolValue(harry.sidebarCollapsed, defaults.harry.sidebarCollapsed),
@@ -361,10 +375,12 @@
     LEGACY_KEYS,
     ENUMS,
     LIMITS,
+    NICKNAME_MAX,
     REGISTRATION_DEFAULTS,
     REGISTRATION_CODES,
     defaultPreferences,
     normalizePreferences,
+    nicknameValue,
     storageKeyForUser,
     generalAiKeyForUser,
     legacyOwnerValueForUser,

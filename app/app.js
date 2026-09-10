@@ -550,11 +550,25 @@ function setIdentityAvatar(model) {
   });
 }
 
+// 称呼（preferences.nickname）：第一次引导里填，之后在设置 → 关于里改。
+// 没设过时返回空串，界面退回档案显示名。
+function currentNickname() {
+  const value = state.preferences && state.preferences.nickname;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function setNickname(value) {
+  const clean = accountCore ? accountCore.nicknameValue(value) : String(value || "").trim();
+  savePreference("nickname", clean);
+  return clean;
+}
+
 function setUserIdentity(userOrModel) {
   const model = userOrModel && userOrModel.handle !== undefined
     ? userOrModel
     : (accountCore ? accountCore.identityModel(userOrModel) : { handle: "", displayName: "用户", roleLabel: "用户", isAdmin: false, avatar: "" });
-  const safeName = String(model.displayName || "用户").trim() || "用户";
+  // 用户自己填的称呼优先于档案显示名 —— 角色就是这么叫他的。
+  const safeName = currentNickname() || String(model.displayName || "用户").trim() || "用户";
   const handleLabel = model.handle ? `@${model.handle}` : "@未登录";
   ["#userDisplayName", "#menuUserName", "#settingsUserName"].forEach((selector) => {
     const node = $(selector);
@@ -704,6 +718,10 @@ function applyPreferences() {
   // 侧栏显示哪些角色来自偏好，而偏好是异步加载的 —— 每次应用完都重刷一次侧栏，
   // 否则用户已选好角色、侧栏却还停在"未设置"的引导状态。
   if (window.TASK21 && typeof window.TASK21.renderChatList === "function") window.TASK21.renderChatList();
+  // 称呼也是偏好的一部分：设置里改完（或引导里填完）要立刻反映到界面上。
+  if (state.user) setUserIdentity(state.user);
+  const nicknameInput = $("#nicknameInput");
+  if (nicknameInput && document.activeElement !== nicknameInput) nicknameInput.value = currentNickname();
 }
 
 function savePreference(key, value) {
@@ -1430,6 +1448,19 @@ function bindSettings() {
   $("#densitySelect")?.addEventListener("change", (event) => savePreference("density", event.target.value));
   $("#motionSelect")?.addEventListener("change", (event) => savePreference("motion", event.target.value));
   $("#sendModeSelect")?.addEventListener("change", (event) => savePreference("sendMode", event.target.value));
+  // 称呼：失焦或回车时保存（输入过程中不打断）。
+  const nicknameInput = $("#nicknameInput");
+  if (nicknameInput) {
+    const commit = () => {
+      const next = setNickname(nicknameInput.value);
+      nicknameInput.value = next;
+      showToast(next ? `角色会称呼你「${next}」` : "已清空称呼，界面显示档案名");
+    };
+    nicknameInput.addEventListener("change", commit);
+    nicknameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); nicknameInput.blur(); }
+    });
+  }
   $("#resetLayoutButton")?.addEventListener("click", resetLayout);
   $("#resetPreferencesButton")?.addEventListener("click", resetPreferences);
   $("#clearGeneralAiButton")?.addEventListener("click", clearGeneralAiData);
@@ -1846,6 +1877,13 @@ window.addEventListener("roleworld:scale-changed", (event) => {
   if (select) select.value = scale;
 });
 
+// 首次引导里填的称呼：引导自己写偏好，这里只需要把界面刷一遍。
+window.addEventListener("roleworld:nickname-changed", (event) => {
+  const value = event && event.detail ? event.detail.nickname : "";
+  if (value && accountCore) state.preferences = Object.assign({}, state.preferences, { nickname: accountCore.nicknameValue(value) });
+  applyPreferences();
+});
+
 window.TASK25C_UI = {
   layoutConfig,
   // 外观偏好写入口：返校季信件（seasonal-surprise.js）要在用户点「保留」时
@@ -1865,6 +1903,8 @@ window.TASK25C_UI = {
   isSidebarCharacter,
   setSidebarCharacter,
   sidebarCharacterCount,
+  nickname: currentNickname,
+  setNickname,
   rememberDialogFocus,
   restoreDialogFocus,
   syncOverlayScrollLock,

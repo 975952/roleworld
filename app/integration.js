@@ -697,7 +697,9 @@
     liveState.chatLines = session ? session.lines : [];
     liveState.chatMessages = session ? session.messages : [];
     const firstUser = liveState.chatMessages.find((message) => message.is_user && message.name);
-    liveState.userName = (firstUser && firstUser.name) || "用户";
+    // 称呼优先：用户在引导/设置里填的昵称 > 会话里历史记录的用户名 > 默认。
+    const nickname = window.TASK25C_UI && typeof window.TASK25C_UI.nickname === "function" ? window.TASK25C_UI.nickname() : "";
+    liveState.userName = nickname || (firstUser && firstUser.name) || "用户";
     // Task-29A：展示名跟随当前会话的绑定角色；未绑定会话跟随待选/默认角色。
     liveState.charName = activeCharacterEntry().charName || liveState.charName;
     // Task-29F：顶部标题/侧栏品牌名与记忆面板跟随当前角色。

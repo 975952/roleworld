@@ -66,6 +66,40 @@ const MEASURE = `(() => {
     stageBg: bgImage(".main-stage") || bgImage(".map-app .stage-main"),
     shellBg: bgImage("#appShell") || bgImage(".map-app"),
     shellBgColor: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
+    pillBg: (() => {
+      const n = document.querySelector(".plain-button") || document.querySelector(".new-conversation-button")
+        || document.querySelector(".map-app .cast-chip") || document.querySelector(".map-app .map-node");
+      return n ? getComputedStyle(n).backgroundColor : "";
+    })(),
+    fontFamily: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).fontFamily : ""; })(),
+    displayName: (() => { const n = document.getElementById("userDisplayName"); return n ? n.textContent.trim() : ""; })(),
+    accountText: (() => { const n = document.getElementById("mapAccount"); return n ? n.textContent.trim() : ""; })(),
+    buttonRadius: (() => {
+      const n = document.querySelector(".primary-button") || document.querySelector(".map-button-primary");
+      return n ? getComputedStyle(n).borderRadius : "";
+    })(),
+    // 羊皮纸是"浅底 + 深墨"的皮肤，最怕有组件还按暗色主题写死浅色文字。
+    // 直接算侧栏与正文区的文字对比度，掉到 4.5 以下就算回归。
+    sidebarContrast: (() => {
+      const lum = (value) => {
+        const parts = (String(value).match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
+        if (parts.length < 3) return null;
+        const lin = parts.map((v) => {
+          const c = v / 255;
+          return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+      };
+      const node = document.querySelector(".archive-sidebar") || document.getElementById("appShell") || document.querySelector(".map-app");
+      if (!node) return 0;
+      const style = getComputedStyle(node);
+      const a = lum(style.color);
+      let bg = lum(style.backgroundColor);
+      if (bg === null || bg === 0) bg = lum(getComputedStyle(document.body).backgroundColor);
+      if (a === null || bg === null) return 0;
+      const ratio = (Math.max(a, bg) + 0.05) / (Math.min(a, bg) + 0.05);
+      return Math.round(ratio * 100) / 100;
+    })(),
     buttonBg: btn ? getComputedStyle(btn).backgroundImage : "",
     buttonColor: btn ? getComputedStyle(btn).color : "",
   };
@@ -84,8 +118,13 @@ function rgbLuma(value) {
 }
 
 function rgbParts(value) {
-  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value || "");
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [-1, -1, -1];
+  // Chrome 现在会把 color-mix 的结果算成 color(srgb r g b / a) 形式，
+  // 所以两种写法都要认，否则断言会拿到 -1 而误判。
+  const legacy = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value || "");
+  if (legacy) return [Number(legacy[1]), Number(legacy[2]), Number(legacy[3])];
+  const modern = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(value || "");
+  if (modern) return [1, 2, 3].map((i) => Math.round(Number(modern[i]) * 255));
+  return [-1, -1, -1];
 }
 
 async function main() {
@@ -131,7 +170,7 @@ async function main() {
     const m = await open(url, GOLD_DARK, [1280, 900]);
     check(`${label}：风格已落定`, m.style === "gold", m.style);
     check(`${label}：配色是纯金 #f5c518`, m.focus === "#f5c518", m.focus);
-    check(`${label}：底色接近黑`, m.canvas === "#0a0a0a" && rgbLuma(m.bodyBg) <= 20, `${m.canvas} / ${m.bodyBg}`);
+    check(`${label}：底色是暖金近黑`, m.canvas === "#14110a" && rgbLuma(m.bodyBg) <= 40, `${m.canvas} / ${m.bodyBg}`);
     check(`${label}：亮色是渐变不是平涂`, /linear-gradient|radial-gradient/.test(m.buttonBg), m.buttonBg.slice(0, 72));
     check(`${label}：金色落在顶栏渐变上`, /gradient/.test(m.headerBg), m.headerBg.slice(0, 72));
     check(`${label}：主区有金色渐变` , /gradient/.test(m.stageBg), m.stageBg.slice(0, 72));
@@ -166,30 +205,55 @@ async function main() {
     check(`${label}：亮色下按钮是渐变`, /gradient/.test(m.buttonBg), m.buttonBg.slice(0, 72));
   }
 
-  console.log("── 樱 / 深林 / 羊皮纸 ──");
+  console.log("── 樱 / 深林 / 羊皮纸 / 返校金 ──");
   const CHAT = `${BASE}/app/index.html?onboarding=off&surprise=off`;
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
-  check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0b0a0b" && rgbLuma(sakuraDark.bodyBg) <= 20, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
-  check("樱（暗）：强调色是粉", sakuraDark.focus === "#ef9ec4", sakuraDark.focus);
+  check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
+  check("樱（暗）：粉色更浅更纯", sakuraDark.focus === "#ffa6cd", sakuraDark.focus);
+  {
+    const [r, g, b] = rgbParts(sakuraDark.pillBg);
+    check("樱（暗）：药片（小按钮）更粉", g >= 0 && r > g && b > g, sakuraDark.pillBg);
+  }
   check("樱（暗）：主按钮走粉色渐变", /gradient/.test(sakuraDark.buttonBg), sakuraDark.buttonBg.slice(0, 68));
   check("樱（暗）：顶栏是渐变不是平涂", /gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68));
   check("樱（暗）：光带和金色一样小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 240, `${sakuraDark.ambientHeight}px`);
 
-  const forestLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest", theme: "light" }), [1280, 900]);
-  const fl = rgbParts(forestLight.shellBgColor);
-  check("深林（亮）：底色是很浅很浅的浅绿", forestLight.canvas === "#f3faf1" && rgbLuma(forestLight.shellBgColor) >= 235 && fl[1] > fl[0] && fl[1] > fl[2], `${forestLight.canvas} / ${forestLight.shellBgColor}`);
-
   const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
   const fd = rgbParts(forestDark.shellBgColor);
-  check("深林（暗）：底色仍是近黑", rgbLuma(forestDark.shellBgColor) <= 20, forestDark.shellBgColor);
-  check("深林（暗）：绿色是很淡的浅绿", forestDark.focus === "#b9e0a8", forestDark.focus);
+  check("深林（暗）：底色仍是近黑", rgbLuma(forestDark.shellBgColor) <= 24, forestDark.shellBgColor);
+  check("深林（暗）：绿色是更浅的浅绿", forestDark.focus === "#a7e08f", forestDark.focus);
   check("深林（暗）：绿色没把界面染绿", Math.abs(fd[1] - fd[0]) <= 4 && Math.abs(fd[1] - fd[2]) <= 4, forestDark.shellBgColor);
+  check("深林：主区不加渐变", !/gradient/.test(forestDark.stageBg), forestDark.stageBg.slice(0, 60) || "none");
+  check("深林：按钮是实心平涂，不是渐变", !/gradient/.test(forestDark.buttonBg), forestDark.buttonBg.slice(0, 60) || "none");
+
+  const forestLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest", theme: "light" }), [1280, 900]);
+  const fl = rgbParts(forestLight.shellBgColor);
+  check("深林（亮）：底色是很浅很浅的浅绿", forestLight.canvas === "#f4fbf1" && rgbLuma(forestLight.shellBgColor) >= 235 && fl[1] > fl[0] && fl[1] > fl[2], `${forestLight.canvas} / ${forestLight.shellBgColor}`);
+  check("深林（亮）：照样没有渐变", !/gradient/.test(forestLight.stageBg) && !/gradient/.test(forestLight.buttonBg), forestLight.stageBg.slice(0, 40) || "none");
 
   for (const theme of ["dark", "light"]) {
+    const label = theme === "dark" ? "暗" : "亮";
     const paper = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "paper", theme }), [1280, 900]);
-    check(`羊皮纸（${theme === "dark" ? "暗" : "亮"}）：纸面有纤维纹理`, /repeating-linear-gradient/.test(paper.shellBg || ""), (paper.shellBg || "").slice(0, 68));
-    check(`羊皮纸（${theme === "dark" ? "暗" : "亮"}）：主按钮是渐变`, /gradient/.test(paper.buttonBg), paper.buttonBg.slice(0, 68));
+    check(`羊皮纸（${label}）：纸面有纤维纹理`, /repeating-linear-gradient/.test(paper.shellBg || ""), (paper.shellBg || "").slice(0, 68));
+    check(`羊皮纸（${label}）：整页换成衬线体`, /serif|Georgia|Songti/i.test(paper.fontFamily), paper.fontFamily.slice(0, 60));
+    check(`羊皮纸（${label}）：按钮是实心墨色，不是渐变`, !/gradient/.test(paper.buttonBg), paper.buttonBg.slice(0, 60) || "none");
+    check(`羊皮纸（${label}）：圆角收成直角`, parseFloat(paper.buttonRadius) <= 4, paper.buttonRadius);
+    check(`羊皮纸（${label}）：是纸不是黑底`, rgbLuma(paper.shellBgColor) >= 150, paper.shellBgColor);
+    check(`羊皮纸（${label}）：侧栏文字在纸上读得清`, paper.sidebarContrast >= 4.5, paper.sidebarContrast);
+  }
+
+  const goldDark = await open(CHAT, GOLD_DARK, [1280, 900]);
+  check("返校金：暖金底（接管原来那版羊皮纸的质感）", goldDark.canvas === "#14110a" && rgbLuma(goldDark.shellBgColor) <= 40, `${goldDark.canvas} / ${goldDark.shellBgColor}`);
+  check("返校金：金箔纤维纹理在", /repeating-linear-gradient/.test(goldDark.shellBg || ""), (goldDark.shellBg || "").slice(0, 68));
+  check("返校金：金色仍是最纯的那个", goldDark.focus === "#f5c518", goldDark.focus);
+
+  console.log("── 称呼（第一次引导填的那个名字）──");
+  {
+    const chat = await open(CHAT, Object.assign({}, GOLD_DARK, { nickname: "阿远" }), [1280, 900]);
+    check("对话页：界面显示称呼而不是档案名", chat.displayName === "阿远", chat.displayName);
+    const map = await open(`${BASE}/app/magic-map.html?surprise=off`, Object.assign({}, GOLD_DARK, { nickname: "阿远" }), [1280, 900]);
+    check("剧情模式：也认这个称呼", /阿远/.test(map.accountText || ""), (map.accountText || "").slice(0, 40));
   }
 
   console.log("── 返校季第一封信：勾选「保留返校金」必须真的生效 ──");

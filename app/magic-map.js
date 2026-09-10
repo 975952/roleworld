@@ -284,10 +284,24 @@
     return { name: name, entries: entries };
   }
 
+  // 称呼：剧情模式不加载 app.js，所以自己从本账号的外观偏好里读 nickname。
+  function readNickname() {
+    try {
+      var handle = window.sessionStorage.getItem("task27a.current-account-handle.v1") || "";
+      var key = handle ? "task27a.preferences.v1." + handle : "";
+      if (!key) return "";
+      var prefs = JSON.parse(window.localStorage.getItem(key) || "null");
+      var value = prefs && typeof prefs.nickname === "string" ? prefs.nickname.trim() : "";
+      return value;
+    } catch (_) {
+      return "";
+    }
+  }
+
   async function loadAll() {
     var user = await window.STApi.getCurrentUser();
     var model = window.TASK27A_ACCOUNT_CORE ? window.TASK27A_ACCOUNT_CORE.identityModel(user) : null;
-    runtime.userName = (model && model.displayName) || (user && (user.name || user.handle)) || "我";
+    runtime.userName = readNickname() || (model && model.displayName) || (user && (user.name || user.handle)) || "我";
     els.account.textContent = (model && model.handle ? "@" + model.handle : "") + " · " + runtime.userName;
 
     var list = await window.STApi.listCharacters();

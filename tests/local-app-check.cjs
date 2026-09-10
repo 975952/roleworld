@@ -437,7 +437,7 @@ async function main() {
     assert(visible.wrong.length === 0, "仍然可见的管理面板：" + visible.wrong.join(","));
   });
 
-  await check("首次启动强制走完引导：没有跳过，第二步就是填 Key 的地方", async () => {
+  await check("首次启动强制走完引导：没有跳过，先写称呼再填 Key", async () => {
     await waitFor("!!document.querySelector('.rw-ob')", 15000);
     const first = await evaluate("document.querySelector('.rw-ob h2').textContent");
     assert(first.indexOf("欢迎") >= 0, "引导首页标题是：" + first);
@@ -462,9 +462,19 @@ async function main() {
     assert(contrast.ratio >= 3, `引导正文对比度太低（${contrast.ratio}：${contrast.color} on ${contrast.bg}）`);
 
     await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("!!document.querySelector('[data-ob=\"nickname\"]')", 5000);
+    const nameStep = await evaluate("document.querySelector('.rw-ob h2').textContent");
+    assert(nameStep.indexOf("称呼") >= 0, "第二步不是填称呼：" + nameStep);
+    await evaluate(`(() => {
+      const input = document.querySelector('[data-ob="nickname"]');
+      input.value = '测试称呼';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-ob="next"]').click();
+      return true;
+    })()`);
     await waitFor("!!document.querySelector('[data-ob=\"key\"]')", 5000);
     const second = await evaluate("document.querySelector('.rw-ob h2').textContent");
-    assert(second.indexOf("API Key") >= 0, "第二步不是填 Key：" + second);
+    assert(second.indexOf("API Key") >= 0, "第三步不是填 Key：" + second);
     assert(await evaluate("!!document.querySelector('[data-ob=\"save\"]')"), "第二步缺少「保存并测试」");
 
     // 没填 Key 不许往下走
@@ -494,6 +504,11 @@ async function main() {
     await waitFor("window.TASK21_READY === true", 30000);
     await evaluate("new Promise((r) => setTimeout(r, 2000))");
     assert(await evaluate("!document.querySelector('.rw-ob')"), "走完之后重载又弹了一次");
+    // 引导里填的称呼要落进偏好，并且在界面上生效（角色就这么叫他）。
+    assert(await evaluate("document.getElementById('userDisplayName').textContent.trim() === '测试称呼'"),
+      "称呼没有生效，界面显示：" + await evaluate("document.getElementById('userDisplayName').textContent"));
+    const nicknameRow = await evaluate("!!document.getElementById('nicknameInput')");
+    assert(nicknameRow, "设置里没有可修改称呼的输入框");
   });
 
   await check("设置 → 关于里的「再看一次教程」能重新打开", async () => {

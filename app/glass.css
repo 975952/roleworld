@@ -463,49 +463,44 @@
 .character-manage-sidebar input { margin: 0; accent-color: var(--focus); cursor: pointer; }
 
 /* =====================================================================
-   带颜色的风格（返校金 / 樱 / 深林）：亮色只以渐变落在具体表面上
+   带颜色的风格（返校金 / 樱）：亮色只以渐变落在具体表面上
    ---------------------------------------------------------------------
-   要求（2026-09-10）：
+   要求（2026-09-10 / 09-11）：
      * 亮色不能整个界面蒙一层，要做成渐变；
-     * 光要更淡、范围更小（顶部那条光带见 tokens.css，已收到 180px）；
-     * 樱 和 返校金 用同一套做法；
-     * 深林 用很淡的浅绿，不做浓墨绿染底；
-     * 羊皮纸那类"整张纸"的质感另走一路（见本文件末尾的 paper 段）。
-   底色一律是中性近黑（tokens.css），这里只加低透明度的渐变。
+     * 光要更淡、范围更小（顶部那条光带见 tokens.css，180px）；
+     * 樱 和 返校金 用同一套做法，粉色更浅、药片更粉（见下面 sakura 段）；
+     * **深林明确不做渐变**，所以它不在这份名单里 —— 实心平涂；
+     * 羊皮纸是"整张纸"，另走一路（见下面 paper 段）。
    ===================================================================== */
 html[data-style="gold"] .topbar,
 html[data-style="sakura"] .topbar,
-html[data-style="forest"] .topbar,
 html[data-style="gold"] .map-header,
-html[data-style="sakura"] .map-header,
-html[data-style="forest"] .map-header {
+html[data-style="sakura"] .map-header {
   background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 5%, transparent), transparent 100%);
 }
 html[data-style="gold"] .main-stage,
 html[data-style="sakura"] .main-stage,
-html[data-style="forest"] .main-stage,
 html[data-style="gold"] .map-app .stage-main,
-html[data-style="sakura"] .map-app .stage-main,
-html[data-style="forest"] .map-app .stage-main {
+html[data-style="sakura"] .map-app .stage-main {
   background:
     radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 7%, transparent), transparent 58%),
     radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 4%, transparent), transparent 46%),
     var(--canvas);
 }
 html[data-style="gold"] .archive-sidebar,
-html[data-style="sakura"] .archive-sidebar,
-html[data-style="forest"] .archive-sidebar {
+html[data-style="sakura"] .archive-sidebar {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--focus) 4%, transparent), transparent 40%),
     var(--navigation);
 }
 html[data-style="gold"] .map-app .setup-band,
-html[data-style="sakura"] .map-app .setup-band,
-html[data-style="forest"] .map-app .setup-band {
+html[data-style="sakura"] .map-app .setup-band {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--focus) 3%, transparent), transparent 60%),
     var(--canvas);
 }
+/* 主按钮：金/樱/林/纸都走 --focus-grad。
+   深林和羊皮纸的 --focus-grad 就是一个纯色，所以那里是实心平涂，没有渐变。 */
 html[data-style="gold"] .primary-button,
 html[data-style="sakura"] .primary-button,
 html[data-style="forest"] .primary-button,
@@ -541,55 +536,175 @@ html[data-style="paper"] .composer-box:focus-within {
 }
 
 /* =====================================================================
-   风格「羊皮纸」：质感靠纸纹，不靠到处染黄
+   风格「返校金」：金箔底
    ---------------------------------------------------------------------
-   三层叠出来：
-     1. 两层极细的斜向纤维（repeating-linear-gradient，1–2px 一道道）；
-     2. 两团很大的暖色斑（radial-gradient）—— 手工纸的不匀；
-     3. 一圈轻微泛黄的边（vignette），纸放久了的边。
-   全部叠加在 --canvas 上，透明度都很低，正常阅读时几乎注意不到，
-   但整片颜色不再是"平的一块黄"。
+   用户看过上一版羊皮纸后说"这更像返校金"，于是暖金底归返校金：
+   顶层天光 + 两层金色纤维（金箔的细纹）+ 边缘一圈暖褐。
+   ===================================================================== */
+html[data-style="gold"] .app-shell,
+html[data-style="gold"] .map-app {
+  background-color: var(--canvas);
+  background-image:
+    repeating-linear-gradient(108deg, rgb(245 197 24 / 4.5%) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(22deg, rgb(245 197 24 / 3%) 0 1px, transparent 1px 8px),
+    radial-gradient(ellipse at 20% 0%, rgb(255 224 122 / 10%), transparent 58%),
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(90 66 18 / 22%) 100%);
+  background-attachment: fixed;
+}
+html[data-theme="light"][data-style="gold"] .app-shell,
+html[data-theme="light"][data-style="gold"] .map-app {
+  background-image:
+    repeating-linear-gradient(108deg, rgb(168 121 10 / 5%) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(22deg, rgb(168 121 10 / 3.5%) 0 1px, transparent 1px 8px),
+    radial-gradient(ellipse at 18% 0%, rgb(255 250 235 / 70%), transparent 58%),
+    radial-gradient(ellipse at 50% 50%, transparent 46%, rgb(168 121 10 / 12%) 100%);
+}
+
+/* =====================================================================
+   风格「深林」：实心平涂，一处渐变都不加
+   ---------------------------------------------------------------------
+   用户要求（2026-09-11）："绿色不做渐变，做得更浅"。
+   所以这里要把 glass.css 上半部分给所有风格加的渐变（.main-stage 的
+   radial、.archive-sidebar 的 color-mix、.composer-box 的 linear）全部
+   按回实心；按钮也是实心绿（tokens.css 里 --focus-grad 就是纯色）。
+   ===================================================================== */
+html[data-style="forest"] .main-stage,
+html[data-style="forest"] .map-app .stage-main,
+html[data-style="forest"] .map-app .setup-band {
+  background: var(--canvas);
+}
+html[data-style="forest"] .archive-sidebar { background: var(--navigation); }
+html[data-style="forest"] .topbar,
+html[data-style="forest"] .map-header { background: transparent; }
+html[data-style="forest"] .composer-box,
+html[data-style="forest"] .memory-modal,
+html[data-style="forest"] .confirm-dialog,
+html[data-style="forest"] .map-app .stage-composer {
+  background: var(--raised);
+}
+html[data-style="forest"] .map-app .scene-line.is-dice { background: var(--accent-soft); }
+
+/* =====================================================================
+   风格「樱」：药片更粉
+   ---------------------------------------------------------------------
+   整体保持"近黑底 + 浅粉",但按钮/药片这类小块要更粉 —— 块越小越敢上色，
+   整片面积才不会糊成一片粉。
+   ===================================================================== */
+html[data-style="sakura"] .plain-button,
+html[data-style="sakura"] .new-conversation-button,
+html[data-style="sakura"] .character-picker-trigger,
+html[data-style="sakura"] .history-empty-action,
+html[data-style="sakura"] .map-app button:not(.map-button-primary),
+html[data-style="sakura"] .cast-chip,
+html[data-style="sakura"] .map-node,
+html[data-style="sakura"] .scene-presence {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--focus) 28%, var(--raised));
+  color: color-mix(in srgb, var(--focus) 45%, var(--main-text));
+}
+html[data-style="sakura"] .plain-button:hover,
+html[data-style="sakura"] .new-conversation-button:hover,
+html[data-style="sakura"] .history-empty-action:hover,
+html[data-style="sakura"] .map-app button:not(.map-button-primary):hover,
+html[data-style="sakura"] .cast-chip:hover,
+html[data-style="sakura"] .map-node:hover,
+html[data-style="sakura"] .scene-presence:hover {
+  background: color-mix(in srgb, var(--focus) 40%, var(--raised));
+}
+html[data-style="sakura"] .cast-chip.is-on,
+html[data-style="sakura"] .map-node.is-active,
+html[data-style="sakura"] .scene-presence.is-on {
+  color: color-mix(in srgb, var(--focus) 55%, var(--main-text));
+  background: color-mix(in srgb, var(--focus) 44%, var(--raised));
+}
+html[data-style="sakura"] .settings-nav-item.is-active,
+html[data-style="sakura"] .history-item.is-active {
+  background: color-mix(in srgb, var(--focus) 30%, var(--raised));
+}
+html[data-style="sakura"] .season-letter-seal,
+html[data-style="sakura"] .settings-count {
+  color: var(--focus);
+}
+
+/* =====================================================================
+   风格「羊皮纸」：不是换配色，是换一套界面
+   ---------------------------------------------------------------------
+   用户要求（2026-09-11）："可以改变界面样式，要就是羊皮纸"。
+   所以这里做的不是加一层黄，而是：
+     1. 衬线体 + 近乎直角（在 tokens.css 里设 --font-family / 半径）；
+     2. 纸纹：两层棕色纤维 + 纸浆不匀 + 一圈边缘泛黄；
+     3. 去掉全部玻璃拟态：输入框、弹窗、侧栏都用实心纸面，没有模糊；
+     4. 按钮是"墨印"：实心墨色 --focus-grad（纯色）+ 纸色文字。
    ===================================================================== */
 html[data-style="paper"] .app-shell,
 html[data-style="paper"] .map-app {
   background-color: var(--canvas);
   background-image:
-    repeating-linear-gradient(112deg, rgb(122 92 48 / 3.2%) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(24deg, rgb(122 92 48 / 2.4%) 0 1px, transparent 1px 7px),
-    radial-gradient(ellipse at 18% 8%, rgb(255 246 220 / 45%), transparent 58%),
-    radial-gradient(ellipse at 84% 92%, rgb(168 132 74 / 12%), transparent 62%),
-    radial-gradient(ellipse at 50% 50%, transparent 52%, rgb(120 92 52 / 12%) 100%);
+    repeating-linear-gradient(112deg, rgb(96 74 40 / 6%) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(24deg, rgb(96 74 40 / 4.5%) 0 1px, transparent 1px 6px),
+    radial-gradient(ellipse at 16% 6%, rgb(255 250 232 / 70%), transparent 56%),
+    radial-gradient(ellipse at 84% 92%, rgb(150 116 62 / 18%), transparent 60%),
+    radial-gradient(ellipse at 50% 50%, transparent 44%, rgb(104 78 40 / 20%) 100%);
   background-attachment: fixed;
 }
 html[data-style="paper"] .main-stage,
 html[data-style="paper"] .map-app .stage-main {
   background-color: transparent;
   background-image:
-    repeating-linear-gradient(112deg, rgb(122 92 48 / 3%) 0 1px, transparent 1px 5px),
-    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 5%, transparent), transparent 58%),
-    radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(120 92 52 / 10%) 100%);
+    repeating-linear-gradient(112deg, rgb(96 74 40 / 5%) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at 50% 50%, transparent 48%, rgb(104 78 40 / 16%) 100%);
 }
-html[data-theme="light"][data-style="paper"] .app-shell,
-html[data-theme="light"][data-style="paper"] .map-app {
-  background-image:
-    repeating-linear-gradient(112deg, rgb(150 118 66 / 4.5%) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(24deg, rgb(150 118 66 / 3.5%) 0 1px, transparent 1px 7px),
-    radial-gradient(ellipse at 16% 6%, rgb(255 252 240 / 70%), transparent 58%),
-    radial-gradient(ellipse at 86% 94%, rgb(178 142 84 / 16%), transparent 62%),
-    radial-gradient(ellipse at 50% 50%, transparent 48%, rgb(140 108 60 / 16%) 100%);
-}
-html[data-theme="light"][data-style="paper"] .main-stage,
-html[data-theme="light"][data-style="paper"] .map-app .stage-main {
-  background-image:
-    repeating-linear-gradient(112deg, rgb(150 118 66 / 4%) 0 1px, transparent 1px 5px),
-    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 6%, transparent), transparent 58%),
-    radial-gradient(ellipse at 50% 50%, transparent 52%, rgb(140 108 60 / 13%) 100%);
-}
-/* 羊皮纸下不用玻璃拟态那层半透明白，改成不透明的纸面，纸感更实。 */
+/* 纸面是实心的：去掉玻璃模糊与半透明，纸才像纸。 */
 html[data-style="paper"] .composer-box,
 html[data-style="paper"] .memory-modal,
-html[data-style="paper"] .confirm-dialog {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--raised) 92%, transparent), color-mix(in srgb, var(--raised) 86%, transparent));
+html[data-style="paper"] .confirm-dialog,
+html[data-style="paper"] .settings-surface,
+html[data-style="paper"] .map-app .setup-band,
+html[data-style="paper"] .map-app .stage-composer {
+  background: var(--raised);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+html[data-style="paper"] .archive-sidebar {
+  background: var(--navigation);
+  border-right: 0;
+}
+html[data-style="paper"] .composer-box,
+html[data-style="paper"] .map-app .stage-composer {
+  background: color-mix(in srgb, var(--raised) 88%, var(--canvas));
+}
+html[data-style="paper"] .modal-backdrop,
+html[data-style="paper"] .confirm-backdrop {
+  background: rgb(40 30 14 / 45%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* 墨印按钮：不用金色渐变，就是一块墨。 */
+html[data-style="paper"] .primary-button,
+html[data-style="paper"] #seasonLetterEnter,
+html[data-style="paper"] .map-app .map-button-primary {
+  color: var(--button-text);
+  background: var(--focus);
+  border-radius: 3px;
+  box-shadow: none;
+  font-weight: 600;
+}
+html[data-style="paper"] .plain-button,
+html[data-style="paper"] .new-conversation-button,
+html[data-style="paper"] .map-app button {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--main-text) 9%, var(--raised));
+}
+html[data-style="paper"] .primary-button:hover,
+html[data-style="paper"] .map-app .map-button-primary:hover:not(:disabled) {
+  background: var(--focus);
+  filter: brightness(1.08);
+}
+
+/* 羊皮纸的纸面是半透明白之上的实心纸：正文区再压一层很淡的横纹，
+   像信纸的行格，但几乎看不见，只在滚动时有点纸的质感。 */
+html[data-style="paper"] .message-list,
+html[data-style="paper"] .dynamic-messages {
+  background-image: repeating-linear-gradient(180deg, rgb(96 74 40 / 5%) 0 1px, transparent 1px 34px);
 }

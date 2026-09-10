@@ -17,6 +17,7 @@ const Store = require(path.join(ROOT, "store.js"));
 const Model = require(path.join(ROOT, "model.js"));
 const Zip = require(path.join(ROOT, "zip.js"));
 const Cards = require(path.join(ROOT, "cards.js"));
+const AccountCore = require(path.join(__dirname, "..", "app", "account-core.js"));
 
 // 让 index.js 能在 Node 里跑起来：它启动时会去读这几个全局。
 globalThis.RoleWorldStore = Store;
@@ -654,6 +655,40 @@ async function main() {
 
   await test("非 ZIP 数据会明确报错", async () => {
     await assert.rejects(() => Zip.read(new Uint8Array([1, 2, 3, 4])), /不是有效的 ZIP 文件/);
+  });
+
+  console.log("");
+  console.log("== 称呼（preferences.nickname）==");
+
+  await test("称呼：默认是空串（还没设过）", () => {
+    assert.equal(AccountCore.defaultPreferences().nickname, "");
+    assert.equal(AccountCore.normalizePreferences({}).nickname, "");
+  });
+
+  await test("称呼：去掉首尾空白与控制字符", () => {
+    assert.equal(AccountCore.nicknameValue("  小林  "), "小林");
+    assert.equal(AccountCore.nicknameValue("阿\u0000远\n"), "阿远");
+    assert.equal(AccountCore.nicknameValue(null), "");
+    assert.equal(AccountCore.nicknameValue(123), "");
+  });
+
+  await test("称呼：超长截断而不是丢掉", () => {
+    const long = "很".repeat(40);
+    assert.equal(AccountCore.nicknameValue(long).length, AccountCore.NICKNAME_MAX);
+    assert.equal(AccountCore.normalizePreferences({ nickname: long }).nickname.length, AccountCore.NICKNAME_MAX);
+  });
+
+  await test("称呼：能存进偏好并原样读回", () => {
+    const store = new Map();
+    const storage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+    };
+    const written = AccountCore.writePreferences(storage, "local", { nickname: "  阿远  " });
+    assert.equal(written.preferences.nickname, "阿远");
+    const read = AccountCore.readPreferences(storage, "local", {});
+    assert.equal(read.preferences.nickname, "阿远");
   });
 
   console.log("");

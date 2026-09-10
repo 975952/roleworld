@@ -44,7 +44,9 @@
   --motion-ease: cubic-bezier(.22, 1, .36, 1);
   --panel-motion: 300ms;
   --hover-motion: 150ms;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* 字体也做成变量：羊皮纸要整页换衬线体（见 data-style="paper"）。 */
+  --font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-family);
 }
 
 :root[data-theme="light"] {
@@ -68,47 +70,58 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格一：羊皮纸（暖纸色 + 纸纹，适合长时间阅读与写作）
-   质感不靠"到处染黄"，靠：偏暖的纸底色 + 极细的纤维纹 + 边缘轻微泛黄
-   （纹理层见 glass.css 的 data-style="paper" 段）。
+   风格一：羊皮纸 —— 不是"换一套颜色"，是换一套界面
+   ---------------------------------------------------------------------
+   用户要求（2026-09-11）："要就是羊皮纸"。所以这一套：
+     * 整页换成衬线体（--font-family）；
+     * 圆角几乎去掉（羊皮纸没有玻璃拟态的圆角）；
+     * 底色是纸（米黄到浅褐），文字是墨（深褐），没有金色；
+     * 暗色主题不换成黑底，只是把纸调暗一档（像灯下看纸），
+       否则"羊皮纸"在夜里就变成另一套深色主题了。
    --------------------------------------------------------------------- */
 :root[data-style="paper"] {
-  --canvas: #16130d;
-  --navigation: #1c1811;
-  --raised: #231e15;
-  --hover: #2b2519;
-  --selected: #342c1d;
-  --hairline: #38301f;
-  --strong-line: #4a3f2a;
-  --main-text: #f4ead7;
-  --secondary-text: #dccdb2;
-  --muted-text: #a5917a;
-  --quiet-text: #806f5b;
-  --focus: #d3a24a;
-  --focus-grad: linear-gradient(160deg, #e8c078, #c8912f);
-  --topbar-bg: rgba(22,19,13,.94);
-  --overlay: rgba(22,19,13,.93);
-  --accent-soft: rgba(211,162,74,.12);
+  --font-family: ui-serif, Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+  --base-radius: 3px;
+  --input-radius: 4px;
+  --card-radius: 4px;
+  /* 暗色主题下的"灯下的纸" */
+  --canvas: #ded0ad;
+  --navigation: #d3c29b;
+  --raised: #ece0c2;
+  --hover: #d8c8a4;
+  --selected: #cbb98f;
+  --hairline: #c2ae83;
+  --strong-line: #a68f61;
+  --main-text: #322614;
+  --secondary-text: #4d3d24;
+  --muted-text: #6d5b3a;
+  --quiet-text: #8a7450;
+  --focus: #7a4f1e;
+  --focus-grad: #7a4f1e;
+  --topbar-bg: rgba(222,208,173,.94);
+  --button-text: #f3e8cd;
+  --overlay: rgba(222,208,173,.94);
+  --accent-soft: rgba(122,79,30,.14);
 }
 :root[data-style="paper"][data-theme="light"] {
-  /* 真·纸：比纯白暖，但不再发黄发土。 */
-  --canvas: #f6efdf;
-  --navigation: #eee5d1;
-  --raised: #fdf8ec;
-  --hover: #e8ddc6;
-  --selected: #ddd0b4;
-  --hairline: #dccfb4;
-  --strong-line: #c3b291;
-  --main-text: #33291b;
-  --secondary-text: #55472f;
-  --muted-text: #7d6a4d;
-  --quiet-text: #9a886a;
-  --focus: #96690f;
-  --focus-grad: linear-gradient(160deg, #b8862a, #8a5f0c);
-  --topbar-bg: rgba(246,239,223,.94);
-  --button-text: #fdf8ec;
-  --overlay: rgba(246,239,223,.94);
-  --accent-soft: rgba(150,105,15,.10);
+  /* 亮色主题下的新纸 */
+  --canvas: #f2e7cb;
+  --navigation: #e9dcbc;
+  --raised: #faf2dd;
+  --hover: #eadfc0;
+  --selected: #dfd0aa;
+  --hairline: #d8c69f;
+  --strong-line: #b9a273;
+  --main-text: #2b2110;
+  --secondary-text: #493a1f;
+  --muted-text: #6b5836;
+  --quiet-text: #8a7750;
+  --focus: #6f4614;
+  --focus-grad: #6f4614;
+  --topbar-bg: rgba(242,231,203,.94);
+  --button-text: #f7eed7;
+  --overlay: rgba(242,231,203,.94);
+  --accent-soft: rgba(111,70,20,.12);
 }
 
 /* ---------------------------------------------------------------------
@@ -151,88 +164,95 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格三：深林（浅绿 —— 不是浓墨绿）
-   暗色：底色仍是近黑，绿色一律用很淡的浅绿（#b9e0a8 一类），不做深绿染底；
-   亮色：底色就是很浅很浅的浅绿（#f3faf1），只在强调色上用饱和一点的绿。
+   风格三：深林（浅绿，纯平涂，不做任何渐变）
+   用户要求（2026-09-11）："绿色不做渐变，做得更浅"。
+   所以这一套完全没有渐变层：没有顶部光带，表面不加 color-mix 渐变，
+   按钮也是实心一块绿（--focus-grad 直接是一个颜色）。
    --------------------------------------------------------------------- */
 :root[data-style="forest"] {
-  --canvas: #0a0c0a;
-  --navigation: #101310;
-  --raised: #161a16;
-  --hover: #1d221d;
-  --selected: #252b25;
-  --hairline: #282e28;
-  --strong-line: #3a423a;
-  --main-text: #f1f5f0;
-  --secondary-text: #d3dcd1;
-  --muted-text: #9aa79a;
-  --quiet-text: #768276;
-  --focus: #b9e0a8;
-  --focus-grad: linear-gradient(160deg, #d6efc9, #a7d693);
-  --topbar-bg: rgba(10,12,10,.94);
-  --overlay: rgba(10,12,10,.93);
-  --accent-soft: rgba(185,224,168,.10);
+  --canvas: #0b0e0b;
+  --navigation: #111611;
+  --raised: #171e17;
+  --hover: #1f271f;
+  --selected: #273227;
+  --hairline: #2a352a;
+  --strong-line: #3d4b3d;
+  --main-text: #f2f7f0;
+  --secondary-text: #d5e2d0;
+  --muted-text: #9db097;
+  --quiet-text: #788a73;
+  --focus: #a7e08f;
+  --focus-grad: #5fb84a;
+  --topbar-bg: rgba(11,14,11,.94);
+  --button-text: #0b1408;
+  --overlay: rgba(11,14,11,.93);
+  --accent-soft: rgba(167,224,143,.14);
 }
 :root[data-style="forest"][data-theme="light"] {
-  --canvas: #f3faf1;
-  --navigation: #e9f4e6;
+  --canvas: #f4fbf1;
+  --navigation: #ebf6e6;
   --raised: #ffffff;
-  --hover: #ddefd8;
-  --selected: #cde6c6;
-  --hairline: #d4e8ce;
-  --strong-line: #b2cfa9;
-  --main-text: #141f10;
-  --secondary-text: #2f4029;
-  --muted-text: #5b6d53;
-  --quiet-text: #7f9077;
-  --focus: #47803a;
-  --focus-grad: linear-gradient(160deg, #7cb86a, #3f7530);
-  --topbar-bg: rgba(243,250,241,.94);
+  --hover: #dff2d7;
+  --selected: #d0ecc5;
+  --hairline: #d6ecca;
+  --strong-line: #b4d6a6;
+  --main-text: #16210f;
+  --secondary-text: #31432a;
+  --muted-text: #5d7253;
+  --quiet-text: #82977a;
+  --focus: #4a9c34;
+  --focus-grad: #4a9c34;
+  --topbar-bg: rgba(244,251,241,.94);
   --button-text: #ffffff;
-  --overlay: rgba(243,250,241,.94);
-  --accent-soft: rgba(71,128,58,.10);
+  --overlay: rgba(244,251,241,.94);
+  --accent-soft: rgba(74,156,52,.12);
 }
 
 /* ---------------------------------------------------------------------
-   风格四：樱（与返校金同一套做法：中性近黑底 + 一道粉色渐变）
-   之前底色被染成粉紫，整屏都偏色；现在只留强调色粉。
+   风格四：樱（浅粉 + 粉色药片）
+   用户要求（2026-09-11）："粉色要做得更浅，而且药片更粉色；现在的颜色都太暗了，
+   色彩要鲜艳但亮度不高"。
+   做法：底色仍是中性近黑（不染粉），粉色本身提亮、提纯（#ffa6cd 一类），
+   按钮/药片那类小块用更实的粉（见 glass.css 的 sakura 段），
+   这样"整体不刺眼、粉色块很粉"。
    --------------------------------------------------------------------- */
 :root[data-style="sakura"] {
-  --canvas: #0b0a0b;
-  --navigation: #121113;
-  --raised: #181719;
-  --hover: #201e21;
-  --selected: #29262a;
-  --hairline: #2c292d;
-  --strong-line: #3f3b41;
-  --main-text: #f7f2f5;
-  --secondary-text: #ded4da;
-  --muted-text: #a89aa3;
-  --quiet-text: #83777f;
-  --focus: #ef9ec4;
-  --focus-grad: linear-gradient(160deg, #ffc2dc, #e483ae);
-  --topbar-bg: rgba(11,10,11,.94);
-  --overlay: rgba(11,10,11,.93);
-  --accent-soft: rgba(239,158,196,.10);
+  --canvas: #0c0a0c;
+  --navigation: #141116;
+  --raised: #1b171c;
+  --hover: #241e24;
+  --selected: #2e262e;
+  --hairline: #322a32;
+  --strong-line: #463b45;
+  --main-text: #faf4f8;
+  --secondary-text: #e6d7e0;
+  --muted-text: #b39cac;
+  --quiet-text: #8d7788;
+  --focus: #ffa6cd;
+  --focus-grad: linear-gradient(160deg, #ffc9e0, #ff8ec1);
+  --topbar-bg: rgba(12,10,12,.94);
+  --button-text: #2c0f20;
+  --overlay: rgba(12,10,12,.93);
+  --accent-soft: rgba(255,166,205,.16);
 }
 :root[data-style="sakura"][data-theme="light"] {
-  --canvas: #fdf8fb;
-  --navigation: #f7edf3;
+  --canvas: #fff8fc;
+  --navigation: #fbedf4;
   --raised: #ffffff;
-  --hover: #f2e3ea;
-  --selected: #ead5df;
-  --hairline: #e8d6e0;
-  --strong-line: #d3b9c8;
-  --main-text: #211722;
-  --secondary-text: #47323f;
-  --muted-text: #7b6270;
-  --quiet-text: #9a8490;
-  --focus: #b8558b;
-  --focus-grad: linear-gradient(160deg, #d98ab6, #b8558b);
-  --topbar-bg: rgba(253,248,251,.94);
+  --hover: #f7e1ec;
+  --selected: #f0cfdf;
+  --hairline: #f0d3e1;
+  --strong-line: #dcb3c7;
+  --main-text: #26141f;
+  --secondary-text: #4d3243;
+  --muted-text: #805f72;
+  --quiet-text: #9d8291;
+  --focus: #e2559a;
+  --focus-grad: linear-gradient(160deg, #ff8fc4, #e2559a);
+  --topbar-bg: rgba(255,248,252,.94);
   --button-text: #ffffff;
-  --overlay: rgba(253,248,251,.94);
-  --accent-soft: rgba(184,85,139,.10);
+  --overlay: rgba(255,248,252,.94);
+  --accent-soft: rgba(226,85,154,.14);
 }
 
 /* ---------------------------------------------------------------------
@@ -240,56 +260,57 @@
    不再依赖"当月是九月 + 首次进入 + 没关过"这几个条件）
    --------------------------------------------------------------------- */
 :root[data-style="gold"] {
-  /* 底色一律中性近黑，不带黄 —— 之前把表面也染了暖色，整体发闷像"土黄"。
-     金色只出现在强调色（--focus）与选中/悬停上，才是"黑底 + 纯金"。 */
-  --canvas: #0a0a0a;
-  --navigation: #111110;
-  --raised: #171717;
-  --hover: #1f1f1e;
-  --selected: #282725;
-  --hairline: #2c2c2a;
-  --strong-line: #3f3e3a;
-  --main-text: #f7f5ef;
-  --secondary-text: #ded9cd;
-  --muted-text: #a9a396;
-  --quiet-text: #837d72;
+  /* 2026-09-11：用户看过上一版羊皮纸后说"这更像返校金"，于是把暖金色底
+     交给返校金（金箔/旧烫金的感觉，纹理层见 glass.css 的 gold 段），
+     羊皮纸另做一套真正的纸。金色仍然只出现在强调色上。 */
+  --canvas: #14110a;
+  --navigation: #1a1710;
+  --raised: #221d13;
+  --hover: #2b2517;
+  --selected: #352d1c;
+  --hairline: #3a3121;
+  --strong-line: #52462c;
+  --main-text: #f8f2e0;
+  --secondary-text: #e0d6bd;
+  --muted-text: #aca085;
+  --quiet-text: #877c64;
   --focus: #f5c518;
   /* 纯金：亮的那一头接近 #ffe07a，暗的一头 #e9ad00，颜色本身不发灰。 */
   --focus-grad: linear-gradient(160deg, #ffe07a, #e9ad00);
-  --topbar-bg: rgba(10,10,10,.94);
-  --overlay: rgba(10,10,10,.93);
-  --accent-soft: rgba(245,197,24,.10);
+  --topbar-bg: rgba(20,17,10,.94);
+  --overlay: rgba(20,17,10,.93);
+  --accent-soft: rgba(245,197,24,.12);
 }
 :root[data-style="gold"][data-theme="light"] {
-  --canvas: #fbfaf6;
-  --navigation: #f5f3ec;
-  --raised: #ffffff;
-  --hover: #f1ede0;
-  --selected: #e9e4d3;
-  --hairline: #e6e1d1;
-  --strong-line: #cdc6ab;
-  --main-text: #201d16;
-  --secondary-text: #443e2e;
-  --muted-text: #6d6650;
-  --quiet-text: #928a74;
-  --focus: #b8860b;
+  --canvas: #f9f3e2;
+  --navigation: #f1e9d5;
+  --raised: #fffaf0;
+  --hover: #f2ead6;
+  --selected: #e9dfc4;
+  --hairline: #e6dcc2;
+  --strong-line: #cdbf9d;
+  --main-text: #221c0f;
+  --secondary-text: #4a4028;
+  --muted-text: #6f6547;
+  --quiet-text: #93875f;
+  --focus: #a8790a;
   --focus-grad: linear-gradient(160deg, #d9a316, #a9780a);
-  --topbar-bg: rgba(251,250,246,.94);
+  --topbar-bg: rgba(249,243,226,.94);
   --button-text: #241a03;
-  --overlay: rgba(251,250,246,.94);
-  --accent-soft: rgba(184,134,11,.13);
+  --overlay: rgba(249,243,226,.94);
+  --accent-soft: rgba(168,121,10,.13);
 }
 
 /* ---------------------------------------------------------------------
    顶部光带：亮色一律做成"渐变"，不给整个界面蒙一层。
    规则（2026-09-10 用户）：光带要小、要淡，只在顶栏高度附近，往下很快消失。
-   颜色取当前风格的 --focus，所以金/樱/林各自是金色/粉色/浅绿。
-   羊皮纸那类"整张纸"的质感不走这条路（见 glass.css 的 paper 段）。
+   颜色取当前风格的 --focus，所以金/樱各自是金色/粉色。
+   深林明确要求"绿色不做渐变"，所以不在这里；
+   羊皮纸是"整张纸"的质感，也不走这条路（见 glass.css 的 paper 段）。
    --------------------------------------------------------------------- */
 html.season-ambient-on::after,
 html[data-style="gold"]::after,
-html[data-style="sakura"]::after,
-html[data-style="forest"]::after {
+html[data-style="sakura"]::after {
   content: "";
   position: fixed;
   inset: 0 0 auto 0;
@@ -305,8 +326,7 @@ html[data-style="forest"]::after {
 }
 html[data-theme="light"].season-ambient-on::after,
 html[data-theme="light"][data-style="gold"]::after,
-html[data-theme="light"][data-style="sakura"]::after,
-html[data-theme="light"][data-style="forest"]::after { opacity: .45; }
+html[data-theme="light"][data-style="sakura"]::after { opacity: .45; }
 
 @keyframes season-drift {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
