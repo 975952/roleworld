@@ -28,8 +28,9 @@
     density: ["comfortable", "compact"],
     motion: ["full", "reduced"],
     sendMode: ["enter", "ctrl-enter"],
-    // 界面缩放：整体放大/缩小（含正文与控件）。存字符串，方便与 enumValue 比较。
-    scale: ["0.9", "1", "1.1", "1.25", "1.5"],
+    // 界面缩放：整体放大/缩小。范围收窄到 90%–120%（5% 一档）—— 太大一按就"跳"。
+    // Ctrl/⌘ + - / = / 0 也能调，见 zoom.js。
+    scale: ["0.9", "0.95", "1", "1.05", "1.1", "1.15", "1.2"],
     // 风格：同一套布局下的不同配色（见 tokens.css）。
     style: ["default", "paper", "ink", "forest", "sakura", "gold"],
     lastSettingsSection: ["appearance", "conversation", "model", "characters", "layout", "about", "local-data"],

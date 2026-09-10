@@ -279,6 +279,13 @@ html[data-theme="light"] .rw-ob{
   async function maybeShow() {
     try {
       if (!global.RoleWorld || typeof global.RoleWorld.getLocalSettings !== "function") return false;
+      // ?onboarding=off 只跳过引导，方便先随便看看界面（不影响正式流程）。
+      try {
+        if (new URLSearchParams(global.location.search).get("onboarding") === "off") {
+          await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
+          return false;
+        }
+      } catch (_) { /* 拿不到 URL 参数就照常走 */ }
       const settings = await global.RoleWorld.getLocalSettings();
       if (settings[SEEN_KEY] === true) return false;
       // 已经配过 Key 的老用户（或导入过存档）不该被打扰，直接标记为已看。

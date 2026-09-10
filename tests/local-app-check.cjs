@@ -362,21 +362,21 @@ async function main() {
     const before = await evaluate("document.querySelector('#messageInput').getBoundingClientRect().height");
     await evaluate(`(() => {
       const select = document.querySelector('#scaleSelect');
-      select.value = '1.5';
+      select.value = '1.2';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor("document.querySelector('#appShell').style.zoom === '1.5'", 6000);
+    await waitFor("document.querySelector('#appShell').style.zoom === '1.2'", 6000);
     const manual = await evaluate(`(() => {
       const shell = document.querySelector('#appShell');
       return { computed: getComputedStyle(shell).zoom, height: document.querySelector('#messageInput').getBoundingClientRect().height };
     })()`);
     const after = await evaluate("document.querySelector('#messageInput').getBoundingClientRect().height");
-    assert(after > before * 1.2, `放大后输入框没变大：${before} → ${after}；${JSON.stringify(manual)}`);
+    assert(after > before * 1.15, `放大后输入框没变大：${before} → ${after}；${JSON.stringify(manual)}`);
 
     // 偏好要落到本机，刷新后才不会丢
     const stored = await evaluate("(JSON.parse(localStorage.getItem('task27a.preferences.v1.local') || '{}') || {}).scale");
-    assert(stored === "1.5", "缩放偏好没有存下来：" + stored);
+    assert(stored === "1.2", "缩放偏好没有存下来：" + stored);
 
     // 缩放之后固定定位的设置面板仍然要能正常打开
     await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
@@ -391,6 +391,29 @@ async function main() {
       return true;
     })()`);
     await waitFor("!document.querySelector('#appShell').style.zoom", 6000);
+  });
+
+  await check("Ctrl+减号 / 等号 / 0 能调界面大小，且范围有限", async () => {
+    await waitFor("window.TASK21_READY === true", 30000);
+    const ladder = await evaluate("window.RoleWorldZoom.LADDER.join(',')");
+    assert(ladder === "0.9,0.95,1,1.05,1.1,1.15,1.2", "档位不是收窄后的 7 档：" + ladder);
+
+    const press = (key) => evaluate(`(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, ctrlKey: true, bubbles: true, cancelable: true }));
+      return document.querySelector('#appShell').style.zoom || '1';
+    })()`);
+
+    assert(await press("=") === "1.05", "Ctrl+= 没有放大一档");
+    assert(await press("=") === "1.1", "Ctrl+= 第二次没生效");
+    // 一路顶到上限，不能再涨
+    for (let i = 0; i < 6; i += 1) await press("=");
+    assert(await evaluate("window.RoleWorldZoom.current()") === 1.2, "上限没有停在 120%");
+    for (let i = 0; i < 12; i += 1) await press("-");
+    assert(await evaluate("window.RoleWorldZoom.current()") === 0.9, "下限没有停在 90%");
+
+    assert(await press("0") === "1", "Ctrl+0 没有回到 100%");
+    // 设置里的下拉要跟着同步
+    assert(await evaluate("document.querySelector('#scaleSelect').value") === "1", "设置下拉没有同步");
   });
 
   await check("账号相关入口不可见", async () => {

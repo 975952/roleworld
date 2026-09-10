@@ -1765,6 +1765,15 @@ updateMobileBottomNav("chat");
 const previewWaiting = new URLSearchParams(window.location.search).get("preview") === "waiting";
 if (previewWaiting) setWaiting(true);
 
+// Ctrl/⌘ + - / = / 0 改的是同一份偏好（见 zoom.js），这里把设置里的下拉同步过来。
+window.addEventListener("roleworld:scale-changed", (event) => {
+  const scale = event && event.detail ? String(event.detail.scale) : "";
+  if (!scale) return;
+  state.preferences = Object.assign({}, state.preferences, { scale });
+  const select = $("#scaleSelect");
+  if (select) select.value = scale;
+});
+
 window.TASK25C_UI = {
   layoutConfig,
   setSidebarCollapsed,
