@@ -1,0 +1,9 @@
+# 统一成 LF：桌面端（Rust）与 CI 在 Linux/macOS 上构建时不会因为换行符出问题。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.woff2 binary
