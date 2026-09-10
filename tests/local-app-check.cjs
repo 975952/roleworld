@@ -352,6 +352,32 @@ async function main() {
     assert(visible.wrong.length === 0, "仍然可见的管理面板：" + visible.wrong.join(","));
   });
 
+  await check("首次启动会弹出教程，跳过之后不再出现", async () => {
+    await waitFor("!!document.querySelector('.rw-onboard-backdrop')", 15000);
+    const first = await evaluate("document.querySelector('.rw-onboard h2').textContent");
+    assert(first.indexOf("欢迎") >= 0, "教程首页标题是：" + first);
+    const steps = await evaluate("document.querySelectorAll('.rw-onboard-dots i').length");
+    assert(steps >= 4, "教程步骤太少：" + steps);
+
+    await evaluate("document.querySelector('[data-rw=\"skip\"]').click()");
+    await waitFor("!document.querySelector('.rw-onboard-backdrop')", 5000);
+
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    await evaluate("new Promise((r) => setTimeout(r, 2000))");
+    assert(await evaluate("!document.querySelector('.rw-onboard-backdrop')"), "跳过之后重载又弹了一次");
+  });
+
+  await check("设置 → 关于里的「再看一次教程」能重新打开", async () => {
+    await evaluate("document.querySelector('[data-roleworld=\"tutorial\"]').click()");
+    await waitFor("!!document.querySelector('.rw-onboard-backdrop')", 5000);
+    await evaluate("document.querySelector('[data-rw=\"next\"]').click()");
+    const second = await evaluate("document.querySelector('.rw-onboard h2').textContent");
+    assert(second.indexOf("欢迎") < 0, "「下一步」没有翻页，标题还是：" + second);
+    await evaluate("document.querySelector('[data-rw=\"skip\"]').click()");
+    await waitFor("!document.querySelector('.rw-onboard-backdrop')", 5000);
+  });
+
   console.log("== 剧情模式页 ==");
 
   await goto(base + "/magic-map.html");

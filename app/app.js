@@ -1756,6 +1756,7 @@ window.TASK25C_UI = {
   setAdminMenuVisible,
   openSettings,
   closeSettings,
+  setSettingsSection,
   rememberDialogFocus,
   restoreDialogFocus,
   syncOverlayScrollLock,

@@ -116,6 +116,12 @@
   function bind() {
     pick("export").forEach((node) => node.addEventListener("click", exportAll));
     pick("wipe").forEach((node) => node.addEventListener("click", wipe));
+    // 「关于」面板里的「再看一次教程」由 onboarding.js 提供，这里只负责接线。
+    pick("tutorial").forEach((node) => node.addEventListener("click", () => {
+      if (global.RoleWorldOnboarding && typeof global.RoleWorldOnboarding.show === "function") {
+        global.RoleWorldOnboarding.show();
+      }
+    }));
     pick("import").forEach((node) => {
       if (node.tagName === "INPUT") {
         node.addEventListener("change", () => {

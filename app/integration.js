@@ -1707,11 +1707,9 @@
     document.querySelectorAll('[data-action="open-model-settings"]').forEach((node) => {
       node.addEventListener("click", (event) => {
         event.preventDefault();
-        if (window.TASK25C_UI && typeof window.TASK25C_UI.setSettingsSection === "function") {
-          window.TASK25C_UI.setSettingsSection("model");
-        }
-        const trigger = document.querySelector('[data-action="open-settings"], #settingsButton, #assistantSettingsTrigger');
-        if (trigger) trigger.click();
+        if (!window.TASK25C_UI) return;
+        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("model");
+        if (typeof window.TASK25C_UI.openSettings === "function") window.TASK25C_UI.openSettings();
       });
     });
   }

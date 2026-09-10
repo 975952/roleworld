@@ -47,6 +47,8 @@
     max_tokens: 32768,
     // 思考模式（DeepSeek 系）：关掉时既不请求也不显示思维链。
     thinking: false,
+    // 首次启动教程是否看过；跟着存档走，导出到新机器不会再弹。
+    tutorial_seen: false,
     request_extras: {},
   });
 
