@@ -154,7 +154,7 @@ async function main() {
         settings: {
           provider: "deepseek",
           endpoint: "${base}/v1/chat/completions",
-          model: "synthetic-model"
+          model: "deepseek-v4-flash"
         }
       };
     })();
@@ -282,14 +282,41 @@ async function main() {
     const sent = requests.filter((row) => row.stream === true);
     assert(sent.length >= 1, "没有收到流式请求");
     // 模型名以「设置 → 模型」里填的为准，不再由下拉框里的固定选项决定。
-    assert(sent[sent.length - 1].model === "synthetic-model", "模型名不对：" + sent[sent.length - 1].model);
+    assert(sent[sent.length - 1].model === "deepseek-v4-flash", "模型名不对：" + sent[sent.length - 1].model);
   });
 
-  await check("顶栏显示的是配置好的模型，而不是旧的固定下拉", async () => {
-    const badge = await evaluate("(document.querySelector('#chatModelName') || {}).textContent || ''");
-    assert(badge.indexOf("synthetic-model") === 0, "顶栏模型标签是：" + badge);
-    assert(await evaluate("document.querySelector('#chatModelSelect') === null"), "旧的下拉框还在");
+  await check("顶栏可以直接切换模型，并且写回同一份配置", async () => {
+    const current = await evaluate("(document.querySelector('#chatModelSelect') || {}).value");
+    assert(current === "deepseek-v4-flash", "顶栏当前值不对：" + current);
     assert(await evaluate("document.querySelector('#chatDeepseekKeyInput') === null"), "对话页仍有重复的密钥输入框");
+    const options = await evaluate("Array.from(document.querySelectorAll('#chatModelSelect option')).map((o) => o.value)");
+    assert(options.indexOf("deepseek-v4-pro") >= 0, "已知型号没列出来：" + JSON.stringify(options));
+    assert(options.indexOf("__custom__") >= 0, "缺少「自定义模型名…」入口");
+
+    await evaluate(`(() => {
+      const select = document.querySelector('#chatModelSelect');
+      select.value = 'deepseek-v4-pro';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-v4-pro'", 8000);
+
+    await evaluate(`(() => {
+      const select = document.querySelector('#chatModelSelect');
+      select.value = 'deepseek-v4-flash';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-v4-flash'", 8000);
+  });
+
+  await check("对话界面显示 token 用量与费用估算", async () => {
+    await waitFor("(document.querySelector('#chatCostLine') || {}).textContent.length > 0", 8000);
+    const line = await evaluate("document.querySelector('#chatCostLine').textContent");
+    assert(/本对话 \d+ 轮/.test(line), "费用行没有轮次：" + line);
+    assert(/输入 [\d.]+k? \/ 输出 [\d.]+k? tokens/.test(line), "费用行没有 token 用量：" + line);
+    assert(/累计 [≈]?¥[\d.]+/.test(line), "费用行没有金额：" + line);
+    assert(/输出 ¥[\d.]+\/M（(高峰|闲时)）/.test(line), "费用行没带单价与峰谷：" + line);
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {

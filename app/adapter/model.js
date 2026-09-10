@@ -22,13 +22,19 @@
       label: "DeepSeek 官方",
       endpoint: "https://api.deepseek.com/chat/completions",
       secretKey: "api_key_deepseek",
-      models: ["deepseek-v4-flash", "deepseek-v4.1-flash-expires-on-0910", "deepseek-chat", "deepseek-reasoner"],
+      models: [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-v4.1-flash-expires-on-0910",
+        "deepseek-chat",
+        "deepseek-reasoner",
+      ],
     },
     openai: {
       label: "OpenAI",
       endpoint: "https://api.openai.com/v1/chat/completions",
       secretKey: "api_key_openai",
-      models: ["gpt-4o-mini", "gpt-4o"],
+      models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
     },
     openrouter: {
       label: "OpenRouter",
@@ -124,8 +130,9 @@
       body[field] = value;
     });
     if (body.stream) {
-      // 部分服务商要求显式声明；DeepSeek 也接受 include_usage 之外的默认行为。
-      body.stream_options = { include_usage: false };
+      // 要 include_usage 才会在最后一段 SSE 里带上 token 用量，
+      // 否则只能靠字数估算（这是"估算对话价格"的数据来源）。
+      body.stream_options = { include_usage: true };
     }
     PASSTHROUGH_FIELDS.forEach((field) => {
       const value = merged[field];

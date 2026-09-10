@@ -216,6 +216,8 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .assistant-bubble { color: var(--secondary-text); }
 .user-bubble { padding: 10px 14px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: var(--input-radius); background: var(--hover); }
 .narration-line { margin: 0 0 3px; color: var(--muted-text); font-size: 13px; font-style: italic; line-height: 1.65; white-space: pre-wrap; }
+.composer-cost { color: var(--muted-text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-cost:empty { display: none; }
 .typing-note { display: flex; align-items: center; min-height: 32px; margin: 0 0 28px 46px; }
 .typing-note[hidden] { display: none; }
 .typing-note-label { margin-left: 10px; color: var(--muted-text); font-size: 12px; }

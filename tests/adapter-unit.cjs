@@ -424,6 +424,74 @@ async function main() {
     assert.ok(payload.max_tokens >= 4096, "1024 太紧，整张卡会被截断");
   });
 
+  console.log("== 价格估算 ==");
+
+  const Pricing = require(path.join(__dirname, "..", "app", "adapter", "pricing.js"));
+
+  // 北京时间固定成几个点来测峰谷：用 UTC 构造，避免本机时区影响结果。
+  const beijing = (iso) => new Date(iso);
+
+  await test("峰谷时段按北京时间判断，周末全天闲时", () => {
+    // 2026-09-10 是周四。北京时间 10:00 = UTC 02:00
+    assert.equal(Pricing.isPeak(beijing("2026-09-10T02:00:00Z")), true, "周四上午应是高峰");
+    assert.equal(Pricing.isPeak(beijing("2026-09-10T05:00:00Z")), false, "周四 13:00 应是闲时");
+    assert.equal(Pricing.isPeak(beijing("2026-09-10T06:30:00Z")), true, "周四 14:30 应是高峰");
+    assert.equal(Pricing.isPeak(beijing("2026-09-10T10:30:00Z")), false, "周四 18:30 应是闲时");
+    // 2026-09-12 是周六
+    assert.equal(Pricing.isPeak(beijing("2026-09-12T02:00:00Z")), false, "周六上午也算闲时");
+  });
+
+  await test("Flash 系列按 2026-09-10 官方价，高峰翻倍", () => {
+    const off = Pricing.pricesFor("deepseek-v4-flash", null, beijing("2026-09-10T10:30:00Z"));
+    assert.equal(off.input, 1);
+    assert.equal(off.output, 4);
+    assert.equal(off.cacheHit, 0.02);
+    const peak = Pricing.pricesFor("deepseek-v4-flash", null, beijing("2026-09-10T02:00:00Z"));
+    assert.equal(peak.input, 2);
+    assert.equal(peak.output, 8);
+  });
+
+  await test("V4 Pro 用另一档价格，未知模型默认免费", () => {
+    const pro = Pricing.pricesFor("deepseek-v4-pro", null, beijing("2026-09-10T10:30:00Z"));
+    assert.equal(pro.output, 13.5);
+    const unknown = Pricing.pricesFor("some-local-model", null, beijing("2026-09-10T10:30:00Z"));
+    assert.equal(unknown.output, 0);
+  });
+
+  await test("用户填了单价就按用户填的算，且不再峰谷翻倍", () => {
+    const custom = Pricing.pricesFor("gpt-4o", { input: 18, output: 72 }, beijing("2026-09-10T02:00:00Z"));
+    assert.equal(custom.input, 18);
+    assert.equal(custom.output, 72);
+  });
+
+  await test("token 估算：中文按字、英文按字符", () => {
+    assert.equal(Pricing.estimateTokens(""), 1);
+    const cjk = Pricing.estimateTokens("你好世界你好世界");
+    assert.ok(cjk >= 4 && cjk <= 6, "8 个汉字应约 5 token，实际 " + cjk);
+    const ascii = Pricing.estimateTokens("abcdefghijklmnop");
+    assert.ok(ascii >= 3 && ascii <= 5, "16 个字母应约 4 token，实际 " + ascii);
+  });
+
+  await test("一次对话的费用算得对（含缓存命中）", () => {
+    const prices = Pricing.pricesFor("deepseek-v4-flash", null, beijing("2026-09-10T10:30:00Z"));
+    // 输入 10000（其中 8000 命中），输出 2000
+    const cost = Pricing.costOf({ input: 10000, output: 2000, cacheHit: 8000 }, prices);
+    const expected = (2000 / 1e6) * 1 + (8000 / 1e6) * 0.02 + (2000 / 1e6) * 4;
+    assert.ok(Math.abs(cost - expected) < 1e-12, `应为 ${expected}，实际 ${cost}`);
+    assert.equal(Pricing.formatCost(cost), "¥0.0102");
+  });
+
+  await test("接口回了 usage 就用真值，没回就按字数估", () => {
+    const exact = Pricing.usageOf({ usage: { prompt_tokens: 1234, completion_tokens: 567 }, messages: [], reply: "" });
+    assert.equal(exact.input, 1234);
+    assert.equal(exact.output, 567);
+    assert.equal(exact.exact, true);
+
+    const guess = Pricing.usageOf({ messages: [{ role: "user", content: "你好你好你好你好" }], reply: "好的好的好的好的" });
+    assert.equal(guess.exact, false);
+    assert.ok(guess.input > 0 && guess.output > 0);
+  });
+
   console.log("== ZIP ==");
 
   await test("ZIP 写入后能原样读回（含中文文件名与二进制）", async () => {

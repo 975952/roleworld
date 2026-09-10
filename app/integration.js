@@ -100,6 +100,10 @@
     // 2026-09-10：模型配置统一由「设置 → 模型」决定（provider / endpoint / model / thinking）
     modelMode: "local",
     modelName: "",
+    localSettings: null,
+    // 本对话的 token 用量与费用估算（按会话存本机）
+    cost: null,
+    lastUsage: null,
     // 思考模式默认关闭：开着的时候接口会先回一段思维链，正文到了再把它顶掉，
     // 看起来像"闪一下"。关掉之后思维链直接不请求也不显示。
     thinking: false,
@@ -592,6 +596,67 @@
     renderArchivedChatSettings();
     renderLiveMessages(liveState.chatMessages);
     renderCharacterPicker();
+    loadCostFor(session);
+  }
+
+  /* ---------- 用量与费用估算 ---------- */
+  const COST_KEY_PREFIX = "usage:";
+
+  function costKey(avatar, fileName) {
+    return COST_KEY_PREFIX + avatar + ":" + fileName;
+  }
+
+  function emptyCost() {
+    return { input: 0, output: 0, cost: 0, turns: 0, last: null };
+  }
+
+  function currentPrices() {
+    const settings = liveState.localSettings || {};
+    return window.RoleWorldPricing.pricesFor(
+      liveState.modelName,
+      { input: settings.price_input, output: settings.price_output },
+      new Date()
+    );
+  }
+
+  async function loadCostFor(session) {
+    liveState.cost = emptyCost();
+    if (session && session.avatar && session.fileName) {
+      try {
+        const stored = await window.RoleWorld.store.getKV(costKey(session.avatar, session.fileName), null);
+        if (stored && typeof stored === "object") liveState.cost = Object.assign(emptyCost(), stored);
+      } catch (_) { /* 读不到就当没有 */ }
+    }
+    renderCostLine();
+  }
+
+  async function recordCost(session, usage) {
+    if (!session || !usage) return;
+    const pricing = window.RoleWorldPricing;
+    const cost = pricing.costOf(usage, currentPrices());
+    const totals = Object.assign(emptyCost(), liveState.cost || {});
+    totals.input += usage.input || 0;
+    totals.output += usage.output || 0;
+    totals.cost += cost;
+    totals.turns += 1;
+    totals.last = { input: usage.input, output: usage.output, cost, exact: usage.exact === true };
+    liveState.cost = totals;
+    renderCostLine();
+    if (session.avatar && session.fileName) {
+      try { await window.RoleWorld.store.setKV(costKey(session.avatar, session.fileName), totals); } catch (_) { /* 存不下不影响对话 */ }
+    }
+  }
+
+  function renderCostLine() {
+    const node = document.querySelector("#chatCostLine");
+    if (!node) return;
+    const totals = liveState.cost || emptyCost();
+    if (!totals.turns) { node.textContent = ""; return; }
+    const pricing = window.RoleWorldPricing;
+    const prices = currentPrices();
+    const approx = totals.last && totals.last.exact === false ? "≈" : "";
+    const unit = prices.output > 0 ? ` · 输出 ¥${prices.output}/M（${prices.period}）` : "";
+    node.textContent = `本对话 ${totals.turns} 轮 · 输入 ${pricing.formatTokens(totals.input)} / 输出 ${pricing.formatTokens(totals.output)} tokens · 累计 ${approx}${pricing.formatCost(totals.cost)}${unit}`;
   }
 
   /* ---------- Task-29A：角色注册表与单角色绑定 ---------- */
@@ -1371,6 +1436,8 @@
       if (!dataText || dataText === "[DONE]") continue;
       let json = null;
       try { json = JSON.parse(dataText); } catch (_) { continue; }
+      // include_usage 的用量会在最后一段单独回来（那一chunk 没有 choices）。
+      if (json && json.usage) sink.usage = json.usage;
       const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
       const delta = choice && (choice.delta || choice.message);
       if (!delta) continue;
@@ -1467,8 +1534,9 @@
     const response = await request(payload);
     if (!response.ok) throw Object.assign(new Error("generation failed"), { status: response.status });
 
-    const sink = { content: "", reasoning: "", chunks: 0, emit: () => onDelta(sink.content || sink.reasoning) };
+    const sink = { content: "", reasoning: "", chunks: 0, usage: null, emit: () => onDelta(sink.content || sink.reasoning) };
     liveState.streamChunks = 0;
+    liveState.lastUsage = null;
     const finish = () => (sink.content || sink.reasoning).trim();
     const retryNonStream = async () => {
       const data = (window.STApi && typeof window.STApi.generate === "function")
@@ -1518,6 +1586,7 @@
     buffer += decoder.decode();
     if (sseMode && buffer.trim()) consumeChatSseText(buffer, sink);
     liveState.streamChunks = sink.chunks;
+    liveState.lastUsage = sink.usage || null;
     const streamed = finish();
     if (streamed) return streamed;
     if (rawAll.trim()) parseChatWholeText(rawAll, sink);
@@ -1633,6 +1702,15 @@
         throw saveError;
       }
       saveCompleted = true;
+      // 记一笔用量与费用（接口回了 usage 就用真值，否则按字数估算）。
+      try {
+        const usage = window.RoleWorldPricing.usageOf({
+          usage: liveState.lastUsage,
+          messages: payload.messages,
+          reply: finalText,
+        });
+        await recordCost(targetSession, usage);
+      } catch (_) { /* 估算失败不影响对话 */ }
       if (stopped) showToast("已停止（保留已生成的部分）");
       setChatListStatus("");
     } catch (err) {
@@ -1667,6 +1745,79 @@
     return name ? `${name} · ${channel}` : "未配置（设置 → 模型）";
   }
 
+  // 顶栏下拉里能选的模型：当前服务商的已知型号 + 正在用的那个（可能是用户手填的）。
+  function modelChoices() {
+    const list = [];
+    const push = (value) => { if (value && list.indexOf(value) < 0) list.push(value); };
+    push(liveState.modelName);
+    let settings = null;
+    try {
+      settings = liveState.localSettings || null;
+    } catch (_) { settings = null; }
+    const preset = settings && window.RoleWorldModel.PRESETS[settings.provider];
+    (preset && preset.models ? preset.models : []).forEach(push);
+    return list;
+  }
+
+  function renderChatModelOptions() {
+    const select = document.querySelector("#chatModelSelect");
+    if (!select) return;
+    const choices = modelChoices();
+    const pricing = window.RoleWorldPricing;
+    const settings = liveState.localSettings || {};
+    const current = String(liveState.modelName || "");
+    select.textContent = "";
+    if (!choices.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "未配置（设置 → 模型）";
+      select.appendChild(option);
+      select.disabled = true;
+      return;
+    }
+    select.disabled = false;
+    choices.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      const price = pricing
+        ? pricing.pricesFor(name, { input: settings.price_input, output: settings.price_output }, new Date())
+        : null;
+      option.textContent = price && price.output > 0
+        ? `${name} · ¥${price.input}/¥${price.output}`
+        : name;
+      select.appendChild(option);
+    });
+    // 末尾留一个入口，直接跳到设置里去填任意模型名。
+    const more = document.createElement("option");
+    more.value = "__custom__";
+    more.textContent = "自定义模型名…";
+    select.appendChild(more);
+    select.value = choices.indexOf(current) >= 0 ? current : choices[0];
+  }
+
+  async function chooseChatModel(value) {
+    if (value === "__custom__") {
+      if (window.TASK25C_UI) {
+        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("model");
+        if (typeof window.TASK25C_UI.openSettings === "function") window.TASK25C_UI.openSettings();
+      }
+      renderChatModelOptions();
+      return;
+    }
+    if (!value) return;
+    liveState.modelName = value;
+    syncChatModelControls();
+    updateComposerLive();
+    try {
+      await window.RoleWorld.saveLocalSettings({ model: value });
+      liveState.localSettings = await window.RoleWorld.getLocalSettings();
+      syncChatModelControls();
+      updateComposerLive();
+      // 让「设置 → 模型」面板也跟着同步，避免两处显示不一致。
+      window.dispatchEvent(new window.CustomEvent("roleworld:settings-changed", { detail: { model: value } }));
+    } catch (_) { /* 存不下也不影响本次会话 */ }
+  }
+
   async function loadChatModelSettings() {
     const core = window.TASK22_CORE;
     let settings = { provider: "deepseek", model: "", thinking: false };
@@ -1677,6 +1828,7 @@
     } catch (_) { /* 读不到就用默认值，页面照常起来 */ }
     liveState.modelName = String(settings.model || "");
     liveState.thinking = settings.thinking === true;
+    liveState.localSettings = settings;
     // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
     liveState.modelMode = settings.provider === "deepseek"
       ? core.CHAT_MODES.DEEPSEEK_FLASH
@@ -1693,17 +1845,17 @@
   }
 
   function syncChatModelControls() {
-    const badge = document.querySelector("#chatModelName");
-    if (badge) {
-      badge.textContent = modelLabel();
-      badge.classList.toggle("is-warning", !String(liveState.modelName || "").trim());
-    }
+    renderChatModelOptions();
+    const badge = document.querySelector("#chatModelBadge");
+    if (badge) badge.classList.toggle("is-warning", !String(liveState.modelName || "").trim());
     const thinking = document.querySelector("#chatThinkingToggle");
     if (thinking) thinking.checked = liveState.thinking === true;
+    renderCostLine();
   }
 
-  // 密钥与思考模式都在「设置 → 模型」里配置了，这里只保留一个"去配置"的跳转。
+  // 密钥与思考模式都在「设置 → 模型」里配置了，这里只保留跳转；模型可以直接在顶栏切换。
   function bindChatModelControls() {
+    document.querySelector("#chatModelSelect")?.addEventListener("change", (event) => chooseChatModel(event.target.value));
     document.querySelectorAll('[data-action="open-model-settings"]').forEach((node) => {
       node.addEventListener("click", (event) => {
         event.preventDefault();

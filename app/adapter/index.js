@@ -49,6 +49,9 @@
     thinking: false,
     // 首次启动教程是否看过；跟着存档走，导出到新机器不会再弹。
     tutorial_seen: false,
+    // 费用估算单价（元 / 百万 token）。留 0 表示用内置的官方价；填了就按你填的算。
+    price_input: 0,
+    price_output: 0,
     request_extras: {},
   });
 

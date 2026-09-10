@@ -26,6 +26,7 @@
       "border:1px solid var(--line,var(--border,#2a3038));background:var(--panel,var(--surface,#12151a));",
       "color:inherit;font:inherit;font-size:14px;}",
       ".rw-field:focus{outline:2px solid var(--accent,#6f8cff);outline-offset:1px;}",
+      ".rw-field-num{width:104px;}",
       ".rw-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}",
       ".rw-status.is-error{color:#ff7a7a;}",
     ].join("");
@@ -65,6 +66,28 @@
     pick("thinking").forEach((node) => {
       node.checked = settings.thinking === true;
     });
+    pick("price-input").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.price_input) > 0 ? settings.price_input : "";
+    });
+    pick("price-output").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.price_output) > 0 ? settings.price_output : "";
+    });
+
+    // 单价提示：没填就用内置官方价，填了就按用户填的算。
+    const pricing = global.RoleWorldPricing;
+    if (pricing) {
+      const modelNode = first("model");
+      const model = (modelNode && modelNode.value.trim()) || settings.model || "";
+      const hasCustom = Number(settings.price_input) > 0 || Number(settings.price_output) > 0;
+      const now = pricing.pricesFor(model, { input: settings.price_input, output: settings.price_output }, new Date());
+      pick("price-hint").forEach((node) => {
+        setStatus(node, hasCustom
+          ? `按你填的单价计费：输出 ¥${now.output}/M`
+          : (now.output > 0
+            ? `内置官方价（${now.label}）· 现在${now.period}：输入 ¥${now.input}/M、输出 ¥${now.output}/M`
+            : "这个模型没有内置价格，填上才会显示费用估算"), false);
+      });
+    }
 
     const provider = (first("provider") && first("provider").value) || settings.provider;
     const keyName = global.RoleWorldModel.secretKeyFor({ provider });
@@ -90,6 +113,10 @@
     if (endpointNode) patch.endpoint = endpointNode.value.trim();
     if (modelNode && modelNode.value.trim()) patch.model = modelNode.value.trim();
     if (thinkingNode) patch.thinking = thinkingNode.checked === true;
+    const priceIn = first("price-input");
+    const priceOut = first("price-output");
+    if (priceIn) patch.price_input = Math.max(0, Number(priceIn.value) || 0);
+    if (priceOut) patch.price_output = Math.max(0, Number(priceOut.value) || 0);
     await adapter.saveLocalSettings(patch);
     await refresh();
     // 页面里的模型徽标、剧情模式的模型都要跟着变。
@@ -148,6 +175,8 @@
     pick("key-delete").forEach((node) => node.addEventListener("click", () => { deleteKey(); }));
     pick("test").forEach((node) => node.addEventListener("click", () => { testConnection(); }));
     pick("provider").forEach((node) => node.addEventListener("change", () => { refresh(); }));
+    // 别处改了配置（比如在聊天顶栏切模型）也要把面板同步过来。
+    global.addEventListener("roleworld:settings-changed", () => { refresh(); });
     // 思考模式是即时开关：先让页面立刻按新值走，再落盘，避免"刚打开就发送"用不上。
     pick("thinking").forEach((node) => node.addEventListener("change", () => {
       notify({ thinking: node.checked === true });
