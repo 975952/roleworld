@@ -66,6 +66,9 @@
     pick("thinking").forEach((node) => {
       node.checked = settings.thinking === true;
     });
+    pick("auto-memory").forEach((node) => {
+      node.checked = settings.auto_memory !== false;
+    });
     pick("price-input").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.price_input) > 0 ? settings.price_input : "";
     });
@@ -113,6 +116,8 @@
     if (endpointNode) patch.endpoint = endpointNode.value.trim();
     if (modelNode && modelNode.value.trim()) patch.model = modelNode.value.trim();
     if (thinkingNode) patch.thinking = thinkingNode.checked === true;
+    const autoMemoryNode = first("auto-memory");
+    if (autoMemoryNode) patch.auto_memory = autoMemoryNode.checked === true;
     const priceIn = first("price-input");
     const priceOut = first("price-output");
     if (priceIn) patch.price_input = Math.max(0, Number(priceIn.value) || 0);
@@ -177,9 +182,13 @@
     pick("provider").forEach((node) => node.addEventListener("change", () => { refresh(); }));
     // 别处改了配置（比如在聊天顶栏切模型）也要把面板同步过来。
     global.addEventListener("roleworld:settings-changed", () => { refresh(); });
-    // 思考模式是即时开关：先让页面立刻按新值走，再落盘，避免"刚打开就发送"用不上。
+    // 思考模式与自动记忆是即时开关：先让页面立刻按新值走，再落盘，避免"刚打开就发送"用不上。
     pick("thinking").forEach((node) => node.addEventListener("change", () => {
       notify({ thinking: node.checked === true });
+      saveAll();
+    }));
+    pick("auto-memory").forEach((node) => node.addEventListener("change", () => {
+      notify({ auto_memory: node.checked === true });
       saveAll();
     }));
     // 端点留空时用所选服务商的默认地址做占位提示，减少"不知道该填什么"的困惑。

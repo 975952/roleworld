@@ -119,7 +119,43 @@
   }
 
   /* ---------- 系统提示词组合（对齐 card_layers.buildSystem，逐字节一致） ---------- */
-  function buildSystemPrompt(card, memoryBooks, promptText) {
+  /* ---------- 自动记忆（agent 式） ----------
+   * 让模型自己决定记什么：在回复末尾用 [[记住: …]] 写要点，前端剥掉标记、写进该角色
+   * 的「自动记忆」记忆书，下一轮自然注入。这样可以适配**任何** OpenAI 兼容端点：
+   * 不需要 function calling，流式也不会被 tool_calls 增量打断。
+   */
+  const MEMORY_MARKER_RE = /[\[【]{1,2}\s*记住\s*[:：]\s*([^\]】\n]+?)\s*[\]】]{1,2}/g;
+
+  function memoryInstruction(characterLabel) {
+    return [
+      "[Memory]",
+      `你有一个只属于「${characterLabel || "你"}」的长期记忆本，跨会话保留。`,
+      "当玩家透露了值得长期记住的信息（称呼、喜好、约定、重要事件、关系变化），",
+      "在回复的最后单独起行写：[[记住: 一句话要点]]，一行一条，最多 3 条。",
+      "没有值得记的就不要写。不要在正文里解释这个标记——它会被系统读取并从文本里移除。",
+      "上面 [Memory Book: …] 里是你以前记下的内容，自然地用，不要照抄。",
+    ].join("\n");
+  }
+
+  /** 从回复里剥出记忆标记。返回清理后的正文与要点数组。 */
+  function extractMemories(text) {
+    const memories = [];
+    const source = String(text || "");
+    MEMORY_MARKER_RE.lastIndex = 0;
+    let match;
+    while ((match = MEMORY_MARKER_RE.exec(source)) !== null) {
+      const value = String(match[1] || "").trim();
+      if (value && memories.indexOf(value) < 0) memories.push(value);
+    }
+    const cleaned = source
+      .replace(MEMORY_MARKER_RE, "")
+      .replace(/[ \t]+$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    return { text: cleaned, memories: memories.slice(0, 3) };
+  }
+
+  function buildSystemPrompt(card, memoryBooks, promptText, options) {
     const parts = [
       cardField(card, "system_prompt"),
       "",
@@ -157,12 +193,16 @@
       && card.data.extensions.task29.language;
     if (cardLanguage === "zh") parts.push("[Language] 角色只说简体中文；你的所有回复一律使用中文。");
     else if (cardLanguage === "en") parts.push("[Language] The character only speaks English; always reply in English.");
+    // 自动记忆：让模型自己记要点（可在设置里关掉）。
+    if (options && options.autoMemory === true) {
+      parts.push("", memoryInstruction(cardField(card, "name")));
+    }
     return parts.join("\n");
   }
 
   /* 带「旁白/台词」输出约定的系统提示：基础组合 + 末尾格式指令（不影响与 Task-20 的逐字节对齐证明）。 */
-  function buildSystemPromptWithFormat(card, memoryBooks, promptText, instruction) {
-    return buildSystemPrompt(card, memoryBooks, promptText) +
+  function buildSystemPromptWithFormat(card, memoryBooks, promptText, instruction, options) {
+    return buildSystemPrompt(card, memoryBooks, promptText, options) +
       "\n\n[Reply format] " + (instruction || REPLY_FORMAT_INSTRUCTION);
   }
 
@@ -215,8 +255,8 @@
   }
 
   /* ---------- 组合 messages（系统提示 + 示例 + 历史 + 用户新输入） ---------- */
-  function composeMessages(card, memoryBooks, history, userText) {
-    const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText) }];
+  function composeMessages(card, memoryBooks, history, userText, options) {
+    const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, options) }];
     for (const turn of parseExample(cardField(card, "mes_example"))) msgs.push(turn);
     for (const h of (history || [])) {
       if (!h || typeof h.mes !== "string" || !h.mes) continue;
@@ -233,7 +273,7 @@
     if (isDeepSeekChatMode(mode)) {
       const thinking = opts.thinking === true;
       return {
-        messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText),
+        messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, { autoMemory: opts.autoMemory === true }),
         // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
         model: (opts.modelName && String(opts.modelName).trim()) || mode,
         chat_completion_source: "deepseek",
@@ -249,7 +289,7 @@
     if (opts.engine !== "A") throw new Error("引擎 B 当前未启动，发送已禁用。");
     const oai = (opts.settings && opts.settings.oai_settings) || {};
     return {
-      messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText),
+      messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, { autoMemory: opts.autoMemory === true }),
       model: "local",
       chat_completion_source: "custom",
       custom_url: oai.custom_url || "",
@@ -823,6 +863,8 @@
     composeMessages,
     buildGeneratePayload,
     parseGenerateResponse,
+    extractMemory: extractMemories,
+    memoryInstruction,
     buildChatMessage,
     buildSavePayload,
     buildArchivePayload,

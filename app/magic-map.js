@@ -325,7 +325,15 @@
   }
 
   function booksFor(avatar) {
-    return avatar && avatar === runtime.harryAvatar ? runtime.books : [];
+    var entry = null;
+    for (var i = 0; i < runtime.characters.length; i += 1) {
+      if (runtime.characters[i].avatar === avatar) { entry = runtime.characters[i]; break; }
+    }
+    var core = window.TASK29_CHARACTER_CORE;
+    if (core && typeof core.memoryBooksFor === "function") {
+      return core.memoryBooksFor(entry || { avatar: avatar }, runtime.books);
+    }
+    return [];
   }
 
   async function cardFor(avatar) {

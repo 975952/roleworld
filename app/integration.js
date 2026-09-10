@@ -104,6 +104,7 @@
     // 本对话的 token 用量与费用估算（按会话存本机）
     cost: null,
     lastUsage: null,
+    autoMemory: true,
     // 思考模式默认关闭：开着的时候接口会先回一段思维链，正文到了再把它顶掉，
     // 看起来像"闪一下"。关掉之后思维链直接不请求也不显示。
     thinking: false,
@@ -312,7 +313,7 @@
       .map((key) => Object.assign({}, entriesObject[key], { uid: entriesObject[key].uid ?? key }))
       .sort((a, b) => (a.displayIndex ?? a.uid) - (b.displayIndex ?? b.uid));
     rawBooks[index] = { name, entries };
-    const keyPart = name.replace(/^MB Harry — /, "").replace(/\s*\(EN\)\s*$/, "").trim();
+    const keyPart = name.replace(/^MB\s+.+?\s+—\s+/, "").replace(/\s*\(EN\)\s*$/, "").trim();
     const visibleEntries = entries.filter((entry) => !entry.disable);
     return {
       id: name,
@@ -349,12 +350,11 @@
     applyMemoryPanelFilter();
   }
 
-  // Task-29F：记忆面板跟随当前角色。Harry（含默认/未绑定）显示全部记忆书；
-  // 其他角色显示该角色自己的记忆书（当前为 0），与发送路径的 memoryBooksFor 一致。
+  // 记忆面板跟随当前角色：每个角色显示自己的记忆书（按书名的角色短名归属）。
   function applyMemoryPanelFilter() {
     const entry = activeCharacterEntry();
     const visible = window.TASK29_CHARACTER_CORE && typeof window.TASK29_CHARACTER_CORE.memoryBooksFor === "function"
-      ? window.TASK29_CHARACTER_CORE.memoryBooksFor(entry && entry.avatar, liveState.harryAvatar, allBooks)
+      ? window.TASK29_CHARACTER_CORE.memoryBooksFor(entry, allBooks)
       : allBooks;
     const previousOpen = new Map(memoryBooks.map((book) => [book.__name || book.id, book.open]));
     visible.forEach((book) => { if (typeof previousOpen.get(book.__name) === "boolean") book.open = previousOpen.get(book.__name); });
@@ -617,6 +617,49 @@
       { input: settings.price_input, output: settings.price_output },
       new Date()
     );
+  }
+
+  /* ---------- 角色记忆：按角色归属 + 模型自动记 ---------- */
+  const AUTO_MEMORY_BOOK = "自动记忆";
+  const AUTO_MEMORY_MAX = 50;
+
+  // 把模型给的要点写进「MB <角色短名> — 自动记忆」，只保留最近 AUTO_MEMORY_MAX 条。
+  async function rememberForCharacter(entry, memories) {
+    const core = window.TASK29_CHARACTER_CORE;
+    if (!entry || !entry.avatar || !core || !memories.length) return 0;
+    const bookName = core.newMemoryBookName(entry, AUTO_MEMORY_BOOK);
+    let data = { entries: {} };
+    try {
+      const existing = await window.STApi.getWorld(bookName);
+      if (existing && existing.entries) data = existing;
+    } catch (_) { /* 还没有这本书，下面新建 */ }
+    const entries = Object.assign({}, data.entries || {});
+    const contents = Object.keys(entries).map((key) => String(entries[key].content || "").trim());
+    let maxUid = 0;
+    Object.keys(entries).forEach((key) => { maxUid = Math.max(maxUid, Number(entries[key].uid) || 0); });
+    let added = 0;
+    memories.forEach((text) => {
+      if (contents.indexOf(text) >= 0) return;
+      maxUid += 1;
+      entries[String(maxUid)] = {
+        uid: maxUid,
+        key: [],
+        keysecondary: [],
+        comment: text.slice(0, 24),
+        content: text,
+        // 自动记忆一律常驻上下文：它是模型自己攒的要点，靠关键词匹配会漏。
+        constant: true,
+        disable: false,
+        displayIndex: maxUid,
+      };
+      contents.push(text);
+      added += 1;
+    });
+    if (!added) return 0;
+    const ordered = Object.keys(entries).map(Number).sort((a, b) => a - b);
+    while (ordered.length > AUTO_MEMORY_MAX) delete entries[String(ordered.shift())];
+    await window.STApi.editWorld(bookName, Object.assign({}, data, { entries }));
+    return added;
   }
 
   async function loadCostFor(session) {
@@ -1639,8 +1682,8 @@
         if (!card || !card.data) throw new Error("character card unavailable");
         if (liveState.cardCache) liveState.cardCache.set(entry.avatar, card);
       }
-      // 记忆书门控（1.2）：仅 Harry 会话注入四本记忆书；其他角色零记忆书。
-      const memoryBooks = entry.avatar === liveState.harryAvatar ? liveState.memoryBooks : [];
+      // 只注入当前角色自己的记忆书（按书名的角色短名归属，多个角色各一套）。
+      const memoryBooks = window.TASK29_CHARACTER_CORE.memoryBooksFor(entry, liveState.memoryBooks);
       // 步骤 2：流式发送。
       const payload = window.TASK22_CORE.buildGeneratePayload({
         card,
@@ -1652,6 +1695,7 @@
         mode: liveState.modelMode,
         modelName: liveState.modelName,
         thinking: liveState.thinking === true,
+        autoMemory: liveState.autoMemory !== false,
         stream: true,
       });
       streamRow = appendLiveStreamRow(entry.charName || liveState.charName);
@@ -1667,7 +1711,17 @@
         if (streamError && streamError.name === "AbortError") aborted = true;
         else throw streamError;
       }
-      const finalText = String(content || streamed || "").trim();
+      const rawText = String(content || streamed || "").trim();
+      // 自动记忆：模型用 [[记住: …]] 写的要点要剥出来，正文里不能留标记。
+      let finalText = rawText;
+      let memories = [];
+      if (liveState.autoMemory !== false) {
+        const parsed = window.TASK22_CORE.extractMemory(rawText);
+        if (parsed.memories.length) {
+          finalText = parsed.text || rawText;
+          memories = parsed.memories;
+        }
+      }
       const stopped = aborted || liveState.cancelRequested || controller.signal.aborted;
       if (!finalText) {
         removeLiveStreamRow(streamRow);
@@ -1702,6 +1756,16 @@
         throw saveError;
       }
       saveCompleted = true;
+      // 模型自己记下的要点写进该角色的「自动记忆」书；下一条消息就会带上。
+      if (memories.length) {
+        try {
+          const added = await rememberForCharacter(entry, memories);
+          if (added) {
+            showToast(`已记住 ${added} 条`);
+            loadBooks().catch(() => {});
+          }
+        } catch (_) { /* 记忆写失败不影响这轮对话 */ }
+      }
       // 记一笔用量与费用（接口回了 usage 就用真值，否则按字数估算）。
       try {
         const usage = window.RoleWorldPricing.usageOf({
@@ -1828,6 +1892,7 @@
     } catch (_) { /* 读不到就用默认值，页面照常起来 */ }
     liveState.modelName = String(settings.model || "");
     liveState.thinking = settings.thinking === true;
+    liveState.autoMemory = settings.auto_memory !== false;
     liveState.localSettings = settings;
     // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
     liveState.modelMode = settings.provider === "deepseek"
@@ -2040,7 +2105,8 @@
     if (!live) { showToast("暂时无法新增，请重试"); return; }
     const trimmed = String(label || "").trim();
     if (!trimmed) { showToast("记忆书名称不能为空"); return; }
-    const name = `MB Harry — ${trimmed}`;
+    // 新建的记忆书归当前角色：MB <角色短名> — <书名>
+    const name = window.TASK29_CHARACTER_CORE.newMemoryBookName(activeCharacterEntry(), trimmed);
     if (memoryBooks.some((book) => normalizedName(book.__name || book.name) === normalizedName(name))) {
       showToast("记忆书名称已存在");
       return;
@@ -2144,6 +2210,7 @@
     const patch = (event && event.detail) || {};
     const core = window.TASK22_CORE;
     if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
+    if (typeof patch.auto_memory === "boolean") liveState.autoMemory = patch.auto_memory;
     if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
     if (patch.provider) {
       liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;

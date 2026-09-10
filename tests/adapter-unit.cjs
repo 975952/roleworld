@@ -368,6 +368,7 @@ async function main() {
   console.log("== 角色草稿解析 ==");
 
   const CharCore = require(path.join(__dirname, "..", "app", "task29-character-core.js"));
+  const Core22 = require(path.join(__dirname, "..", "app", "task22-core.js"));
 
   await test("模型在 JSON 前后加话、加多余字段，也能解析出来", () => {
     // 之前的实现只接受"整段就是一个 JSON"，模型多写一句解释、或多给一个字段就整张卡判死，
@@ -422,6 +423,62 @@ async function main() {
     assert.equal(payload.stream, false);
     assert.equal(payload.include_reasoning, false, "思考会把输出额度吃光，正文就没了");
     assert.ok(payload.max_tokens >= 4096, "1024 太紧，整张卡会被截断");
+  });
+
+  console.log("== 角色记忆归属与自动记忆 ==");
+
+  await test("记忆书按角色短名归属：Harry 的老书仍归 Harry，新角色各归各的", () => {
+    const harry = { avatar: "Harry Potter (EN).png", charName: "Harry Potter (EN)" };
+    const hermione = { avatar: "Hermione Granger (Triwizard Year).png", charName: "Hermione Granger" };
+    const books = [
+      { name: "MB Harry — fact clips (EN)" },
+      { name: "MB Harry — scene memories (EN)" },
+      { name: "MB Hermione — 自动记忆" },
+      { name: "Eldoria" },
+    ];
+    assert.deepEqual(CharCore.memoryBooksFor(harry, books).map((b) => b.name),
+      ["MB Harry — fact clips (EN)", "MB Harry — scene memories (EN)"]);
+    assert.deepEqual(CharCore.memoryBooksFor(hermione, books).map((b) => b.name),
+      ["MB Hermione — 自动记忆"]);
+    // 不匹配的书谁都不给
+    assert.equal(CharCore.memoryBooksFor(harry, [{ name: "Eldoria" }]).length, 0);
+  });
+
+  await test("没有记忆书的角色拿到空数组，而不是别人的书", () => {
+    const ron = { avatar: "Ron Weasley (Triwizard Year).png", charName: "Ron Weasley (Triwizard Year)" };
+    const books = [{ name: "MB Harry — fact clips (EN)" }];
+    assert.deepEqual(CharCore.memoryBooksFor(ron, books), []);
+  });
+
+  await test("新建记忆书用当前角色的短名，不再永远叫 Harry", () => {
+    assert.equal(CharCore.newMemoryBookName({ charName: "Hermione Granger" }, "自动记忆"),
+      "MB Hermione — 自动记忆");
+    assert.equal(CharCore.newMemoryBookName({ charName: "Harry Potter (EN)" }, "自动记忆"),
+      "MB Harry — 自动记忆");
+    assert.equal(CharCore.newMemoryBookName({ charName: "Tom Riddle (Adult)" }, "关系"),
+      "MB Tom — 关系");
+  });
+
+  await test("记忆标记能从回复里剥出来，正文不留痕", () => {
+    const reply = "“我记得的。”\n[[记住: 玩家叫小林]]\n[[记住: 他怕黑]]";
+    const parsed = Core22.extractMemory(reply);
+    assert.deepEqual(parsed.memories, ["玩家叫小林", "他怕黑"]);
+    assert.equal(parsed.text, "“我记得的。”");
+    assert.equal(parsed.text.indexOf("[["), -1);
+  });
+
+  await test("没有标记时原样返回，标记最多取 3 条", () => {
+    assert.deepEqual(Core22.extractMemory("就是普通回复").memories, []);
+    const many = Core22.extractMemory("正文\n[[记住: a]]\n[[记住: b]]\n[[记住: c]]\n[[记住: d]]");
+    assert.equal(many.memories.length, 3);
+  });
+
+  await test("开了自动记忆时系统提示里才有记忆指令", () => {
+    const card = { name: "Hermione", data: { name: "Hermione", description: "d", personality: "p", scenario: "s" } };
+    const withMemory = Core22.buildSystemPrompt(card, [], "你好", { autoMemory: true });
+    const without = Core22.buildSystemPrompt(card, [], "你好", { autoMemory: false });
+    assert.ok(withMemory.indexOf("[Memory]") >= 0, "开了自动记忆却没有指令");
+    assert.ok(without.indexOf("[Memory]") < 0, "关掉了还带记忆指令");
   });
 
   console.log("== 价格估算 ==");

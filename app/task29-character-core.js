@@ -293,13 +293,80 @@
     return importTypeForFileName(fileName) !== null;
   }
 
-  /* ---------- Harry / 自定义角色记忆门控 ---------- */
-  function isHarryAvatar(avatar, harryAvatar) {
-    return String(avatar || "") !== "" && String(harryAvatar || "") !== "" && String(avatar) === String(harryAvatar);
+  /* ---------- 角色记忆门控 ----------
+   * 2026-09-10：以前这里写死「只有 Harry 有记忆，其他角色零记忆书」。
+   * 现在改成**按角色名归属**：记忆书叫 `MB <角色短名> — <书名>`，
+   * 谁的书就归谁，多个角色各自一套，互不干扰。
+   * 老的四本 `MB Harry — …` 仍然归 Harry（短名就是他）。
+   */
+  const MEMORY_PREFIX = "MB ";
+  const MEMORY_SEPARATOR = " — ";
+
+  function characterDisplayName(character) {
+    if (!character) return "";
+    return String(character.charName || character.name || character.avatar || "");
   }
 
-  function memoryBooksFor(avatar, harryAvatar, memoryBooks) {
-    return isHarryAvatar(avatar, harryAvatar) ? (Array.isArray(memoryBooks) ? memoryBooks : []) : [];
+  function stripTrailingParens(value) {
+    return String(value || "").replace(/\s*[（(][^）)]*[）)]\s*$/, "").trim();
+  }
+
+  // 记忆书名字里用的角色短名：取名字第一段，去掉 (EN) / (Adult) 这类括注。
+  function characterMemoryLabel(character) {
+    const cleaned = stripTrailingParens(characterDisplayName(character).replace(/\.\w+$/, ""));
+    return cleaned.split(/\s+/)[0] || cleaned || "";
+  }
+
+  // 一个角色能匹配的写法（兼容老数据与中英文头像名）。
+  function characterMemoryAliases(character) {
+    const name = characterDisplayName(character).trim();
+    const avatar = String((character && character.avatar) || "").replace(/\.\w+$/, "").trim();
+    const aliases = [];
+    const push = (value) => {
+      const normalized = stripTrailingParens(value).toLocaleLowerCase();
+      if (normalized && aliases.indexOf(normalized) < 0) aliases.push(normalized);
+    };
+    push(name);
+    push(avatar);
+    push(characterMemoryLabel(character));
+    // 名字里带空格的，全名也记一份（"Harry Potter" → 已有；"Harry Potter (EN)" → "harry potter"）
+    const full = stripTrailingParens(name).toLocaleLowerCase();
+    if (full && aliases.indexOf(full) < 0) aliases.push(full);
+    return aliases;
+  }
+
+  // "MB Harry — fact clips (EN)" → "Harry"
+  function memoryBookOwner(bookName) {
+    const match = String(bookName || "").match(/^MB\s+(.+?)\s+—\s+/);
+    return match ? match[1].trim() : "";
+  }
+
+  function memoryBookNameOf(book) {
+    if (typeof book === "string") return book;
+    if (!book) return "";
+    return String(book.__name || book.name || book.id || book.file_id || "");
+  }
+
+  function isMemoryBookFor(book, character) {
+    const owner = memoryBookOwner(memoryBookNameOf(book));
+    if (!owner) return false;
+    return characterMemoryAliases(character).indexOf(owner.toLocaleLowerCase()) >= 0;
+  }
+
+  function memoryBooksFor(character, memoryBooks) {
+    const list = Array.isArray(memoryBooks) ? memoryBooks : [];
+    if (!character) return [];
+    return list.filter((book) => isMemoryBookFor(book, character));
+  }
+
+  // 新建记忆书时的标准名字。
+  function newMemoryBookName(character, title) {
+    const label = characterMemoryLabel(character) || "角色";
+    return MEMORY_PREFIX + label + MEMORY_SEPARATOR + String(title || "").trim();
+  }
+
+  function isHarryAvatar(avatar, harryAvatar) {
+    return String(avatar || "") !== "" && String(harryAvatar || "") !== "" && String(avatar) === String(harryAvatar);
   }
 
   /* ---------- Task-28C 模板占位聊天识别（前端可隐藏，但绝不修改） ---------- */
@@ -411,6 +478,10 @@
     validateFileName,
     isHarryAvatar,
     memoryBooksFor,
+    memoryBookOwner,
+    isMemoryBookFor,
+    newMemoryBookName,
+    characterMemoryLabel,
     isTemplatePlaceholderChat,
     createDraftFlow,
   };

@@ -49,6 +49,8 @@
     thinking: false,
     // 首次启动教程是否看过；跟着存档走，导出到新机器不会再弹。
     tutorial_seen: false,
+    // 自动记忆：让模型自己用 [[记住: …]] 记要点（agent 式），默认开。
+    auto_memory: true,
     // 费用估算单价（元 / 百万 token）。留 0 表示用内置的官方价；填了就按你填的算。
     price_input: 0,
     price_output: 0,
