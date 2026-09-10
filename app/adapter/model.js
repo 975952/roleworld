@@ -73,6 +73,19 @@
     return preset.secretKey;
   }
 
+  // 由端点反查服务商。
+  // 页面在「本地模型」路径上会把 chat_completion_source 写成 "custom"，并把当前端点塞进
+  // custom_url —— 如果用户其实配的是 DeepSeek 官方端点，只按 "custom" 去找密钥就会拿到
+  // 空 Key，请求带着 401 回来（AI 写角色就是这么失败的）。所以先看端点认不认得。
+  function providerForEndpoint(url) {
+    const target = String(url || "").trim().replace(/\/+$/, "").toLowerCase();
+    if (!target) return "";
+    for (const id of Object.keys(PRESETS)) {
+      if (PRESETS[id].endpoint.replace(/\/+$/, "").toLowerCase() === target) return id;
+    }
+    return "";
+  }
+
   /* ------------------------------------------------------------------ *
    * 请求体
    * ------------------------------------------------------------------ */
@@ -80,6 +93,12 @@
   const SAMPLING_FIELDS = [
     "temperature", "top_p", "top_k", "max_tokens", "max_completion_tokens",
     "frequency_penalty", "presence_penalty", "stop", "seed", "logprobs", "top_logprobs",
+  ];
+
+  // 不是采样参数，但必须原样透传给模型接口的字段。
+  // include_reasoning 尤其重要：它决定接口回不回 reasoning_content（思考过程）。
+  const PASSTHROUGH_FIELDS = [
+    "include_reasoning", "reasoning_effort", "thinking", "response_format", "tool_choice", "tools",
   ];
 
   // 把 SillyTavern 风格的 generate 载荷翻译成 OpenAI Chat Completions 请求体。
@@ -107,6 +126,11 @@
       // 部分服务商要求显式声明；DeepSeek 也接受 include_usage 之外的默认行为。
       body.stream_options = { include_usage: false };
     }
+    PASSTHROUGH_FIELDS.forEach((field) => {
+      const value = merged[field];
+      if (value === undefined || value === null || value === "") return;
+      body[field] = value;
+    });
     return body;
   }
 
@@ -278,6 +302,7 @@
     DEFAULT_SETTINGS,
     endpointFor,
     secretKeyFor,
+    providerForEndpoint,
     buildBody,
     buildHeaders,
     request,

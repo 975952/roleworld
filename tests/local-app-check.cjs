@@ -53,9 +53,16 @@ function startServer() {
       for await (const chunk of req) raw += chunk;
       let body = {};
       try { body = JSON.parse(raw); } catch (_) { /* 保持空对象 */ }
-      requests.push({ path: p, stream: body.stream === true, model: body.model, auth: req.headers.authorization || "" });
+      requests.push({
+        path: p, stream: body.stream === true, model: body.model,
+        auth: req.headers.authorization || "", include_reasoning: body.include_reasoning,
+      });
       if (body.stream === true) {
         res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        // 先给两段思维链：思考模式关闭时它们必须一个都不显示。
+        for (const thought of ["思考中甲", "思考中乙"]) {
+          res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta: { reasoning_content: thought } }] }) + "\n\n");
+        }
         const pieces = ["合成回复：", "你好，", "我是本地模型。"];
         for (const piece of pieces) {
           res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta: { content: piece } }] }) + "\n\n");
@@ -126,7 +133,7 @@ async function main() {
   const fixture = `
     (function () {
       try {
-        localStorage.setItem("task22.chat-model.v1.local", JSON.stringify({ mode: "local" }));
+        localStorage.setItem("task22.chat-model.v1.local", JSON.stringify({ mode: "deepseek-v4-flash" }));
         sessionStorage.setItem("task27a.current-account-handle.v1", "local");
       } catch (_) {}
       window.__ROLEWORLD_FIXTURE__ = {
@@ -274,7 +281,42 @@ async function main() {
   await check("模型请求走的是本机配置的端点，并且带了流式标记", async () => {
     const sent = requests.filter((row) => row.stream === true);
     assert(sent.length >= 1, "没有收到流式请求");
-    assert(sent[sent.length - 1].model === "synthetic-model", "模型名被改写成了 " + sent[sent.length - 1].model);
+    // DeepSeek 模式下模型名用模式名本身；端点则被本机设置改到了假服务上。
+    assert(sent[sent.length - 1].model === "deepseek-v4-flash", "模型名不对：" + sent[sent.length - 1].model);
+  });
+
+  await check("思考模式默认关闭：思维链既不显示也不请求", async () => {
+    const sent = requests.filter((row) => row.stream === true);
+    assert(sent[sent.length - 1].include_reasoning === false,
+      "请求里 include_reasoning 应为 false，实际 " + JSON.stringify(sent[sent.length - 1].include_reasoning));
+    const text = await evaluate("document.querySelector('#dynamicMessages').textContent");
+    assert(text.indexOf("思考中") < 0, "界面上还是出现了思维链：" + text.slice(0, 120));
+  });
+
+  await check("打开思考模式后请求会要求回传思维链", async () => {
+    await waitFor("document.querySelector('#sendButton').disabled === false", 15000);
+    await evaluate(`(() => {
+      const toggle = document.querySelector('#chatThinkingToggle');
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const input = document.querySelector('#messageInput');
+      input.value = '再问一次';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#dynamicMessages').textContent.split('我是本地模型').length > 2", 20000);
+    const sent = requests.filter((row) => row.stream === true);
+    assert(sent[sent.length - 1].include_reasoning === true,
+      "打开后应为 true，实际 " + JSON.stringify(sent[sent.length - 1].include_reasoning));
+    // 恢复默认，免得影响后面的页面
+    await waitFor("document.querySelector('#sendButton').disabled === false", 15000);
+    await evaluate(`(() => {
+      const toggle = document.querySelector('#chatThinkingToggle');
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
   });
 
   await check("设置面板能读到本机模型配置", async () => {

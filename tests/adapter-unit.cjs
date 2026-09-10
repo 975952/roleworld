@@ -15,6 +15,19 @@ const ROOT = path.join(__dirname, "..", "app", "adapter");
 const Store = require(path.join(ROOT, "store.js"));
 const Model = require(path.join(ROOT, "model.js"));
 const Zip = require(path.join(ROOT, "zip.js"));
+const Cards = require(path.join(ROOT, "cards.js"));
+
+// 让 index.js 能在 Node 里跑起来：它启动时会去读这几个全局。
+globalThis.RoleWorldStore = Store;
+globalThis.RoleWorldModel = Model;
+globalThis.RoleWorldZip = Zip;
+globalThis.RoleWorldCards = Cards;
+if (typeof globalThis.URL.createObjectURL !== "function") {
+  globalThis.URL.createObjectURL = () => "blob:test";
+  globalThis.URL.revokeObjectURL = () => {};
+}
+require(path.join(ROOT, "index.js"));
+const Adapter = globalThis.RoleWorld;
 
 const results = [];
 let failures = 0;
@@ -266,6 +279,56 @@ async function main() {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  console.log("== 适配层门面 ==");
+
+  await test("已知端点自动匹配服务商（AI 写角色失败的根因）", () => {
+    assert.equal(Model.providerForEndpoint("https://api.deepseek.com/chat/completions"), "deepseek");
+    assert.equal(Model.providerForEndpoint("https://api.deepseek.com/chat/completions/"), "deepseek");
+    assert.equal(Model.providerForEndpoint("HTTP://127.0.0.1:8080/v1/chat/completions"), "custom");
+    assert.equal(Model.providerForEndpoint("https://my-proxy.example/v1/chat/completions"), "");
+    assert.equal(Model.providerForEndpoint(""), "");
+  });
+
+  await test("写角色走 custom 路径时带的是 DeepSeek 的 Key", async () => {
+    // 页面在「本地模型」路径上会发 chat_completion_source:"custom" + custom_url，
+    // 如果只按 custom 取密钥就会拿到空串 → 请求 401 → "角色生成失败"。
+    await Adapter.secrets.set("api_key_deepseek", "sk-deepseek-test");
+    await Adapter.saveLocalSettings({
+      provider: "deepseek", endpoint: "", model: "deepseek-v4-flash",
+    });
+    const originalFetch = globalThis.fetch;
+    let seen = null;
+    globalThis.fetch = async (url, init) => {
+      seen = { url, auth: init.headers.Authorization, body: JSON.parse(init.body) };
+      return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    try {
+      await Adapter.STApi.generate({
+        messages: [{ role: "user", content: "写一个角色" }],
+        model: "local",
+        chat_completion_source: "custom",
+        custom_url: "https://api.deepseek.com/chat/completions",
+        stream: false,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(seen.url, "https://api.deepseek.com/chat/completions");
+    assert.equal(seen.auth, "Bearer sk-deepseek-test", "Key 取错了：拿到了 " + JSON.stringify(seen.auth));
+    assert.equal(seen.body.model, "deepseek-v4-flash", "model 应换成用户配置的模型名");
+  });
+
+  await test("思考模式开关会原样传进请求体", () => {
+    const off = Model.buildBody({ messages: [], include_reasoning: false });
+    assert.equal(off.include_reasoning, false, "关闭思考时必须显式发 false，否则接口照旧回思维链");
+    const on = Model.buildBody({ messages: [], include_reasoning: true, reasoning_effort: "high" });
+    assert.equal(on.include_reasoning, true);
+    assert.equal(on.reasoning_effort, "high");
+    const absent = Model.buildBody({ messages: [] });
+    assert.equal("include_reasoning" in absent, false);
   });
 
   console.log("== ZIP ==");

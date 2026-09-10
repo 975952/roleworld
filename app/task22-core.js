@@ -231,11 +231,16 @@
     if (!opts) throw new Error("生成参数缺失");
     const mode = String(opts.mode || CHAT_MODES.LOCAL);
     if (isDeepSeekChatMode(mode)) {
+      const thinking = opts.thinking === true;
       return {
         messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText),
         model: mode,
         chat_completion_source: "deepseek",
         stream: opts.stream === true,
+        // 思考过程默认关闭：开着的话用户会先看到一段思维链、随后被正文顶掉。
+        // include_reasoning=false 是明确要求接口不要回传 reasoning_content。
+        include_reasoning: thinking,
+        ...(thinking ? { reasoning_effort: "high" } : {}),
         ...DEEPSEEK_CHAT_SAMPLING,
         task22_engine: "deepseek",
       };

@@ -99,6 +99,9 @@
     draftFlow: null,
     // 2026-09-09：对话模型（本地 / DeepSeek）与 DeepSeek 密钥状态
     modelMode: "local",
+    // 思考模式默认关闭：开着的时候接口会先回一段思维链，正文到了再把它顶掉，
+    // 看起来像"闪一下"。关掉之后思维链直接不请求也不显示。
+    thinking: false,
     modelStorageKey: "",
     deepseekKeySaved: false,
     streamChunks: 0,
@@ -1372,7 +1375,10 @@
       const delta = choice && (choice.delta || choice.message);
       if (!delta) continue;
       const piece = typeof delta.content === "string" ? delta.content : "";
-      const reasoning = typeof delta.reasoning_content === "string" ? delta.reasoning_content : "";
+      // 思考过程默认丢弃：否则会先出现一段思维链、正文一到就被顶掉，看着像闪一下。
+      // 只有用户在「设置 → 对话」里打开思考模式时才累积它。
+      const reasoning = liveState.thinking && typeof delta.reasoning_content === "string"
+        ? delta.reasoning_content : "";
       if (piece) sink.content += piece;
       if (reasoning) sink.reasoning += reasoning;
       if (piece || reasoning) { sink.chunks += 1; sink.emit(); }
@@ -1575,6 +1581,7 @@
         settings: liveState.settings,
         engine: state.engine,
         mode: liveState.modelMode,
+        thinking: liveState.thinking === true,
         stream: true,
       });
       streamRow = appendLiveStreamRow(entry.charName || liveState.charName);
@@ -1658,9 +1665,11 @@
   function loadChatModelMode() {
     const core = window.TASK22_CORE;
     liveState.modelMode = core.CHAT_MODES.LOCAL;
+    liveState.thinking = false;
     try {
       const stored = JSON.parse(window.localStorage.getItem(liveState.modelStorageKey) || "null");
       if (stored && (stored.mode === core.CHAT_MODES.LOCAL || core.isDeepSeekChatMode(stored.mode))) liveState.modelMode = stored.mode;
+      if (stored && stored.thinking === true) liveState.thinking = true;
     } catch (_) { /* 忽略损坏的偏好 */ }
     syncChatModelControls();
   }
@@ -1668,7 +1677,10 @@
   function persistChatModelMode() {
     if (!liveState.modelStorageKey) return;
     try {
-      window.localStorage.setItem(liveState.modelStorageKey, JSON.stringify({ mode: liveState.modelMode }));
+      window.localStorage.setItem(liveState.modelStorageKey, JSON.stringify({
+        mode: liveState.modelMode,
+        thinking: liveState.thinking === true,
+      }));
     } catch (_) { /* 存储不可用时不影响当前会话 */ }
   }
 
@@ -1691,7 +1703,22 @@
     const settings = document.querySelector("#chatModelSelectSettings");
     if (topbar) topbar.value = liveState.modelMode;
     if (settings) settings.value = liveState.modelMode;
+    // 思考模式只对 DeepSeek 系模型有效；本地模型没有这个概念。
+    const thinking = document.querySelector("#chatThinkingToggle");
+    if (thinking) {
+      thinking.checked = liveState.thinking === true;
+      const deepseek = window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode);
+      thinking.disabled = !deepseek;
+      const row = thinking.closest(".settings-row");
+      if (row) row.classList.toggle("is-disabled", !deepseek);
+    }
     renderChatKeyStatus();
+  }
+
+  function setChatThinking(value) {
+    liveState.thinking = value === true;
+    persistChatModelMode();
+    syncChatModelControls();
   }
 
   function setChatModelMode(mode) {
@@ -1772,6 +1799,7 @@
   function bindChatModelControls() {
     document.querySelector("#chatModelSelect")?.addEventListener("change", (event) => setChatModelMode(event.target.value));
     document.querySelector("#chatModelSelectSettings")?.addEventListener("change", (event) => setChatModelMode(event.target.value));
+    document.querySelector("#chatThinkingToggle")?.addEventListener("change", (event) => setChatThinking(event.target.checked));
     document.querySelector("#chatDeepseekKeySave")?.addEventListener("click", saveChatDeepseekKey);
     document.querySelector("#chatDeepseekKeyDelete")?.addEventListener("click", deleteChatDeepseekKey);
     document.querySelector("#chatDeepseekKeyInput")?.addEventListener("keydown", (event) => {
