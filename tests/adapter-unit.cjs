@@ -365,6 +365,65 @@ async function main() {
     assert.deepEqual(offenders, [], "这些文件带 BOM：" + offenders.join(", "));
   });
 
+  console.log("== 角色草稿解析 ==");
+
+  const CharCore = require(path.join(__dirname, "..", "app", "task29-character-core.js"));
+
+  await test("模型在 JSON 前后加话、加多余字段，也能解析出来", () => {
+    // 之前的实现只接受"整段就是一个 JSON"，模型多写一句解释、或多给一个字段就整张卡判死，
+    // 用户看到的就是「草稿解析失败」。
+    const raw = [
+      "好的，这是根据描述生成的角色卡：",
+      "```json",
+      JSON.stringify({
+        name: "测试角色",
+        description: "一个用于测试的角色，描述足够长。",
+        summary: "模型自作主张加的字段",
+        greeting: "你好呀",
+        tags: ["测试"],
+        language: "zh",
+      }),
+      "```",
+      "希望符合你的预期。",
+    ].join("\n");
+    const draft = CharCore.parseDraft(raw);
+    assert.equal(draft.name, "测试角色");
+    assert.equal(draft.description, "一个用于测试的角色，描述足够长。");
+    assert.equal(draft.summary, undefined, "多余字段应当被忽略而不是保留");
+    assert.deepEqual(draft.tags, ["测试"]);
+  });
+
+  await test("没有围栏、前后有解释文字也能解析", () => {
+    const raw = '这是结果：{"name":"甲","description":"描述描述描述描述"} 完毕。';
+    assert.equal(CharCore.parseDraft(raw).name, "甲");
+  });
+
+  await test("危险键仍然拒绝", () => {
+    assert.throws(() => CharCore.parseDraft('{"name":"x","__proto__":{"polluted":1}}'),
+      (error) => error.code === "DRAFT_DANGEROUS_KEY");
+  });
+
+  await test("真的不是 JSON 时给出带长度的可读错误", () => {
+    assert.throws(() => CharCore.parseDraft("抱歉，我无法完成这个请求。"),
+      (error) => error.code === "DRAFT_PARSE_ERROR" && /模型返回 \d+ 字/.test(error.message));
+  });
+
+  await test("截断的 JSON 会报解析错误而不是静默返回空卡", () => {
+    assert.throws(() => CharCore.parseDraft('{"name":"甲","description":"被截断的描'),
+      (error) => error.code === "DRAFT_PARSE_ERROR");
+  });
+
+  await test("写卡请求关掉了思考并放宽了输出上限", () => {
+    const payload = CharCore.buildDraftGeneratePayload({
+      description: "这是一个足够长的角色描述，用来通过最短长度校验。",
+      language: "zh",
+      settings: { oai_settings: { custom_url: "https://api.deepseek.com/chat/completions" } },
+    });
+    assert.equal(payload.stream, false);
+    assert.equal(payload.include_reasoning, false, "思考会把输出额度吃光，正文就没了");
+    assert.ok(payload.max_tokens >= 4096, "1024 太紧，整张卡会被截断");
+  });
+
   console.log("== ZIP ==");
 
   await test("ZIP 写入后能原样读回（含中文文件名与二进制）", async () => {

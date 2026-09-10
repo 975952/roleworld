@@ -5,7 +5,7 @@
 
 ## 一、总体做法
 
-页面文件（`integration.js` / `magic-map.js` / `assistant.js` / `app.js`）原本就是对着
+页面文件（`integration.js` / `magic-map.js` / `app.js`）原本就是对着
 `window.STApi` 这组方法写的。所以改造没有逐个去改那十几处 `fetch`，而是：
 
 **保留方法签名不变，把 `window.STApi` 从「HTTP 客户端」换成「本地适配层门面」。**
@@ -81,8 +81,13 @@ Node 里 `require()` 即可 —— 因此数据层、请求翻译、SSE 解析�
 | `integration.js` `loadBooks` | 缺 `MB …` 四本记忆书就抛错 | 本地模式下允许一本都没有 |
 | `integration.js` `loadCharacterAndChat` / `refreshCharacterRegistry` | 没有角色卡就抛错 | 本地模式下给空状态，提示去导入 |
 | `integration.js` `showAuthGate` | 跳转登录页 | 本地模式下只提示，不跳转 |
-| `assistant.js` `start()` | 要求 `user.admin === true` | 不再要求管理员 |
 | `app.js` / `magic-map.js` 头像地址 | 硬编码 `/characters/<avatar>` | 优先用本机 blob URL |
+
+> 通用 AI 页（`assistant.html` 及其三个文件）已在 2026-09-10 整体移除 —— 用户判断它没有存在
+> 必要，聊天能力已经由对话页与剧情模式覆盖。移除时踩到一个坑：`integration.js` 的
+> `updateAdminEntry()` 原本以 `#adminAssistantLink` 是否存在作为提前返回条件，而它同时负责
+> 把 `userHandle` 交给上层（存储键、界面偏好都靠它），入口一删整个身份链路就静默失效 ——
+> 已改成不依赖该入口。
 
 ## 六、桌面端（Tauri v2）
 
@@ -121,9 +126,10 @@ data/blobs/<id>               图片等二进制
 ## 七、测试
 
 ```
-tests/adapter-unit.cjs     19 项：数据层增删改查、存档往返、请求体翻译、SSE、ZIP
-tests/local-app-check.cjs  13 项：无头 Chrome 打开三个页面，合成 fixture + 假模型端点，
-                                  外加「空库启动」与「内容包自动安装」两组用例
+tests/adapter-unit.cjs     29 项：数据层增删改查、存档往返、请求体翻译、SSE、ZIP、
+                                  端点反查、BOM 检查、角色草稿解析
+tests/local-app-check.cjs  14 项：无头 Chrome 打开两个页面，合成 fixture + 假模型端点，
+                                  含「内容包自动安装」「停用后空库启动」「思考模式开关」
 tests/desktop-smoke.cjs     1 项：启动真正的 exe，验证数据真的以普通文件落盘
 tests/legacy/              已废弃的 SillyTavern 假服务器（保留作参考，当前不再被引用）
 ```

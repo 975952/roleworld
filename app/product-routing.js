@@ -42,13 +42,11 @@
   function productBaseUrl(pathname) { return productBasePath(pathname) + "/"; }
   function productHomeUrl(pathname) { return productBaseUrl(pathname); }
   function productLoginUrl(pathname) { return productBaseUrl(pathname) + "login.html"; }
-  function productAssistantUrl(pathname) { return productBaseUrl(pathname) + "assistant.html"; }
 
   return {
     productBasePath,
     productBaseUrl,
     productHomeUrl,
     productLoginUrl,
-    productAssistantUrl,
   };
 });

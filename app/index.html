@@ -67,10 +67,6 @@
           <span class="nav-icon nav-icon-map" aria-hidden="true"></span>
           <span class="nav-label">剧情模式</span>
         </a>
-        <a class="nav-item admin-assistant-link" id="adminAssistantLink" href="./assistant.html">
-          <span class="nav-icon nav-icon-assistant" aria-hidden="true"></span>
-          <span class="nav-label">通用 AI</span>
-        </a>
       </nav>
 
       <div class="sidebar-spacer"></div>
@@ -101,10 +97,6 @@
             <span class="menu-row-icon menu-row-icon-account" aria-hidden="true"></span>
             <span>改密</span>
           </button>
-          <a class="user-menu-row" id="menuAssistantLink" href="./assistant.html" role="menuitem">
-            <span class="menu-row-icon menu-row-icon-assistant" aria-hidden="true"></span>
-            <span>通用 AI</span>
-          </a>
           <div class="user-menu-separator" aria-hidden="true"></div>
           <button class="user-menu-row user-menu-row-danger" type="button" data-action="open-logout" role="menuitem" hidden>
             <span class="menu-row-icon menu-row-icon-logout" aria-hidden="true"></span>
@@ -226,7 +218,7 @@
 
           <section class="settings-section" id="settings-conversation" data-settings-panel="conversation">
             <div class="settings-section-heading"><h2>对话</h2><p>发送行为与历史默认值。</p></div>
-            <div class="settings-card"><label class="settings-row" for="sendModeSelect"><div><strong>发送方式</strong><span>同时作用于 Harry 与通用 AI 输入框。</span></div><select id="sendModeSelect"><option value="enter">Enter 发送，Shift+Enter 换行</option><option value="ctrl-enter">Ctrl+Enter 发送，Enter 换行</option></select></label><label class="settings-row" for="chatModelSelectSettings"><div><strong>对话模型</strong><span>角色对话用本地模型或 DeepSeek 官方 API（记忆书与角色卡照常注入）。</span></div><select id="chatModelSelectSettings"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label><label class="settings-row" for="chatThinkingToggle"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" id="chatThinkingToggle"></label><div class="settings-row settings-row-key"><div><strong>DeepSeek API Key</strong><span id="chatDeepseekKeyStatus">正在读取…</span></div><div class="key-actions"><input type="password" id="chatDeepseekKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" id="chatDeepseekKeySave" type="button">保存</button><button class="plain-button" id="chatDeepseekKeyDelete" type="button">删除</button></div></div></div>
+            <div class="settings-card"><label class="settings-row" for="sendModeSelect"><div><strong>发送方式</strong><span>Enter 发送，Shift+Enter 换行。</span></div><select id="sendModeSelect"><option value="enter">Enter 发送，Shift+Enter 换行</option><option value="ctrl-enter">Ctrl+Enter 发送，Enter 换行</option></select></label><label class="settings-row" for="chatModelSelectSettings"><div><strong>对话模型</strong><span>角色对话用本地模型或 DeepSeek 官方 API（记忆书与角色卡照常注入）。</span></div><select id="chatModelSelectSettings"><option value="local">本地模型</option><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-v4.1-flash-expires-on-0910">V4.1 Flash（灰测 · 0910 到期）</option></select></label><label class="settings-row" for="chatThinkingToggle"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" id="chatThinkingToggle"></label><div class="settings-row settings-row-key"><div><strong>DeepSeek API Key</strong><span id="chatDeepseekKeyStatus">正在读取…</span></div><div class="key-actions"><input type="password" id="chatDeepseekKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" id="chatDeepseekKeySave" type="button">保存</button><button class="plain-button" id="chatDeepseekKeyDelete" type="button">删除</button></div></div></div>
           </section>
 
           <section class="settings-section" id="settings-characters" data-settings-panel="characters">
@@ -279,7 +271,7 @@
 
           <section class="settings-section" id="settings-local-data" data-settings-panel="local-data">
             <div class="settings-section-heading"><h2>本地数据</h2><p>只管理当前账户在本设备上的前端数据，不影响 Harry 服务端对话。</p></div>
-            <div class="settings-card"><div class="settings-row settings-action-row" id="generalAiDataRow" hidden><div><strong>清除本账户的通用 AI 对话</strong><span>只删除当前账户对应的本地通用 AI 会话。</span></div><button class="danger-button" id="clearGeneralAiButton" type="button">清除对话</button></div><div class="settings-row settings-action-row"><div><strong>重置本账户界面偏好</strong><span>恢复主题、密度、动效、发送方式和布局默认值，不删除聊天。</span></div><button class="plain-button" id="resetPreferencesButton" type="button">重置偏好</button></div></div>
+            <div class="settings-card"><div class="settings-row settings-action-row"><div><strong>重置本账户界面偏好</strong><span>恢复主题、密度、动效、发送方式和布局默认值，不删除聊天。</span></div><button class="plain-button" id="resetPreferencesButton" type="button">重置偏好</button></div></div>
             <div class="settings-card"><div class="settings-card-heading"><div><strong>归档对话 <span class="settings-count" id="archivedChatCount">0 个</span></strong><span>已归档对话只在这里显示，可恢复到主列表。</span></div><label class="settings-search"><span class="sr-only">搜索归档对话</span><input id="archivedChatSearch" type="search" autocomplete="off" placeholder="搜索标题或文件名" aria-label="搜索归档对话"></label></div><div id="archivedChatList"></div><p class="settings-empty" id="archivedChatEmpty">暂无归档对话</p></div>
           </section>
         </div>

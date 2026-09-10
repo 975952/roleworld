@@ -6,9 +6,9 @@
  * 起一个静态服务器托管 app/ 与 packs/，再起一个假的 OpenAI 兼容模型端点，
  * 用无头 Chrome 真正打开三个页面，验证：
  *   1. 对话页能启动（没有登录跳转、没有遮罩、输入框可用）
- *   2. 发送消息能拿到流式回复并落到界面上
+ *   2. 发送消息能拿到流式回复并落到界面上；思考模式默认关闭且不显示思维链
  *   3. 剧情模式页能读角色与记忆书
- *   4. 通用 AI 页不再被"仅管理员"挡住
+ *   4. 内容包自动安装 / 停用后空库仍可启动
  *   5. 设置面板能读写本机模型配置与密钥
  */
 
@@ -358,16 +358,6 @@ async function main() {
   await check("剧情模式没有跳转到登录页", async () => {
     const href = await evaluate("location.pathname");
     assert(href.endsWith("/magic-map.html"), "被跳转到了 " + href);
-  });
-
-  console.log("== 通用 AI 页 ==");
-
-  await goto(base + "/assistant.html");
-
-  await check("通用 AI 页不再要求管理员身份", async () => {
-    await waitFor("document.querySelector('#assistantApp') && document.querySelector('#assistantApp').hidden === false", 20000);
-    assert(await evaluate("document.querySelector('#assistantGate').hidden === true"), "还是停在错误提示页");
-    assert(await evaluate("location.pathname.endsWith('/assistant.html')"), "被跳转走了");
   });
 
   console.log("== 内置内容包（packs/harry-potter）==");

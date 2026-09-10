@@ -15,9 +15,8 @@ device. MIT licensed. [Jump to English](#english)
 
 | 页面 | 作用 |
 |---|---|
-| `app/index.html` | 角色对话。导入 CCv2 / CCv3 / PNG / CHARX 角色卡，支持流式回复、多会话管理、记忆书（世界书） |
+| `app/index.html` | 角色对话。导入 CCv2 / CCv3 / PNG / CHARX 角色卡，支持流式回复、多会话管理、记忆书（世界书），还可以让模型帮你写角色卡 |
 | `app/magic-map.html` | 剧情模式。多角色同场演出，带点名规则与「导演模式」（你不在场也能推进剧情） |
-| `app/assistant.html` | 通用 AI 助手。和角色卡无关的日常问答，可开思考模式 |
 
 ## 为什么是「本地优先」
 
@@ -155,9 +154,9 @@ CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
 
 ## 项目状态
 
-已完成：本地适配层、去掉账号系统、三个页面接入适配层、内容包机制（含哈利·波特内置包）、
+已完成：本地适配层、去掉账号系统、页面接入适配层、内容包机制（含哈利·波特内置包）、
 存档导出导入、Windows 桌面端打包、GitHub Actions 自动出包、回归测试
-（13 项端到端 + 19 项单元 + 1 项桌面冒烟）。
+（14 项端到端 + 29 项单元 + 1 项桌面冒烟）。
 
 计划中：
 
@@ -165,7 +164,7 @@ CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
       macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
 - [ ] PWA（manifest + service worker，可装到手机桌面）
 - [ ] Android（Capacitor）
-- [ ] 把 `app.js` / `assistant.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
+- [ ] 把 `app.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
 - [ ] 更细的生成参数面板（温度 / 上下文长度 / 预设）
 
 ## 目录结构
@@ -175,8 +174,8 @@ app/                 前端（原生 HTML/CSS/JS，无构建）
   adapter/           本地适配层：数据、模型、角色卡、内容包
   integration.js     角色对话页逻辑
   magic-map.js       剧情模式逻辑
-  assistant.js       通用 AI 页逻辑
   task22-core.js     提示词编排（角色卡 + 记忆书 + 样例对话）
+  task29-character-core.js  AI 写角色卡（payload / 草稿解析 / CCv3 构造）
 packs/               内容包（默认自带 harry-potter）
 tests/               回归测试
 scripts/             本地服务器、图标生成、打包前准备

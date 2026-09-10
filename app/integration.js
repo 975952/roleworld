@@ -112,10 +112,9 @@
   }
 
   async function updateAdminEntry() {
-    const link = document.querySelector("#adminAssistantLink");
-    if (!link || !window.STApi.getCurrentUser) return null;
-    // Task-27H：身份获取允许失败（瞬时网络/会话边界），但绝不阻断启动；
-    // 遮罩摘除已改由 bootLive 落定时统一兜底。
+    // 本地版没有管理员入口了，但身份必须照常取 —— 这个函数同时还负责把
+    // userHandle 交给上层（存储键、界面偏好都靠它）。所以不能因为入口不存在就提前返回。
+    if (!window.STApi.getCurrentUser) return null;
     let user = null;
     try { user = await window.STApi.getCurrentUser(); } catch (err) {
       if (isAuthRequired(err)) throw err;
@@ -123,7 +122,8 @@
     liveState.userHandle = String((user && (user.handle || user.user_handle || user.name)) || "unknown");
     const isAdmin = !!(user && user.admin === true);
     liveState.isAdmin = isAdmin;
-    link.hidden = !isAdmin;
+    const link = document.querySelector("#adminAssistantLink");
+    if (link) link.hidden = !isAdmin;
     if (window.TASK25C_UI) {
       if (window.TASK25C_UI.setUserContext) window.TASK25C_UI.setUserContext(user);
       else {
@@ -840,8 +840,8 @@
       setAiBusy(false, "#aiGenerateButton");
     } catch (err) {
       if (isAuthRequired(err)) { showAuthGate(); return; }
-      const retriable = err && (err.code === "DRAFT_PARSE_ERROR" || err.code === "DRAFT_UNKNOWN_FIELD"
-        || err.code === "DRAFT_DANGEROUS_KEY" || err.code === "DRAFT_INVALID");
+      const retriable = err && (err.code === "DRAFT_PARSE_ERROR" || err.code === "DRAFT_DANGEROUS_KEY"
+        || err.code === "DRAFT_INVALID");
       if (retriable && liveState.draftFlow.retryAllowed()) {
         // 一次修复：再调用一次模型（GENERATING → GENERATING）。
         try {
@@ -855,13 +855,14 @@
           if (isAuthRequired(retryErr)) { showAuthGate(); return; }
         }
         setAiBusy(false, "#aiGenerateButton");
-        setAiError("草稿解析失败，请返回修改描述后重试，或直接手动填写。");
+        setAiError("模型两次都没有给出可用的角色卡。可以把描述写得更具体些再试，或直接手动填写。");
         return;
       }
       setAiBusy(false, "#aiGenerateButton");
       setAiError((err && err.code === "DRAFT_EMPTY") ? "模型没有返回内容，请重试。"
-        : (retriable) ? "草稿解析失败，请重新生成或返回修改描述。"
+        : (err && err.code === "DRAFT_PARSE_ERROR") ? `模型返回的内容不是合法角色卡（${err.message}），请重试或手动填写。`
         : (err && err.code === "DRAFT_INVALID") ? `草稿不完整：${(err.validationErrors || []).join("；")}`
+        : (err && err.message) ? `生成失败：${err.message}`
         : "生成失败，请重试。");
     }
   }
@@ -1413,24 +1414,24 @@
     stack.appendChild(meta);
     const body = document.createElement("div");
     body.className = "assistant-body";
-    const bubble = document.createElement("div");
-    bubble.className = "message-bubble assistant-bubble";
-    const paragraph = document.createElement("p");
-    paragraph.className = "stream-text";
-    bubble.appendChild(paragraph);
-    body.appendChild(bubble);
+    body.innerHTML = renderAssistantBody("");
     stack.appendChild(body);
     row.appendChild(avatar);
     row.appendChild(stack);
     container.appendChild(row);
     const scroll = $("#chatScroll");
     if (scroll) scroll.scrollTop = scroll.scrollHeight;
-    return { row: row, paragraph: paragraph, scroll: scroll };
+    return { row: row, body: body, scroll: scroll };
   }
 
   function updateLiveStreamRow(handle, text) {
     if (!handle || !handle.row.parentNode) return;
-    handle.paragraph.textContent = text;
+    // 边流边按最终格式渲染（旁白/对白分行），否则会先看到一堆原始符号、
+    // 等保存后再"重新排版"一次，看起来很跳。
+    handle.body.innerHTML = renderAssistantBody(text);
+    const paragraphs = handle.body.querySelectorAll("p");
+    const last = paragraphs[paragraphs.length - 1];
+    if (last) last.classList.add("stream-text"); // 保留光标
     if (handle.scroll) handle.scroll.scrollTop = handle.scroll.scrollHeight;
   }
 

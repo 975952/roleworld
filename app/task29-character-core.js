@@ -60,28 +60,57 @@
     return Math.min(max, Math.max(min, Math.trunc(n)));
   }
 
-  /* ---------- 草稿解析：确定性移除一层 ```json 围栏 ---------- */
-  function stripFence(text) {
-    const t = String(text || "");
-    const re = /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n\s*```\s*$/;
-    const match = t.match(re);
-    if (match) return match[1].trim();
-    return t.trim();
+  /* ---------- 草稿解析 ---------- */
+  /**
+   * 从模型回复里抠出那个 JSON 对象。
+   * 真实模型很少老老实实只回一段 JSON：常见的是"好的，这是角色卡：{...}"、
+   * 包在 ``` 围栏里、或者末尾再补一句说明。所以先取围栏内容，再从第一个 { 开始
+   * 按括号配对截到配平为止（字符串与转义要跳过）。
+   */
+  function extractJsonObject(text) {
+    let t = String(text || "").trim();
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence && fence[1]) t = fence[1].trim();
+    const start = t.indexOf("{");
+    if (start < 0) return t;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < t.length; i += 1) {
+      const ch = t[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) return t.slice(start, i + 1);
+      }
+    }
+    // 没配平：多半是被 max_tokens 截断了，原样交出去让 JSON.parse 报错。
+    return t.slice(start);
   }
 
   /**
    * 解析模型回复为草稿对象。
-   * - 先剥离一层 ```json 围栏；
+   * - 从整段回复里取出 JSON 对象（容忍前后废话与围栏）；
    * - 只接受 JSON 对象；
-   * - 拒绝未知字段；拒绝 __proto__ / prototype / constructor；
-   * - 抛出错误码：DRAFT_PARSE_ERROR / DRAFT_UNKNOWN_FIELD / DRAFT_DANGEROUS_KEY。
+   * - 拒绝 __proto__ / prototype / constructor；
+   * - **多余字段直接忽略**（模型经常会多加 summary / greeting 之类的东西，
+   *   为此把整张卡判死没有道理；真正用到的字段由 normalizeDraft 白名单取用）；
+   * - 抛出错误码：DRAFT_PARSE_ERROR / DRAFT_DANGEROUS_KEY。
    */
   function parseDraft(rawText) {
+    const jsonText = extractJsonObject(rawText);
     let value;
     try {
-      value = JSON.parse(stripFence(rawText));
+      value = JSON.parse(jsonText);
     } catch (_) {
-      const error = new Error("角色草稿不是合法 JSON");
+      const error = new Error("角色草稿不是合法 JSON（模型返回 " + String(rawText || "").length + " 字）");
       error.code = "DRAFT_PARSE_ERROR";
       throw error;
     }
@@ -94,11 +123,6 @@
       if (DANGEROUS_KEYS.includes(key)) {
         const error = new Error(`拒绝危险键：${key}`);
         error.code = "DRAFT_DANGEROUS_KEY";
-        throw error;
-      }
-      if (!DRAFT_FIELDS.includes(key)) {
-        const error = new Error(`草稿含未知字段：${key}`);
-        error.code = "DRAFT_UNKNOWN_FIELD";
         throw error;
       }
     }
@@ -208,7 +232,10 @@
       stream: false,
       temperature: 0.4,
       top_p: 0.9,
-      max_tokens: 1024,
+      // 写卡要一次性吐出整张卡，1024 太紧（截断就会解析失败）。
+      // 同时明确关掉思考：思维链会先把额度吃光，正文就没了。
+      max_tokens: 4096,
+      include_reasoning: false,
     };
   }
 
@@ -374,7 +401,7 @@
     EXT_TO_FILE_TYPE,
     TEMPLATE_PLACEHOLDER_FILE,
     DRAFT_SYSTEM_PROMPT,
-    stripFence,
+    extractJsonObject,
     parseDraft,
     normalizeDraft,
     validateDraft,
