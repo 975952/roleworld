@@ -28,6 +28,8 @@
     density: ["comfortable", "compact"],
     motion: ["full", "reduced"],
     sendMode: ["enter", "ctrl-enter"],
+    // 界面缩放：整体放大/缩小（含正文与控件）。存字符串，方便与 enumValue 比较。
+    scale: ["0.9", "1", "1.1", "1.25", "1.5"],
     lastSettingsSection: ["appearance", "conversation", "model", "characters", "layout", "about", "local-data"],
   });
   const LIMITS = Object.freeze({
@@ -57,6 +59,7 @@
       density: "comfortable",
       motion: opts.prefersReducedMotion === true ? "reduced" : "full",
       sendMode: "enter",
+      scale: "1",
       lastSettingsSection: "appearance",
       harry: {
         sidebarCollapsed: false,
@@ -100,6 +103,7 @@
       density: enumValue(raw.density, ENUMS.density, defaults.density),
       motion: enumValue(raw.motion, ENUMS.motion, defaults.motion),
       sendMode: enumValue(raw.sendMode, ENUMS.sendMode, defaults.sendMode),
+      scale: enumValue(String(raw.scale ?? ""), ENUMS.scale, defaults.scale),
       lastSettingsSection: enumValue(raw.lastSettingsSection, ENUMS.lastSettingsSection, defaults.lastSettingsSection),
       harry: {
         sidebarCollapsed: boolValue(harry.sidebarCollapsed, defaults.harry.sidebarCollapsed),

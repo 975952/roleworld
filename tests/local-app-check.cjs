@@ -358,6 +358,41 @@ async function main() {
     assert(value === base + "/v1/chat/completions", "端点显示为 " + value);
   });
 
+  await check("界面大小可调：生效、持久化、固定面板不受影响", async () => {
+    const before = await evaluate("document.querySelector('#messageInput').getBoundingClientRect().height");
+    await evaluate(`(() => {
+      const select = document.querySelector('#scaleSelect');
+      select.value = '1.5';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#appShell').style.zoom === '1.5'", 6000);
+    const manual = await evaluate(`(() => {
+      const shell = document.querySelector('#appShell');
+      return { computed: getComputedStyle(shell).zoom, height: document.querySelector('#messageInput').getBoundingClientRect().height };
+    })()`);
+    const after = await evaluate("document.querySelector('#messageInput').getBoundingClientRect().height");
+    assert(after > before * 1.2, `放大后输入框没变大：${before} → ${after}；${JSON.stringify(manual)}`);
+
+    // 偏好要落到本机，刷新后才不会丢
+    const stored = await evaluate("(JSON.parse(localStorage.getItem('task27a.preferences.v1.local') || '{}') || {}).scale");
+    assert(stored === "1.5", "缩放偏好没有存下来：" + stored);
+
+    // 缩放之后固定定位的设置面板仍然要能正常打开
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
+    assert(await evaluate("document.querySelector('#settingsSurface').getBoundingClientRect().height > 100"), "放大后设置面板没有正常显示");
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+
+    await evaluate(`(() => {
+      const select = document.querySelector('#scaleSelect');
+      select.value = '1';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("!document.querySelector('#appShell').style.zoom", 6000);
+  });
+
   await check("账号相关入口不可见", async () => {
     const visible = await evaluate(`(() => {
       const result = { hidden: [], rows: [] };

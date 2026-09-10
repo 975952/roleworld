@@ -167,7 +167,8 @@
     overlay = document.createElement("div");
     overlay.className = "rw-onboard-backdrop";
     overlay.addEventListener("click", (event) => { if (event.target === overlay) finish(); });
-    document.body.appendChild(overlay);
+    // 挂进 appShell：界面缩放（zoom）加在它上面，弹窗才会跟着一起放大。
+    (document.getElementById("appShell") || document.body).appendChild(overlay);
     document.addEventListener("keydown", onKeydown, true);
     render();
   }

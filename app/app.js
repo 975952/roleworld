@@ -667,15 +667,26 @@ function applyPreferences() {
   if (shell) shell.dataset.density = preferences.density;
   document.documentElement.dataset.motion = preferences.motion;
   document.documentElement.dataset.theme = preferences.theme;
+  // 界面缩放：整体（正文+控件）一起缩放。
+  // 实测这片页面会给 body 上的 zoom 忽略掉（连手设 2 都算回 1），所以加在 appShell 上。
+  const scale = Number(preferences.scale) || 1;
+  document.documentElement.dataset.scale = String(scale);
+  const scaleTarget = $("#appShell");
+  if (scaleTarget) {
+    if (scale === 1) scaleTarget.style.removeProperty("zoom");
+    else scaleTarget.style.zoom = String(scale);
+  }
   if (state.user) document.documentElement.classList.remove("theme-pending");
   const themeSelect = $("#themeSelect");
   const densitySelect = $("#densitySelect");
   const motionSelect = $("#motionSelect");
   const sendModeSelect = $("#sendModeSelect");
+  const scaleSelect = $("#scaleSelect");
   if (themeSelect) themeSelect.value = preferences.theme;
   if (densitySelect) densitySelect.value = preferences.density;
   if (motionSelect) motionSelect.value = preferences.motion;
   if (sendModeSelect) sendModeSelect.value = preferences.sendMode;
+  if (scaleSelect) scaleSelect.value = String(scale);
 }
 
 function savePreference(key, value) {
@@ -1334,6 +1345,7 @@ function openCharacterImport() {
 
 function bindSettings() {
   $("#themeSelect")?.addEventListener("change", (event) => savePreference("theme", event.target.value));
+  $("#scaleSelect")?.addEventListener("change", (event) => savePreference("scale", event.target.value));
   $("#densitySelect")?.addEventListener("change", (event) => savePreference("density", event.target.value));
   $("#motionSelect")?.addEventListener("change", (event) => savePreference("motion", event.target.value));
   $("#sendModeSelect")?.addEventListener("change", (event) => savePreference("sendMode", event.target.value));
