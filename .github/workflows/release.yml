@@ -16,13 +16,18 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: ""
-          - platform: ubuntu-22.04
-            args: ""
-          - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            # 只出 NSIS 安装包。MSI 要经过 WiX 3 的 light.exe，它在中文产品名
+            # （角色世界）上会直接失败：failed to run ...\WixTools314\light.exe。
+            # NSIS 对中文路径/名称没有问题。
+            args: "--bundles nsis"
+          # 只发 Windows。想加回其它平台，取消下面的注释即可
+          # （macOS 需要签名证书才能让用户无警告打开，Linux 各发行版依赖差异较大）。
+          # - platform: ubuntu-22.04
+          #   args: ""
+          # - platform: macos-latest
+          #   args: "--target aarch64-apple-darwin"
+          # - platform: macos-latest
+          #   args: "--target x86_64-apple-darwin"
 
     steps:
       - uses: actions/checkout@v4

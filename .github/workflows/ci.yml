@@ -8,30 +8,23 @@ on:
 
 jobs:
   test:
-    name: 测试（${{ matrix.os }}）
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: 测试（Windows）
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
-      # adapter-unit 不需要浏览器；local-app-check 需要 Chrome。
-      # ubuntu-latest 与 windows-latest 都自带 Google Chrome，先探测一下，
-      # 找不到就显式装一个（用 setup-chrome 提供 CHROME_PATH）。
+      # adapter-unit 不需要浏览器；local-app-check 需要一个 Chromium。
+      # windows-latest 自带 Google Chrome，先用它；万一没有就用 setup-chrome 兜底。
       - name: 探测浏览器
         id: chrome
         shell: bash
         run: |
-          if [ -x "/usr/bin/google-chrome" ] || [ -x "/usr/bin/google-chrome-stable" ]; then
-            echo "found=system" >> "$GITHUB_OUTPUT"
-          elif [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ]; then
+          if [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ]; then
             echo "found=system" >> "$GITHUB_OUTPUT"
           else
             echo "found=missing" >> "$GITHUB_OUTPUT"
