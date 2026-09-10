@@ -5,7 +5,7 @@
 | 文件 | 内容 | 运行 |
 |---|---|---|
 | `adapter-unit.cjs` | 数据层增删改查、存档导出导入、OpenAI 请求体翻译、SSE 解析、ZIP 读写（含外部工具压缩的 deflate） | `node tests/adapter-unit.cjs` |
-| `local-app-check.cjs` | 端到端：起静态服务器 + 假模型端点，用无头 Chrome 打开三个页面，验证启动、流式回复、记忆书、模型配置面板、账号入口不可见 | `node tests/local-app-check.cjs` |
+| `local-app-check.cjs` | 端到端：起静态服务器 + 假模型端点，用无头 Chrome 打开三个页面，验证启动、流式回复、记忆书、模型配置面板、账号入口不可见；最后清库再启动一次，确认「一本角色卡都没有」时给的是空状态而不是错误页 | `node tests/local-app-check.cjs` |
 | `cdp.js` | 极简 CDP 客户端（Node 内置 WebSocket，无依赖），被上面的浏览器用例复用 | — |
 | `legacy/fake-st-server.cjs` | 早期「SillyTavern 托管模式」的合成后端。当前应用已不再调用它，保留仅作历史参考 | — |
 

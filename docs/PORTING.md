@@ -88,7 +88,8 @@ Node 里 `require()` 即可 —— 因此数据层、请求翻译、SSE 解析�
 
 ```
 tests/adapter-unit.cjs     19 项：数据层增删改查、存档往返、请求体翻译、SSE、ZIP
-tests/local-app-check.cjs  11 项：无头 Chrome 打开三个页面，合成 fixture + 假模型端点
+tests/local-app-check.cjs  12 项：无头 Chrome 打开三个页面，合成 fixture + 假模型端点，
+                                  外加一次「空库启动」验证（仓库默认不含内容包）
 tests/legacy/              已废弃的 SillyTavern 假服务器（保留作参考，当前不再被引用）
 ```
 

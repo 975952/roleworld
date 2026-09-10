@@ -152,7 +152,7 @@ async function main() {
   const session = attached.sessionId;
   await cdp.sessionSend(session, "Page.enable");
   await cdp.sessionSend(session, "Runtime.enable");
-  await cdp.sessionSend(session, "Page.addScriptToEvaluateOnNewDocument", { source: fixture });
+  const fixtureScript = await cdp.sessionSend(session, "Page.addScriptToEvaluateOnNewDocument", { source: fixture });
 
   async function evaluate(expression) {
     const out = await cdp.sessionSend(session, "Runtime.evaluate", {
@@ -308,6 +308,29 @@ async function main() {
     await waitFor("document.querySelector('#assistantApp') && document.querySelector('#assistantApp').hidden === false", 20000);
     assert(await evaluate("document.querySelector('#assistantGate').hidden === true"), "还是停在错误提示页");
     assert(await evaluate("location.pathname.endsWith('/assistant.html')"), "被跳转走了");
+  });
+
+  console.log("== 空库（仓库默认状态，不含任何内容包）==");
+
+  await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
+    await cdp.sessionSend(session, "Page.removeScriptToEvaluateOnNewDocument", { identifier: fixtureScript.identifier });
+    await cdp.sessionSend(session, "Page.addScriptToEvaluateOnNewDocument", { source: "window.__ROLEWORLD_FIXTURE__ = null;" });
+    await goto(base + "/index.html");
+    await evaluate("(async () => { await RoleWorld.init(); await RoleWorld.resetAll(); return true; })()");
+    await goto(base + "/index.html");
+    await waitFor("!document.documentElement.classList.contains('theme-pending')", 25000);
+    reportErrors("空库 index.html");
+    const state = await evaluate(`(() => ({
+      characters: document.querySelector('#dynamicMessages') ? true : false,
+      gate: document.querySelector('#chatTemplateGate').hidden,
+      auth: document.querySelector('#authGate').hidden,
+      disabled: document.querySelector('#messageInput').disabled,
+      text: document.body.textContent.indexOf('还没有角色卡') >= 0,
+    }))()`);
+    assert(state.gate, "模板门显示了错误，说明空库启动失败");
+    assert(state.auth, "登录门显示了错误");
+    assert(state.disabled, "没有角色卡时输入框仍可用");
+    assert(state.text, "没有看到空状态提示");
   });
 
   cdp.close();
