@@ -64,6 +64,8 @@ const MEASURE = `(() => {
     ambientBg: getComputedStyle(root, "::after").backgroundImage,
     headerBg: bgImage(".topbar") || bgImage(".map-header"),
     stageBg: bgImage(".main-stage") || bgImage(".map-app .stage-main"),
+    shellBg: bgImage("#appShell") || bgImage(".map-app"),
+    shellBgColor: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
     buttonBg: btn ? getComputedStyle(btn).backgroundImage : "",
     buttonColor: btn ? getComputedStyle(btn).color : "",
   };
@@ -79,6 +81,11 @@ function rgbLuma(value) {
   const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value || "");
   if (!m) return -1;
   return Math.round((Number(m[1]) * 299 + Number(m[2]) * 587 + Number(m[3]) * 114) / 1000);
+}
+
+function rgbParts(value) {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value || "");
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [-1, -1, -1];
 }
 
 async function main() {
@@ -157,6 +164,32 @@ async function main() {
     const m = await open(url, GOLD_LIGHT, [1280, 900]);
     check(`${label}：亮色下风格仍生效`, m.style === "gold" && m.theme === "light", `${m.style}/${m.theme}`);
     check(`${label}：亮色下按钮是渐变`, /gradient/.test(m.buttonBg), m.buttonBg.slice(0, 72));
+  }
+
+  console.log("── 樱 / 深林 / 羊皮纸 ──");
+  const CHAT = `${BASE}/app/index.html?onboarding=off&surprise=off`;
+
+  const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
+  check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0b0a0b" && rgbLuma(sakuraDark.bodyBg) <= 20, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
+  check("樱（暗）：强调色是粉", sakuraDark.focus === "#ef9ec4", sakuraDark.focus);
+  check("樱（暗）：主按钮走粉色渐变", /gradient/.test(sakuraDark.buttonBg), sakuraDark.buttonBg.slice(0, 68));
+  check("樱（暗）：顶栏是渐变不是平涂", /gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68));
+  check("樱（暗）：光带和金色一样小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 240, `${sakuraDark.ambientHeight}px`);
+
+  const forestLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest", theme: "light" }), [1280, 900]);
+  const fl = rgbParts(forestLight.shellBgColor);
+  check("深林（亮）：底色是很浅很浅的浅绿", forestLight.canvas === "#f3faf1" && rgbLuma(forestLight.shellBgColor) >= 235 && fl[1] > fl[0] && fl[1] > fl[2], `${forestLight.canvas} / ${forestLight.shellBgColor}`);
+
+  const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
+  const fd = rgbParts(forestDark.shellBgColor);
+  check("深林（暗）：底色仍是近黑", rgbLuma(forestDark.shellBgColor) <= 20, forestDark.shellBgColor);
+  check("深林（暗）：绿色是很淡的浅绿", forestDark.focus === "#b9e0a8", forestDark.focus);
+  check("深林（暗）：绿色没把界面染绿", Math.abs(fd[1] - fd[0]) <= 4 && Math.abs(fd[1] - fd[2]) <= 4, forestDark.shellBgColor);
+
+  for (const theme of ["dark", "light"]) {
+    const paper = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "paper", theme }), [1280, 900]);
+    check(`羊皮纸（${theme === "dark" ? "暗" : "亮"}）：纸面有纤维纹理`, /repeating-linear-gradient/.test(paper.shellBg || ""), (paper.shellBg || "").slice(0, 68));
+    check(`羊皮纸（${theme === "dark" ? "暗" : "亮"}）：主按钮是渐变`, /gradient/.test(paper.buttonBg), paper.buttonBg.slice(0, 68));
   }
 
   console.log("── 返校季第一封信：勾选「保留返校金」必须真的生效 ──");

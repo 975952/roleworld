@@ -68,42 +68,47 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格一：羊皮纸（暖纸色，适合长时间阅读与写作）
+   风格一：羊皮纸（暖纸色 + 纸纹，适合长时间阅读与写作）
+   质感不靠"到处染黄"，靠：偏暖的纸底色 + 极细的纤维纹 + 边缘轻微泛黄
+   （纹理层见 glass.css 的 data-style="paper" 段）。
    --------------------------------------------------------------------- */
 :root[data-style="paper"] {
-  --canvas: #17130d;
-  --navigation: #1e1913;
-  --raised: #241d15;
-  --hover: #2d2419;
-  --selected: #372c1e;
-  --hairline: #3b3024;
-  --strong-line: #4d4030;
-  --main-text: #f3e8d5;
-  --secondary-text: #d9cbb4;
-  --muted-text: #a2907a;
-  --quiet-text: #7d6e5c;
-  --focus: #d8a94a;
-  --topbar-bg: rgba(23,19,13,.94);
-  --overlay: rgba(23,19,13,.93);
-  --accent-soft: rgba(216,169,74,.14);
+  --canvas: #16130d;
+  --navigation: #1c1811;
+  --raised: #231e15;
+  --hover: #2b2519;
+  --selected: #342c1d;
+  --hairline: #38301f;
+  --strong-line: #4a3f2a;
+  --main-text: #f4ead7;
+  --secondary-text: #dccdb2;
+  --muted-text: #a5917a;
+  --quiet-text: #806f5b;
+  --focus: #d3a24a;
+  --focus-grad: linear-gradient(160deg, #e8c078, #c8912f);
+  --topbar-bg: rgba(22,19,13,.94);
+  --overlay: rgba(22,19,13,.93);
+  --accent-soft: rgba(211,162,74,.12);
 }
 :root[data-style="paper"][data-theme="light"] {
-  --canvas: #f7f0e2;
-  --navigation: #efe6d4;
-  --raised: #fffaf0;
-  --hover: #e9dfcb;
-  --selected: #e0d3ba;
-  --hairline: #d9cbb0;
-  --strong-line: #c4b393;
-  --main-text: #2a2118;
-  --secondary-text: #4b3f30;
-  --muted-text: #7a6a55;
-  --quiet-text: #97876f;
-  --focus: #9a6f16;
-  --topbar-bg: rgba(247,240,226,.94);
-  --button-text: #ffffff;
-  --overlay: rgba(247,240,226,.94);
-  --accent-soft: rgba(154,111,22,.12);
+  /* 真·纸：比纯白暖，但不再发黄发土。 */
+  --canvas: #f6efdf;
+  --navigation: #eee5d1;
+  --raised: #fdf8ec;
+  --hover: #e8ddc6;
+  --selected: #ddd0b4;
+  --hairline: #dccfb4;
+  --strong-line: #c3b291;
+  --main-text: #33291b;
+  --secondary-text: #55472f;
+  --muted-text: #7d6a4d;
+  --quiet-text: #9a886a;
+  --focus: #96690f;
+  --focus-grad: linear-gradient(160deg, #b8862a, #8a5f0c);
+  --topbar-bg: rgba(246,239,223,.94);
+  --button-text: #fdf8ec;
+  --overlay: rgba(246,239,223,.94);
+  --accent-soft: rgba(150,105,15,.10);
 }
 
 /* ---------------------------------------------------------------------
@@ -146,81 +151,88 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格三：深林（墨绿，安静）
+   风格三：深林（浅绿 —— 不是浓墨绿）
+   暗色：底色仍是近黑，绿色一律用很淡的浅绿（#b9e0a8 一类），不做深绿染底；
+   亮色：底色就是很浅很浅的浅绿（#f3faf1），只在强调色上用饱和一点的绿。
    --------------------------------------------------------------------- */
 :root[data-style="forest"] {
-  --canvas: #0b110d;
-  --navigation: #101812;
-  --raised: #141d17;
-  --hover: #1a251d;
-  --selected: #213024;
-  --hairline: #24332a;
-  --strong-line: #34483a;
-  --main-text: #eaf2ec;
-  --secondary-text: #c8d8cd;
-  --muted-text: #8ba192;
-  --quiet-text: #6b7f71;
-  --focus: #7fc79a;
-  --topbar-bg: rgba(11,17,13,.94);
-  --overlay: rgba(11,17,13,.93);
-  --accent-soft: rgba(127,199,154,.14);
+  --canvas: #0a0c0a;
+  --navigation: #101310;
+  --raised: #161a16;
+  --hover: #1d221d;
+  --selected: #252b25;
+  --hairline: #282e28;
+  --strong-line: #3a423a;
+  --main-text: #f1f5f0;
+  --secondary-text: #d3dcd1;
+  --muted-text: #9aa79a;
+  --quiet-text: #768276;
+  --focus: #b9e0a8;
+  --focus-grad: linear-gradient(160deg, #d6efc9, #a7d693);
+  --topbar-bg: rgba(10,12,10,.94);
+  --overlay: rgba(10,12,10,.93);
+  --accent-soft: rgba(185,224,168,.10);
 }
 :root[data-style="forest"][data-theme="light"] {
-  --canvas: #f2f7f3;
-  --navigation: #e6efe8;
+  --canvas: #f3faf1;
+  --navigation: #e9f4e6;
   --raised: #ffffff;
-  --hover: #ddeae0;
-  --selected: #cfe0d4;
-  --hairline: #d0e0d5;
-  --strong-line: #b3c9ba;
-  --main-text: #0f1a13;
-  --secondary-text: #2c3d31;
-  --muted-text: #586b5e;
-  --quiet-text: #7d9083;
-  --focus: #2f7c4e;
-  --topbar-bg: rgba(242,247,243,.94);
+  --hover: #ddefd8;
+  --selected: #cde6c6;
+  --hairline: #d4e8ce;
+  --strong-line: #b2cfa9;
+  --main-text: #141f10;
+  --secondary-text: #2f4029;
+  --muted-text: #5b6d53;
+  --quiet-text: #7f9077;
+  --focus: #47803a;
+  --focus-grad: linear-gradient(160deg, #7cb86a, #3f7530);
+  --topbar-bg: rgba(243,250,241,.94);
   --button-text: #ffffff;
-  --overlay: rgba(242,247,243,.94);
-  --accent-soft: rgba(47,124,78,.12);
+  --overlay: rgba(243,250,241,.94);
+  --accent-soft: rgba(71,128,58,.10);
 }
 
 /* ---------------------------------------------------------------------
-   风格四：樱（柔和粉紫）
+   风格四：樱（与返校金同一套做法：中性近黑底 + 一道粉色渐变）
+   之前底色被染成粉紫，整屏都偏色；现在只留强调色粉。
    --------------------------------------------------------------------- */
 :root[data-style="sakura"] {
-  --canvas: #120e12;
-  --navigation: #1a141a;
-  --raised: #211a21;
-  --hover: #2a2029;
-  --selected: #352933;
-  --hairline: #382c37;
-  --strong-line: #4c3c4a;
-  --main-text: #f7ecf4;
-  --secondary-text: #e0cbd9;
-  --muted-text: #ab8fa3;
-  --quiet-text: #87707f;
-  --focus: #e79ac0;
-  --topbar-bg: rgba(18,14,18,.94);
-  --overlay: rgba(18,14,18,.93);
-  --accent-soft: rgba(231,154,192,.14);
+  --canvas: #0b0a0b;
+  --navigation: #121113;
+  --raised: #181719;
+  --hover: #201e21;
+  --selected: #29262a;
+  --hairline: #2c292d;
+  --strong-line: #3f3b41;
+  --main-text: #f7f2f5;
+  --secondary-text: #ded4da;
+  --muted-text: #a89aa3;
+  --quiet-text: #83777f;
+  --focus: #ef9ec4;
+  --focus-grad: linear-gradient(160deg, #ffc2dc, #e483ae);
+  --topbar-bg: rgba(11,10,11,.94);
+  --overlay: rgba(11,10,11,.93);
+  --accent-soft: rgba(239,158,196,.10);
 }
 :root[data-style="sakura"][data-theme="light"] {
-  --canvas: #fdf5f9;
-  --navigation: #f7e9f1;
+  --canvas: #fdf8fb;
+  --navigation: #f7edf3;
   --raised: #ffffff;
-  --hover: #f2e0ea;
-  --selected: #ebd4e1;
-  --hairline: #ecd6e2;
-  --strong-line: #d8bccd;
-  --main-text: #221621;
-  --secondary-text: #4a3444;
-  --muted-text: #7d6173;
-  --quiet-text: #9b8291;
-  --focus: #b25a8c;
-  --topbar-bg: rgba(253,245,249,.94);
+  --hover: #f2e3ea;
+  --selected: #ead5df;
+  --hairline: #e8d6e0;
+  --strong-line: #d3b9c8;
+  --main-text: #211722;
+  --secondary-text: #47323f;
+  --muted-text: #7b6270;
+  --quiet-text: #9a8490;
+  --focus: #b8558b;
+  --focus-grad: linear-gradient(160deg, #d98ab6, #b8558b);
+  --topbar-bg: rgba(253,248,251,.94);
   --button-text: #ffffff;
-  --overlay: rgba(253,245,249,.94);
-  --accent-soft: rgba(178,90,140,.12);
+  --overlay: rgba(253,248,251,.94);
+  --accent-soft: rgba(184,85,139,.10);
 }
 
 /* ---------------------------------------------------------------------
@@ -246,7 +258,7 @@
   --focus-grad: linear-gradient(160deg, #ffe07a, #e9ad00);
   --topbar-bg: rgba(10,10,10,.94);
   --overlay: rgba(10,10,10,.93);
-  --accent-soft: rgba(245,197,24,.14);
+  --accent-soft: rgba(245,197,24,.10);
 }
 :root[data-style="gold"][data-theme="light"] {
   --canvas: #fbfaf6;
@@ -269,28 +281,32 @@
 }
 
 /* ---------------------------------------------------------------------
-   秋日金色氛围：亮色一律做成"渐变"，不给整个界面蒙一层。
-   原来这里是一张 fixed inset:0 的双径向渐变，等于替全站盖了层黄膜；
-   现在压成顶部一条竖向渐隐的光带，金色主要落在具体表面上（见 glass.css
-   里的 data-style="gold" 段）。羊皮纸那类"整张纸"的质感不走这条路。
+   顶部光带：亮色一律做成"渐变"，不给整个界面蒙一层。
+   规则（2026-09-10 用户）：光带要小、要淡，只在顶栏高度附近，往下很快消失。
+   颜色取当前风格的 --focus，所以金/樱/林各自是金色/粉色/浅绿。
+   羊皮纸那类"整张纸"的质感不走这条路（见 glass.css 的 paper 段）。
    --------------------------------------------------------------------- */
 html.season-ambient-on::after,
-html[data-style="gold"]::after {
+html[data-style="gold"]::after,
+html[data-style="sakura"]::after,
+html[data-style="forest"]::after {
   content: "";
   position: fixed;
   inset: 0 0 auto 0;
-  height: min(340px, 48vh);
+  height: min(180px, 24vh);
   z-index: 30;
   pointer-events: none;
-  opacity: .8;
+  opacity: .55;
   background: linear-gradient(180deg,
-    rgba(245,197,24,.06) 0%,
-    rgba(245,197,24,.024) 46%,
+    color-mix(in srgb, var(--focus) 5%, transparent) 0%,
+    color-mix(in srgb, var(--focus) 1.6%, transparent) 55%,
     transparent 100%);
   animation: season-drift 26s var(--motion-ease) infinite alternate;
 }
+html[data-theme="light"].season-ambient-on::after,
 html[data-theme="light"][data-style="gold"]::after,
-html[data-theme="light"].season-ambient-on::after { opacity: .7; }
+html[data-theme="light"][data-style="sakura"]::after,
+html[data-theme="light"][data-style="forest"]::after { opacity: .45; }
 
 @keyframes season-drift {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }

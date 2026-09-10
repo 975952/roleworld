@@ -463,56 +463,133 @@
 .character-manage-sidebar input { margin: 0; accent-color: var(--focus); cursor: pointer; }
 
 /* =====================================================================
-   风格「返校金」：金色只以渐变的形式落在具体表面上
+   带颜色的风格（返校金 / 樱 / 深林）：亮色只以渐变落在具体表面上
    ---------------------------------------------------------------------
-   要求（2026-09-10）：亮色不能整个界面蒙一层，要做成渐变；羊皮纸那类
-   "整张纸"的质感另走一路（在 tokens.css 的 data-style="paper" 里）。
-   所以这里只给顶栏、主区、侧栏、主按钮、焦点各加一道金色渐变，
-   底色仍然是中性近黑（tokens.css 的 data-style="gold"）。
+   要求（2026-09-10）：
+     * 亮色不能整个界面蒙一层，要做成渐变；
+     * 光要更淡、范围更小（顶部那条光带见 tokens.css，已收到 180px）；
+     * 樱 和 返校金 用同一套做法；
+     * 深林 用很淡的浅绿，不做浓墨绿染底；
+     * 羊皮纸那类"整张纸"的质感另走一路（见本文件末尾的 paper 段）。
+   底色一律是中性近黑（tokens.css），这里只加低透明度的渐变。
    ===================================================================== */
-html[data-style="gold"] .topbar {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 8%, transparent), transparent 100%);
+html[data-style="gold"] .topbar,
+html[data-style="sakura"] .topbar,
+html[data-style="forest"] .topbar,
+html[data-style="gold"] .map-header,
+html[data-style="sakura"] .map-header,
+html[data-style="forest"] .map-header {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 5%, transparent), transparent 100%);
 }
-html[data-style="gold"] .main-stage {
+html[data-style="gold"] .main-stage,
+html[data-style="sakura"] .main-stage,
+html[data-style="forest"] .main-stage,
+html[data-style="gold"] .map-app .stage-main,
+html[data-style="sakura"] .map-app .stage-main,
+html[data-style="forest"] .map-app .stage-main {
   background:
-    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 13%, transparent), transparent 62%),
-    radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 7%, transparent), transparent 52%),
+    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 7%, transparent), transparent 58%),
+    radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 4%, transparent), transparent 46%),
     var(--canvas);
 }
-html[data-style="gold"] .archive-sidebar {
+html[data-style="gold"] .archive-sidebar,
+html[data-style="sakura"] .archive-sidebar,
+html[data-style="forest"] .archive-sidebar {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--focus) 7%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--focus) 4%, transparent), transparent 40%),
     var(--navigation);
 }
-/* 剧情模式页的对应表面：顶栏、设置带、舞台。 */
-html[data-style="gold"] .map-header {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 8%, transparent), transparent 100%);
-}
-html[data-style="gold"] .map-app .setup-band {
+html[data-style="gold"] .map-app .setup-band,
+html[data-style="sakura"] .map-app .setup-band,
+html[data-style="forest"] .map-app .setup-band {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--focus) 6%, transparent), transparent 70%),
-    var(--canvas);
-}
-html[data-style="gold"] .map-app .stage-main {
-  background:
-    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 12%, transparent), transparent 60%),
-    radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 6%, transparent), transparent 50%),
+    linear-gradient(180deg, color-mix(in srgb, var(--focus) 3%, transparent), transparent 60%),
     var(--canvas);
 }
 html[data-style="gold"] .primary-button,
+html[data-style="sakura"] .primary-button,
+html[data-style="forest"] .primary-button,
+html[data-style="paper"] .primary-button,
 html[data-style="gold"] #seasonLetterEnter,
-html[data-style="gold"] .map-app .map-button-primary {
+html[data-style="sakura"] #seasonLetterEnter,
+html[data-style="forest"] #seasonLetterEnter,
+html[data-style="paper"] #seasonLetterEnter,
+html[data-style="gold"] .map-app .map-button-primary,
+html[data-style="sakura"] .map-app .map-button-primary,
+html[data-style="forest"] .map-app .map-button-primary,
+html[data-style="paper"] .map-app .map-button-primary {
   color: var(--button-text);
   background: var(--focus-grad);
-  box-shadow: 0 8px 26px color-mix(in srgb, var(--focus) 20%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--focus) 15%, transparent);
 }
 html[data-style="gold"] .primary-button:hover,
-html[data-style="gold"] .map-app .map-button-primary:hover:not(:disabled) {
+html[data-style="sakura"] .primary-button:hover,
+html[data-style="forest"] .primary-button:hover,
+html[data-style="paper"] .primary-button:hover,
+html[data-style="gold"] .map-app .map-button-primary:hover:not(:disabled),
+html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled),
+html[data-style="forest"] .map-app .map-button-primary:hover:not(:disabled),
+html[data-style="paper"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
   filter: brightness(1.06);
 }
-html[data-style="gold"] .composer-box:focus-within {
-  box-shadow: 0 12px 38px rgb(0 0 0 / 20%), 0 0 0 2px color-mix(in srgb, var(--focus) 32%, transparent);
+html[data-style="gold"] .composer-box:focus-within,
+html[data-style="sakura"] .composer-box:focus-within,
+html[data-style="forest"] .composer-box:focus-within,
+html[data-style="paper"] .composer-box:focus-within {
+  box-shadow: 0 12px 38px rgb(0 0 0 / 20%), 0 0 0 2px color-mix(in srgb, var(--focus) 28%, transparent);
 }
-html[data-style="gold"] .settings-nav-item.is-active,
-html[data-style="gold"] .sidebar-manage-characters:hover { background: color-mix(in srgb, var(--focus) 12%, var(--hover)); }
+
+/* =====================================================================
+   风格「羊皮纸」：质感靠纸纹，不靠到处染黄
+   ---------------------------------------------------------------------
+   三层叠出来：
+     1. 两层极细的斜向纤维（repeating-linear-gradient，1–2px 一道道）；
+     2. 两团很大的暖色斑（radial-gradient）—— 手工纸的不匀；
+     3. 一圈轻微泛黄的边（vignette），纸放久了的边。
+   全部叠加在 --canvas 上，透明度都很低，正常阅读时几乎注意不到，
+   但整片颜色不再是"平的一块黄"。
+   ===================================================================== */
+html[data-style="paper"] .app-shell,
+html[data-style="paper"] .map-app {
+  background-color: var(--canvas);
+  background-image:
+    repeating-linear-gradient(112deg, rgb(122 92 48 / 3.2%) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(24deg, rgb(122 92 48 / 2.4%) 0 1px, transparent 1px 7px),
+    radial-gradient(ellipse at 18% 8%, rgb(255 246 220 / 45%), transparent 58%),
+    radial-gradient(ellipse at 84% 92%, rgb(168 132 74 / 12%), transparent 62%),
+    radial-gradient(ellipse at 50% 50%, transparent 52%, rgb(120 92 52 / 12%) 100%);
+  background-attachment: fixed;
+}
+html[data-style="paper"] .main-stage,
+html[data-style="paper"] .map-app .stage-main {
+  background-color: transparent;
+  background-image:
+    repeating-linear-gradient(112deg, rgb(122 92 48 / 3%) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 5%, transparent), transparent 58%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(120 92 52 / 10%) 100%);
+}
+html[data-theme="light"][data-style="paper"] .app-shell,
+html[data-theme="light"][data-style="paper"] .map-app {
+  background-image:
+    repeating-linear-gradient(112deg, rgb(150 118 66 / 4.5%) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(24deg, rgb(150 118 66 / 3.5%) 0 1px, transparent 1px 7px),
+    radial-gradient(ellipse at 16% 6%, rgb(255 252 240 / 70%), transparent 58%),
+    radial-gradient(ellipse at 86% 94%, rgb(178 142 84 / 16%), transparent 62%),
+    radial-gradient(ellipse at 50% 50%, transparent 48%, rgb(140 108 60 / 16%) 100%);
+}
+html[data-theme="light"][data-style="paper"] .main-stage,
+html[data-theme="light"][data-style="paper"] .map-app .stage-main {
+  background-image:
+    repeating-linear-gradient(112deg, rgb(150 118 66 / 4%) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 6%, transparent), transparent 58%),
+    radial-gradient(ellipse at 50% 50%, transparent 52%, rgb(140 108 60 / 13%) 100%);
+}
+/* 羊皮纸下不用玻璃拟态那层半透明白，改成不透明的纸面，纸感更实。 */
+html[data-style="paper"] .composer-box,
+html[data-style="paper"] .memory-modal,
+html[data-style="paper"] .confirm-dialog {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--raised) 92%, transparent), color-mix(in srgb, var(--raised) 86%, transparent));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
