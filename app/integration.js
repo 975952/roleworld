@@ -688,6 +688,34 @@
     return box;
   }
 
+  /* 撞上输出上限（finish_reason=length）时，在那一轮下面标一行，并给一个「接着说」。
+   * 以前完全不看 finish_reason：用户只看到一句半截的话，不知道是模型写崩了还是被砍了。
+   * 「接着说」发出去的是一句**看得见**的舞台提示（不是偷偷替用户说话）。 */
+  const CONTINUE_CUE = "（接着你刚才没说完的那句继续说，不要重复已经说过的内容。）";
+
+  function buildTruncationNotice() {
+    const box = document.createElement("div");
+    box.className = "message-truncated";
+    const label = document.createElement("span");
+    label.textContent = "说到一半被截断了（撞上了输出上限）";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "message-continue";
+    button.textContent = "接着说";
+    button.title = "发出：" + CONTINUE_CUE;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      const input = $("#messageInput");
+      if (!input) return;
+      input.value = CONTINUE_CUE;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const send = $("#sendButton");
+      if (send && !send.disabled) send.click();
+    });
+    box.append(label, button);
+    return box;
+  }
+
   /* 消息旁的标记控件：两个很轻的文字按钮。只在有轮次 ID 的助手消息上出现。 */
   function buildFlagControls(turnId) {
     const core = window.ROLEWORLD_METRICS_CORE;
@@ -742,6 +770,7 @@
       stack.appendChild(body);
       const refs = message.extra && Array.isArray(message.extra.roleworld_refs) ? message.extra.roleworld_refs : [];
       if (refs.length) stack.appendChild(buildRefList(refs));
+      if (message.extra && message.extra.roleworld_truncated === true) stack.appendChild(buildTruncationNotice());
       const avatar = document.createElement("div");
       avatar.className = "message-avatar assistant-avatar";
       avatar.setAttribute("aria-label", liveState.charName);
@@ -1075,12 +1104,87 @@
     holder.appendChild(manage);
   }
 
+  /* ---------- 记忆取向（P5-3）：按角色存一份 ----------
+   * 平衡 = 只记你的事实（默认）；陪伴 = 满的时候先挤碎事件、保住有主题的；
+   * 剧情 = 剧情也能记，但标明是剧情、且最先被挤掉。
+   * 存在 kv 的 memory-orientation:<角色>，跟记忆书分开 —— 它是设置，不是记忆内容。
+   */
+  const ORIENTATION_KEY_PREFIX = "memory-orientation:";
+  const ORIENTATION_LABELS = Object.freeze({
+    balanced: "平衡（只记我的事实）",
+    companion: "陪伴（保住偏好与关系）",
+    story: "剧情（剧情也记，标明是剧情）",
+  });
+  let orientationCache = { avatar: "", value: "" };
+
+  function orientationKey(entry) {
+    return ORIENTATION_KEY_PREFIX + ((entry && entry.avatar) || "");
+  }
+
+  async function loadOrientation(entry) {
+    const core = window.ROLEWORLD_MEMORY_CORE;
+    const fallback = core ? core.ORIENTATIONS.BALANCED : "balanced";
+    if (!entry || !entry.avatar) return fallback;
+    if (orientationCache.avatar === entry.avatar && orientationCache.value) return orientationCache.value;
+    let stored = "";
+    try { stored = await window.RoleWorld.store.getKV(orientationKey(entry), ""); } catch (_) { stored = ""; }
+    const value = core ? core.normalizeOrientation(stored) : fallback;
+    orientationCache = { avatar: entry.avatar, value };
+    return value;
+  }
+
+  async function saveOrientation(entry, value) {
+    const core = window.ROLEWORLD_MEMORY_CORE;
+    const next = core ? core.normalizeOrientation(value) : "balanced";
+    if (entry && entry.avatar) {
+      try { await window.RoleWorld.store.setKV(orientationKey(entry), next); } catch (_) { /* 存不下就先用着 */ }
+    }
+    orientationCache = { avatar: (entry && entry.avatar) || "", value: next };
+    return next;
+  }
+
+  /** 记忆面板上的取向选择器：三种取向各自说明差别，改完立刻生效。 */
+  function buildOrientationRow() {
+    const core = window.ROLEWORLD_MEMORY_CORE;
+    const row = document.createElement("div");
+    row.className = "memory-orientation";
+    const label = document.createElement("span");
+    label.className = "memory-orientation-label";
+    label.textContent = "记忆取向";
+    const select = document.createElement("select");
+    select.id = "memoryOrientation";
+    select.setAttribute("aria-label", "记忆取向");
+    const current = (core && orientationCache.value) || "balanced";
+    (core ? core.ORIENTATION_IDS : ["balanced"]).forEach((id) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = ORIENTATION_LABELS[id] || id;
+      if (id === current) option.selected = true;
+      select.appendChild(option);
+    });
+    select.addEventListener("change", () => {
+      const entry = activeCharacterEntry();
+      saveOrientation(entry, select.value).then((saved) => {
+        showToast(saved === "story"
+          ? "剧情取向：剧情会被记下，但标明是剧情、也最先被挤掉"
+          : saved === "companion" ? "陪伴取向：满的时候先挤碎事件，保住偏好与关系" : "平衡取向：只记你的事实");
+        openMemoryPanel().catch(() => {});
+      }).catch(() => {});
+    });
+    const hint = document.createElement("span");
+    hint.className = "memory-orientation-hint";
+    hint.textContent = "只影响新记下来的内容";
+    row.append(label, select, hint);
+    return row;
+  }
+
   // 来源说明：来自哪段对话的第几条消息、什么时候、谁写的。缺字段就不编。
   function describeMemorySource(source, topic, replacedContent) {
     const parts = [];
     if (topic) parts.push(`主题「${topic}」`);
     if (source && source.origin === "user") parts.push("你自己写的");
     else parts.push("模型自记");
+    if (source && source.confirmed) parts.push("你确认过");
     if (source && source.file) {
       const index = source.messageIndex === null || source.messageIndex === undefined ? "" : ` 第 ${source.messageIndex} 条`;
       parts.push(`来自对话 ${source.file}${index}`);
@@ -1125,6 +1229,8 @@
     liveState.memoryBook = data.bookName;
     liveState.memoryRows = data.rows;
     liveState.memoryEntries = data.entries;
+    // 取向是"以后记什么"的设置，跟着面板一起读出来。
+    try { await loadOrientation(entry); } catch (_) { /* 读不到就按平衡 */ }
     if (subtitle) {
       subtitle.textContent = `${entry.charName || entry.name} · 《${data.bookName}》 共 ${data.rows.length} 条`
         + `（上限 ${autoMemoryMax()} 条，超出会挤掉最旧的）`;
@@ -1137,6 +1243,8 @@
     if (!list) return;
     list.textContent = "";
     const rows = liveState.memoryRows || [];
+    // 取向选择器放在最上面：它决定"以后记什么"，跟底下有哪些条目是两件事。
+    list.appendChild(buildOrientationRow());
     if (!rows.length) {
       const empty = document.createElement("p");
       empty.className = "request-peek-empty";
@@ -1154,8 +1262,10 @@
     const max = autoMemoryMax();
     const usage = document.createElement("p");
     usage.className = "memory-usage";
+    const confirmedCount = rows.filter((row) => row.confirmed).length;
     usage.textContent = `已用 ${rows.length} / 上限 ${max} 条`
-      + (rows.length >= max ? "（已满，再记会挤掉最旧的）" : "");
+      + (confirmedCount ? `（其中 ${confirmedCount} 条你确认过，不会被挤掉）` : "")
+      + (rows.length >= max ? "（已满，再记会先挤掉剧情与碎事件）" : "");
     list.appendChild(usage);
 
     groups.forEach((group, groupIndex) => {
@@ -1212,7 +1322,7 @@
     list.appendChild(footer);
   }
 
-  /** 一条记忆的 DOM：改 / 删 / 看原话都在这里。 */
+  /** 一条记忆的 DOM：改 / 删 / 看原话 / 这条说得对，都在这里。 */
   function memoryRowNode(item) {
     const li = document.createElement("li");
     li.dataset.key = item.key;
@@ -1223,7 +1333,11 @@
 
     const meta = document.createElement("span");
     meta.className = "request-peek-book-source";
-    meta.textContent = describeMemorySource(item.source, item.topic, item.replacedContent);
+    const bits = [];
+    if (item.kind === "story") bits.push("剧情（不是你的事实）");
+    if (item.confirmed) bits.push("你确认过");
+    meta.textContent = (bits.length ? bits.join(" · ") + " · " : "")
+      + describeMemorySource(item.source, item.topic, item.replacedContent);
     // P1-3 来源可追溯：点一下跳回那句原话（那段对话还在的话）。
     if (item.source && item.source.file) {
       const jump = document.createElement("button");
@@ -1239,6 +1353,17 @@
 
     const actions = document.createElement("span");
     actions.className = "memory-actions";
+    // P5-3：你确认过的记忆不会被上限挤掉（点一下切换）。
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    // 独立类名：面板里"组"这一层也有 .memory-actions（清空整组会弹 confirm），
+    // 自动化测试要点的是"这一条"的按钮，别点错到组上（踩过：无头环境 confirm 会挂住）。
+    confirm.className = "plain-button memory-confirm" + (item.confirmed ? " is-on" : "");
+    confirm.textContent = item.confirmed ? "说得对 ✓" : "说得对";
+    confirm.title = item.confirmed
+      ? "已标记：这条不会被上限挤掉；再点一下取消"
+      : "标记这条是对的：不会因为记忆条数满了被挤掉";
+    confirm.addEventListener("click", () => { confirmMemoryEntry(item.key, !item.confirmed); });
     const edit = document.createElement("button");
     edit.type = "button";
     edit.className = "plain-button";
@@ -1249,10 +1374,23 @@
     remove.className = "plain-button";
     remove.textContent = "删";
     remove.addEventListener("click", () => deleteMemoryEntry(item.key));
+    actions.appendChild(confirm);
     actions.appendChild(edit);
     actions.appendChild(remove);
     li.appendChild(actions);
     return li;
+  }
+
+  /** 「这条说得对」：标记 / 取消，标记过的条目在上限挤占时最后才动。 */
+  async function confirmMemoryEntry(key, confirmed) {
+    const core = window.ROLEWORLD_MEMORY_CORE;
+    if (!core || !liveState.memoryEntries) return;
+    const result = core.confirmEntry(liveState.memoryEntries, key, confirmed);
+    if (!result.ok) { showToast("这条记忆已经不在了"); return; }
+    if (await saveMemoryEntries(result.entries)) {
+      showToast(confirmed ? "记住了：这条不会被上限挤掉" : "已取消标记");
+    }
+    await openMemoryPanel();
   }
 
   /** 清空某一组（同主题）记忆。 */
@@ -1792,6 +1930,8 @@
     } catch (_) { /* 还没有这本书，下面新建 */ }
     const result = memory.applyMemories(data.entries || {}, memories, {
       max: autoMemoryMax(),
+      // 记忆取向：平衡只收事实；剧情取向才收剧情（并标明是剧情）。
+      orientation: await loadOrientation(entry),
       source: Object.assign({ origin: memory.ORIGIN.MODEL }, source || {}),
     });
     if (!result.added) return result;
@@ -2890,6 +3030,11 @@
       // include_usage 的用量会在最后一段单独回来（那一chunk 没有 choices）。
       if (json && json.usage) sink.usage = json.usage;
       const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
+      // 结束原因：`length` = 撞上了输出上限、话被截断了。
+      // 以前完全不看这个字段，用户只能看到一句半截的话，不知道是模型写崩了还是被砍了。
+      if (choice && typeof choice.finish_reason === "string" && choice.finish_reason) {
+        sink.finishReason = choice.finish_reason;
+      }
       const delta = choice && (choice.delta || choice.message);
       if (!delta) continue;
       const piece = typeof delta.content === "string" ? delta.content : "";
@@ -2910,6 +3055,10 @@
     try { json = JSON.parse(text); } catch (_) { json = null; }
     const parsed = window.TASK22_CORE.parseGenerateResponse(json);
     if (parsed.content) sink.content = parsed.content;
+    const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
+    if (choice && typeof choice.finish_reason === "string" && choice.finish_reason) {
+      sink.finishReason = choice.finish_reason;
+    }
   }
 
   function appendLiveStreamRow(name) {
@@ -2981,9 +3130,10 @@
     const response = await request(payload);
     if (!response.ok) throw Object.assign(new Error("generation failed"), { status: response.status });
 
-    const sink = { content: "", reasoning: "", chunks: 0, usage: null, emit: () => onDelta(sink.content || sink.reasoning) };
+    const sink = { content: "", reasoning: "", chunks: 0, usage: null, finishReason: "", emit: () => onDelta(sink.content || sink.reasoning) };
     liveState.streamChunks = 0;
     liveState.lastUsage = null;
+    liveState.lastFinishReason = "";
     const finish = () => (sink.content || sink.reasoning).trim();
     const retryNonStream = async () => {
       const data = (window.STApi && typeof window.STApi.generate === "function")
@@ -3002,6 +3152,8 @@
     if (!response.body) {
       parseChatWholeText(await response.text(), sink);
       liveState.streamChunks = sink.chunks;
+      liveState.lastUsage = sink.usage || null;
+      liveState.lastFinishReason = sink.finishReason || "";
       const buffered = finish();
       if (buffered) return buffered;
       return retryNonStream();
@@ -3034,6 +3186,7 @@
     if (sseMode && buffer.trim()) consumeChatSseText(buffer, sink);
     liveState.streamChunks = sink.chunks;
     liveState.lastUsage = sink.usage || null;
+    liveState.lastFinishReason = sink.finishReason || "";
     const streamed = finish();
     if (streamed) return streamed;
     if (rawAll.trim()) parseChatWholeText(rawAll, sink);
@@ -3223,6 +3376,12 @@
         const companionBlock = companionBlockFor(entry, companionProfile);
         if (companionBlock) extraParts.push(companionBlock);
       } catch (_) { companionProfile = null; }
+      // 用途档案：伴侣模式用 companion，其余用 chat。
+      // 它决定采样口味、回复格式指令、要不要自动检索 —— 数字只在 task22-core 那张表里。
+      const purpose = companionProfile && companionProfile.enabled === true
+        ? window.TASK22_CORE.PURPOSES.COMPANION
+        : window.TASK22_CORE.PURPOSES.CHAT;
+      const profile = window.TASK22_CORE.resolveProfile(purpose);
       if (search) {
         extraParts.push(search.honestyRule());
         // 检索里"跳过当前这段对话"要用真正的存储键：检索结果带的是原始文件名（可能带 .jsonl）。
@@ -3237,13 +3396,17 @@
             await savePendingSearches(entry, []);
           }
           // ② 本轮自动翻一次：玩家这句话里有没有提到以前聊过的事。
-          searchResult = search.searchHistory(await loadSearchHistory(entry), text, {
-            skipFileName: currentFile,
-            limit: 6,
-          });
-          extraParts.push(search.buildHistoryNote(searchResult));
-          // ③ 告诉它"需要的话可以再翻一次"，并给出上限。
-          extraParts.push(window.TASK22_CORE.searchInstruction());
+          //    用途档案说不用翻（剧情模式页）就不翻 —— 它有自己的场景历史，
+          //    翻旧对话既费 token 又容易把剧情带偏。
+          if (profile.autoSearch) {
+            searchResult = search.searchHistory(await loadSearchHistory(entry), text, {
+              skipFileName: currentFile,
+              limit: 6,
+            });
+            extraParts.push(search.buildHistoryNote(searchResult));
+            // ③ 告诉它"需要的话可以再翻一次"，并给出上限。
+            extraParts.push(window.TASK22_CORE.searchInstruction());
+          }
         } catch (_) { searchResult = null; }
       }
       const extraSystem = extraParts.join("\n\n");
@@ -3263,6 +3426,7 @@
         autoMemory: liveState.autoMemory !== false,
         stream: true,
         extraSystem,
+        purpose,
       });
       // P2-2：发送前把「输入 + 输出上限」与上下文对一次。超了就直接说该改什么，
       // 而不是等接口回一个 400、再让用户猜是哪里超了。
@@ -3288,6 +3452,7 @@
           autoMemory: liveState.autoMemory !== false,
           messages: payload.messages,
           extraSystem,
+          purpose,
         });
         // 被预算丢掉的那部分单独记下来，面板里明确显示（绝不静默丢弃）。
         liveState.lastRequest.requested = requestedResults;
@@ -3367,13 +3532,20 @@
           refs = search.findReferencedHits(finalText, candidates);
         }
       } catch (_) { refs = []; }
+      // 撞上输出上限？把这件事记进消息里（刷新后仍在），并在那一轮下面给一个「接着说」。
+      const truncatedByLength = liveState.lastFinishReason === "length";
+      const extraForMessage = Object.assign(
+        {},
+        refs.length ? { roleworld_refs: refs } : {},
+        truncatedByLength ? { roleworld_truncated: true } : {},
+      );
       // 先把「这一轮发出去了」记下来：万一下面结果不确定，重发时才知道要去确认。
       markSaveAttempted(targetSession, turnId);
       try {
         const saved = await saveLiveChat(text, finalText, undefined, {
           charName: entry.charName,
           turnId,
-          extra: refs.length ? { roleworld_refs: refs } : {},
+          extra: extraForMessage,
         });
         if (saved && saved.duplicate) duplicateTurn = true;
       } catch (saveError) {
@@ -3448,6 +3620,9 @@
           memoriesRejected: memoryResult ? memoryResult.rejected.length : 0,
           searchHits: searchResult ? searchResult.matched : 0,
           activeSearches: requestedResults.length,
+          // 用途与"有没有被截断"：这样"该不该限制输出长度"以后有实测数据可看。
+          purpose,
+          truncated: truncatedByLength,
         });
       } catch (_) { /* 台账写失败不影响对话 */ }
       // 伴侣模式：记下"这次聊过了"，下一轮的时间感才有依据。
@@ -3924,6 +4099,10 @@
     refreshSessions: () => (liveState.chatModel ? liveState.chatModel.refresh() : Promise.resolve()),
     flagTurnFromMessage,
     addMemoryEntry,
+    // P5-3：记忆取向（按角色）与「这条说得对」。
+    loadOrientation,
+    saveOrientation,
+    confirmMemoryEntry,
     isLiveBusy: () => liveState.pending,
     sendLive,
     stopLive,

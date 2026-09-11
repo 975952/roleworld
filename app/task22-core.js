@@ -62,6 +62,83 @@
     return DEEPSEEK_CHAT_MODES.indexOf(mode) >= 0 || DEEPSEEK_LEGACY_MODES.indexOf(mode) >= 0;
   }
 
+  /* ---------- 用途档案：同一套核心，不同用途该有不同的默认 ----------
+   * 三种用途（purpose）：
+   *   chat      —— 对话页的普通角色扮演
+   *   companion —— 对话页 + 伴侣模式（关系稳定、日常闲聊）
+   *   scene     —— 剧情模式页（多角色同场，一次只该有一个角色说一小段）
+   *
+   * 为什么要显式化：这些差异以前是**没人管**的默认结果 ——
+   * 比如剧情模式页一直吃着"输出上限 32768"（它只要一句台词），
+   * 而它又没有对话页那条"旁白/台词"格式指令，全靠各自绕开。
+   *
+   * 原则（跟用户定过的"一处定义"一致）：
+   *   - 数字只在**这一张表**里出现，页面和设置只表达"我是哪种用途"；
+   *   - 采样口味按用途给三档，但仍然是这里定义；
+   *   - 输出上限刻意**不按用途硬压**（用户明确否掉了硬上限）：
+   *     scene 靠提示词约束 + 记录实测长度，等数据说话，截断另有明确提示。
+   */
+  const PURPOSES = Object.freeze({
+    CHAT: "chat",
+    COMPANION: "companion",
+    SCENE: "scene",
+  });
+
+  const PURPOSE_IDS = Object.freeze([PURPOSES.CHAT, PURPOSES.COMPANION, PURPOSES.SCENE]);
+
+  const PURPOSE_PROFILES = Object.freeze({
+    // 普通角色扮演：维持现状（历史全带、检索开着、格式指令用对话版）
+    chat: Object.freeze({
+      purpose: "chat",
+      temperature: 0.8,
+      topP: 0.9,
+      replyFormat: "dialogue",
+      autoSearch: true,
+      searchNote: true,
+      minHistoryMessages: 4,
+    }),
+    // 伴侣模式：语气更稳一点（温度略降），其余与对话页一致 ——
+    // 刻意不改输出上限：卡片里的"说话方式"与最近对话已经在管这件事。
+    companion: Object.freeze({
+      purpose: "companion",
+      temperature: 0.85,
+      topP: 0.9,
+      replyFormat: "dialogue",
+      autoSearch: true,
+      searchNote: true,
+      minHistoryMessages: 4,
+    }),
+    // 剧情模式页：只写自己这一小段；自动检索关掉（它有自己的场景历史，
+    // 翻旧对话既费 token 又容易把剧情带偏）。
+    scene: Object.freeze({
+      purpose: "scene",
+      temperature: 0.95,
+      topP: 0.95,
+      replyFormat: "scene",
+      autoSearch: false,
+      searchNote: false,
+      minHistoryMessages: 6,
+    }),
+  });
+
+  function normalizePurpose(value) {
+    const key = String(value || "").trim().toLowerCase();
+    return PURPOSE_IDS.indexOf(key) >= 0 ? key : PURPOSES.CHAT;
+  }
+
+  /** 取某个用途的档案；override 只允许覆盖表里已有的键（防止页面各写各的）。 */
+  function resolveProfile(purpose, override) {
+    const key = normalizePurpose(purpose);
+    const base = PURPOSE_PROFILES[key];
+    const patch = override && typeof override === "object" ? override : {};
+    const next = Object.assign({}, base);
+    for (const field of Object.keys(base)) {
+      if (patch[field] !== undefined && patch[field] !== null) next[field] = patch[field];
+    }
+    return next;
+  }
+
+
   /* ---------- 上下文上限 与 输出上限：分开算，别混在一起 ----------
    * 以前界面上只有一个笼统的"这次请求多大"，用户看不出两件不同的事：
    *   ① 上下文（模型的硬上限）：输入 + 输出不能超过它；
@@ -82,8 +159,14 @@
     return MODEL_CONTEXT[key] || MODEL_CONTEXT.local;
   }
 
-  function outputLimitFor(mode) {
-    return isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING.max_tokens : SAMPLING.max_tokens;
+  function outputLimitFor(mode, purpose) {
+    const channel = isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING.max_tokens : SAMPLING.max_tokens;
+    const profile = PURPOSE_PROFILES[normalizePurpose(purpose)];
+    // 用途可以给一个更贴切的上限；没写就按渠道。**目前三种用途都没写** ——
+    // 用户明确否掉了"按模式硬压输出"，这里保留字段是为了将来有数据后再定。
+    const wanted = Number(profile && profile.maxOutput);
+    if (Number.isFinite(wanted) && wanted > 0) return Math.min(channel, Math.floor(wanted));
+    return channel;
   }
 
   /**
@@ -384,7 +467,12 @@
       if (used.length) {
         parts.push({ kind: "blank", text: "" });
         parts.push({ kind: "book-header", text: `[Memory Book: ${book.name}]`, book: book.name });
-        for (const e of used) parts.push({ kind: "memory-book", label: `记忆书 · ${book.name}`, text: `[${e.uid}] ${e.content}` });
+        for (const e of used) {
+          // 剧情类记忆（剧情取向才会写进来）必须标明"这是剧情里的事"，
+          // 否则模型会把它当成玩家的事实 —— 那正是用户定的第一条底线要防的事。
+          const story = e && e.rw_source && e.rw_source.kind === "story" ? "[剧情] " : "";
+          parts.push({ kind: "memory-book", label: `记忆书 · ${book.name}`, text: `[${e.uid}] ${story}${e.content}` });
+        }
       }
     }
 
@@ -406,6 +494,21 @@
     return systemPromptParts(card, memoryBooks, promptText, options).map((part) => part.text).join("\n");
   }
 
+  /* 剧情模式页（多角色同场）的输出约定。
+   * 它和对话页的差别不是"文风"，而是**边界**：一轮只写自己这一小段，
+   * 不替别的角色说话、不写导演式的旁白。以前这里没有约定（剧情页直接绕开了格式指令），
+   * 结果是它可能长篇大论、甚至把整幕戏演完 —— 那也是"该不该限制输出长度"的根源。
+   * 用户明确不要硬上限，所以这里用约束代替截断，长度靠实测数据再说。 */
+  const SCENE_FORMAT_INSTRUCTION = [
+    "You are writing ONE character's turn in a multi-character scene.",
+    "Reply with that character's line and at most two short sentences of narration around it.",
+    "Wrap every spoken word in double quotes (\").",
+    "Do NOT speak, act, or decide for any other character — not even to answer yourself.",
+    "Do NOT write stage directions for the scene as a whole (no director-style summary).",
+    "Do NOT recap what just happened, and do not end the scene.",
+    "Keep it to a few sentences; if more is needed, someone else will get their turn next.",
+  ].join(" ");
+
   /* 带「旁白/台词」输出约定的系统提示：基础组合 + 末尾格式指令（不影响与 Task-20 的逐字节对齐证明）。 */
   function buildSystemPromptWithFormat(card, memoryBooks, promptText, instruction, options) {
     // extraSystem：调用方追加的段落（诚实规则、历史检索结果等）。
@@ -413,12 +516,16 @@
     const extra = options && options.extraSystem ? String(options.extraSystem).trim() : "";
     const line = languageLine(card);
     const body = buildSystemPrompt(card, memoryBooks, promptText, options);
+    // 格式指令按用途选：对话页是"旁白/台词"，剧情模式页是"只写你这一小段"。
+    const profile = PURPOSE_PROFILES[normalizePurpose(options && options.purpose)];
+    const formatText = instruction
+      || (profile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION);
     // 语言要求**两头都要有**：开头一处（身份级："这是个说英文的角色"）、
     // 结尾一处（模型对最后一条规则最敏感）。
     // 只放中间会被后面的格式指令盖过去；只放结尾时，实测仍会出现"旁白英文、台词中文"。
     return (line ? line + "\n\n" : "") + body +
       (extra ? "\n\n" + extra : "") +
-      "\n\n[Reply format] " + (instruction || REPLY_FORMAT_INSTRUCTION) +
+      "\n\n[Reply format] " + formatText +
       (line ? "\n" + line : "");
   }
 
@@ -548,12 +655,20 @@
   function buildGeneratePayload(opts) {
     if (!opts) throw new Error("生成参数缺失");
     const mode = String(opts.mode || CHAT_MODES.LOCAL);
+    const profile = resolveProfile(opts.purpose);
+    const sampling = Object.assign(
+      {},
+      isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING : SAMPLING,
+      // 用途档案只覆盖它自己声明的键（温度、top_p、输出上限），其余照渠道默认。
+      { temperature: profile.temperature, top_p: profile.topP, max_tokens: outputLimitFor(mode, profile.purpose) },
+    );
     if (isDeepSeekChatMode(mode)) {
       const thinking = opts.thinking === true;
       return {
         messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
           autoMemory: opts.autoMemory === true,
           extraSystem: opts.extraSystem,
+          purpose: profile.purpose,
         }),
         // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
         model: (opts.modelName && String(opts.modelName).trim()) || mode,
@@ -563,7 +678,7 @@
         // include_reasoning=false 是明确要求接口不要回传 reasoning_content。
         include_reasoning: thinking,
         ...(thinking ? { reasoning_effort: "high" } : {}),
-        ...DEEPSEEK_CHAT_SAMPLING,
+        ...sampling,
         task22_engine: "deepseek",
       };
     }
@@ -573,6 +688,7 @@
       messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
         autoMemory: opts.autoMemory === true,
         extraSystem: opts.extraSystem,
+        purpose: profile.purpose,
       }),
       model: "local",
       chat_completion_source: "custom",
@@ -581,7 +697,7 @@
         ? oai.custom_include_body
         : "chat_template_kwargs:\n  enable_thinking: false",
       stream: opts.stream === true,
-      ...SAMPLING,
+      ...sampling,
       task22_engine: opts.engine || "A",
     };
   }
@@ -617,7 +733,7 @@
     // ① 系统提示：逐块归因。
     // 空行与 [Section] 标题不能丢（丢了就对不上字节），它们跟到下一块内容前面，
     // 但不单独在面板里占一行，避免出现一堆没有意义的条目。
-    const parts = systemPromptParts(card, memoryBooks, options.userText, { autoMemory });
+    const parts = systemPromptParts(card, memoryBooks, options.userText, { autoMemory, purpose: options.purpose });
     const systemRows = [];
     let pending = [];
     for (const part of parts) {
@@ -647,7 +763,10 @@
     // 它前面跟的是一个**空行**（真实内容里是 "\n\n[Reply format] …"），
     // 面板里单独成段，但它自己的 join 已经吃掉一个换行，所以 head 只能再补一个。
     if (systemRows.length) {
-      systemRows.push({ kind: "reply-format", label: "回复格式要求", texts: ["[Reply format] " + REPLY_FORMAT_INSTRUCTION], head: true });
+      // 这段是按用途选的：对话页是"旁白/台词"，剧情模式页是"只写你这一小段"。
+      const formatProfile = PURPOSE_PROFILES[normalizePurpose(options.purpose)];
+      const formatInstruction = formatProfile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION;
+      systemRows.push({ kind: "reply-format", label: "回复格式要求", texts: ["[Reply format] " + formatInstruction], head: true });
     }
     // 重建系统提示原文：普通块用单个换行相接，head 块前面补一个空行。
     // 关键是**不能有行尾多余换行**，否则字节对不上。
@@ -1335,6 +1454,12 @@
     DEEPSEEK_LEGACY_MODES,
     DEEPSEEK_CHAT_SAMPLING,
     isDeepSeekChatMode,
+    PURPOSES,
+    PURPOSE_IDS,
+    PURPOSE_PROFILES,
+    normalizePurpose,
+    resolveProfile,
+    SCENE_FORMAT_INSTRUCTION,
     MODEL_CONTEXT,
     contextLimitFor,
     outputLimitFor,

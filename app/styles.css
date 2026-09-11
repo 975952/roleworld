@@ -243,6 +243,16 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-box textarea { width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
+/* 撞上输出上限时的那一行：说明 + 一个「接着说」。 */
+.message-truncated { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 2px; color: var(--muted-text); font-size: 10px; }
+.message-continue { padding: 2px 8px; color: var(--secondary-text); font-size: 10px; border: 1px solid var(--hairline); border-radius: 999px; background: transparent; cursor: pointer; }
+.message-continue:hover { color: var(--main-text); border-color: var(--strong-line); }
+/* 记忆取向：面板顶部一行，说明"以后记什么"。 */
+.memory-orientation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
+.memory-orientation-label { color: var(--secondary-text); font-size: 11px; }
+.memory-orientation select { padding: 5px 8px; color: var(--main-text); font-size: 11px; border: 1px solid var(--hairline); border-radius: 7px; background: var(--canvas); cursor: pointer; }
+.memory-orientation-hint { color: var(--muted-text); font-size: 10px; }
+.memory-actions .plain-button.is-on { color: var(--main-text); border-color: var(--main-text); }
 /* P2-3：回复下面标出"引用了哪几条以前的记录"，点开能看原话、点了能跳回去。 */
 .message-refs { margin: 6px 0 2px; }
 .message-refs-toggle { padding: 2px 7px; color: var(--muted-text); font-size: 10px; border: 1px solid var(--hairline); border-radius: 999px; background: transparent; cursor: pointer; }

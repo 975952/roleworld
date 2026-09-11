@@ -61,6 +61,11 @@
       memoriesRejected: Math.round(num(source.memoriesRejected)),
       searchHits: Math.round(num(source.searchHits)),
       activeSearches: Math.round(num(source.activeSearches)),
+      // 用途：chat / companion / scene —— 有了它才能分开看"不同模式的回复长度与费用"。
+      purpose: ["chat", "companion", "scene"].indexOf(String(source.purpose || "")) >= 0 ? String(source.purpose) : "chat",
+      // 这一轮有没有撞上输出上限（finish_reason=length）。
+      // 记下来是为了回答"到底该不该按模式限制输出长度"——先有数据再定。
+      truncated: source.truncated === true,
       // 用户标记（可以后补，所以初始为空）
       flags: Array.isArray(source.flags) ? source.flags.filter((f) => Object.values(FLAGS).indexOf(f) >= 0) : [],
       note: cleanText(source.note, 200),
@@ -145,7 +150,35 @@
       searchHits: recent.reduce((sum, t) => sum + t.searchHits, 0),
       // 记忆错误率：被标成"记错"的轮次占比。没有样本时给 null，不假装是 0。
       wrongMemoryRate: recent.length ? count(FLAGS.WRONG_MEMORY) / recent.length : null,
+      // 按用途拆开看：不同模式该有不同的回复长度与花费，这个拆分就是"该不该限长度"的依据。
+      byPurpose: summarizeByPurpose(recent),
     };
+  }
+
+  /** 按用途分组统计（chat / companion / scene）。没有的用途不出现，避免造出"0 轮"。 */
+  function summarizeByPurpose(turns) {
+    const list = Array.isArray(turns) ? turns : [];
+    const out = {};
+    for (const turn of list) {
+      const key = turn && turn.purpose ? turn.purpose : "chat";
+      if (!out[key]) {
+        out[key] = { purpose: key, turns: 0, outputTokens: 0, inputTokens: 0, cost: 0, totalMs: 0, truncated: 0 };
+      }
+      const row = out[key];
+      row.turns += 1;
+      row.outputTokens += turn.outputTokens || 0;
+      row.inputTokens += turn.inputTokens || 0;
+      row.cost += turn.cost || 0;
+      row.totalMs += turn.totalMs || 0;
+      if (turn.truncated === true) row.truncated += 1;
+    }
+    Object.keys(out).forEach((key) => {
+      const row = out[key];
+      // 平均输出长度：判断"该不该按模式限长度"时最直接的那个数。
+      row.avgOutputTokens = row.turns ? Math.round(row.outputTokens / row.turns) : 0;
+      row.avgTotalMs = row.turns ? Math.round(row.totalMs / row.turns) : 0;
+    });
+    return out;
   }
 
   function formatDuration(ms) {
@@ -165,6 +198,7 @@
     flagTurn,
     flagsOf,
     summarize,
+    summarizeByPurpose,
     formatDuration,
   };
 });

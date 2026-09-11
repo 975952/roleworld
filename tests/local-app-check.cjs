@@ -66,6 +66,7 @@ function startServer() {
   const requests = [];
   // 停止生成需要一条"慢慢吐字"的流：只在这条用例里打开，避免影响其它断言。
   let slowStream = false;
+let truncateNext = false;
   // 下一次回复的内容可以由测试指定：用来验证 [[记住: …]] 这条真实链路。
   const replyQueue = [];
   const server = http.createServer(async (req, res) => {
@@ -85,6 +86,14 @@ function startServer() {
       slowStream = true;
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("ok");
+      return;
+    }
+
+    // 让下一轮以 finish_reason=length 结束（模拟撞上输出上限被截断）。
+    if (p === "/__truncate") {
+      truncateNext = !truncateNext;
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(truncateNext ? "on" : "off");
       return;
     }
 
@@ -159,6 +168,13 @@ function startServer() {
         const pieces = queued ? [queued] : ["合成回复：", "你好，", "我是本地模型。"];
         for (const piece of pieces) {
           res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta: { content: piece } }] }) + "\n\n");
+        }
+        if (truncateNext) {
+          // 最后一段带上 finish_reason=length：这就是"撞上输出上限、话被截断"的信号。
+          res.write("data: " + JSON.stringify({
+            model: body.model || "synthetic",
+            choices: [{ delta: {}, finish_reason: "length" }],
+          }) + "\n\n");
         }
         // 真实接口最后会单独回一段用量（含缓存命中数）。以前这里没回，
         // 于是"发送前预估"永远拿不到真实基线 —— 那也是没测出来的原因之一。
@@ -1588,6 +1604,179 @@ async function main() {
 
     await evaluate("document.querySelector('#aiCreateDialog [data-action=\\'close-ai-create\\']').click(); true");
     await waitFor("document.querySelector('#aiCreateDialog').hidden === true", 8000);
+  });
+
+  await check("记忆取向：剧情取向下剧情才进记忆，并且标明是剧情", async () => {
+    // 现行（平衡）取向：剧情类要点会被拒
+    await fetch(base + "/__reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "好。\n[[记住: 战斗 | 他拔出魔杖把玩家推进了密室]]" }),
+    });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '我们打起来了';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const rejected = await evaluate("(async () => (await window.STApi.getWorld('MB Harry — 自动记忆')).entries)()");
+    assert(JSON.stringify(rejected).indexOf("魔杖") < 0, "平衡取向下剧情不该进记忆");
+
+    // 面板上的取向选择器：切成剧情
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    const options = await evaluate("Array.from(document.querySelectorAll('#memoryOrientation option')).map((o) => o.value + ':' + o.textContent)");
+    assert(options.length === 3, "取向应当有三档：" + JSON.stringify(options));
+    await evaluate(`(() => {
+      const select = document.querySelector('#memoryOrientation');
+      select.value = 'story';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(async () => (await RoleWorld.store.getKV('memory-orientation:Harry Potter (EN).png', '')) === 'story')()", 8000);
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+
+    // 剧情取向下再记一次：这次应当收下，并且标成剧情
+    await fetch(base + "/__reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "嗯。\n[[记住: 战斗 | 他拔出魔杖把玩家推进了密室]]" }),
+    });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '再说一次刚才那段';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const stored = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      const row = core.listEntries(world.entries).find((item) => item.content.indexOf('魔杖') >= 0);
+      return row ? { kind: row.kind, content: row.content } : null;
+    })()`);
+    assert(stored, "剧情取向下剧情要点应当被记下");
+    assert(stored.kind === "story", "必须标明是剧情：" + JSON.stringify(stored));
+
+    // 注入时带 [剧情] 前缀（否则模型会把它当成玩家的事实）
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '你还记得那件事吗';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    assert(sent[sent.length - 1].systemText.indexOf("[剧情]") >= 0,
+      "剧情记忆注入时应当带 [剧情] 前缀");
+
+    // 切回平衡，别影响后面的用例
+    await evaluate("window.TASK21.saveOrientation({ avatar: 'Harry Potter (EN).png' }, 'balanced'); true");
+  });
+
+  await check("「说得对」：标过的记忆不会被上限挤掉", async () => {
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    // 只点"这一条"的按钮：组标题那一层也有 .memory-actions（那是清空整组，会弹 confirm，
+    // 而无头环境里 confirm 会一直挂着 —— 这个坑踩过一次）。
+    const button = await waitFor("document.querySelector('#memoryList .memory-confirm') !== null", 8000);
+    assert(button, "记忆条目上没有「说得对」按钮");
+    const marked = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      document.querySelector('#memoryList .memory-confirm').click();
+      await new Promise((r) => setTimeout(r, 800));
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      const rows = core.listEntries(world.entries);
+      return {
+        confirmed: rows.filter((row) => row.confirmed).length,
+        usage: (document.querySelector('.memory-usage') || {}).textContent || '',
+      };
+    })()`);
+    assert(marked.confirmed >= 1, "点了「说得对」却没有记下确认标记");
+    assert(marked.usage.indexOf("你确认过") >= 0, "用量那一行应当说明有几条是确认过的：" + marked.usage);
+
+    // 上限压到 2 条，再记两条新事实：确认过的那条必须活着
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      const rows = core.listEntries(world.entries);
+      const keep = rows.find((row) => row.confirmed);
+      // 清成只剩这一条确认过的 + 两条普通的
+      const entries = {};
+      entries['0'] = { uid: 0, content: keep.content, constant: true, rw_source: { confirmed: true, kind: 'fact', topic: '称呼' } };
+      entries['1'] = { uid: 1, content: '普通记忆甲', constant: true, rw_source: { kind: 'fact' } };
+      entries['2'] = { uid: 2, content: '普通记忆乙', constant: true, rw_source: { kind: 'fact' } };
+      await window.STApi.editWorld('MB Harry — 自动记忆', { entries });
+      return true;
+    })()`);
+    const trimmed = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      const result = core.trim(world.entries, 2, { orientation: 'companion' });
+      return core.listEntries(result.entries).map((row) => row.content + (row.confirmed ? '(确认)' : ''));
+    })()`);
+    assert(trimmed.some((row) => row.indexOf("(确认)") >= 0),
+      "上限挤占时把确认过的条目也挤掉了：" + JSON.stringify(trimmed));
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+  });
+
+  await check("撞上输出上限：明确提示被截断，并给一个「接着说」", async () => {
+    // 让假端点这一轮回 finish_reason=length（模拟撞上 max_tokens）
+    await fetch(base + "/__truncate", { method: "POST" });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '说一段长一点的';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const notice = await evaluate(`(() => {
+      const node = document.querySelector('#dynamicMessages .message-truncated');
+      if (!node) return null;
+      return { text: node.textContent, hasButton: !!node.querySelector('.message-continue') };
+    })()`);
+    assert(notice, "被截断了却没有任何提示");
+    assert(notice.text.indexOf("截断") >= 0, "提示文案不对：" + JSON.stringify(notice));
+    assert(notice.hasButton, "截断提示里应当有「接着说」");
+
+    // 刷新之后这条提示还在（写进了消息里）
+    await fetch(base + "/__truncate", { method: "POST" });
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    await waitFor("document.querySelector('#dynamicMessages .message-truncated') !== null", 15000);
+
+    // 点「接着说」：会发出一句看得见的舞台提示（不偷偷替用户说话）
+    const before = requests.length;
+    await evaluate("document.querySelector('#dynamicMessages .message-continue').click(); true");
+    await waitTurnSettled();
+    const after = requests.slice(before);
+    const sent = after.filter((row) => row.stream === true);
+    assert(sent.length >= 1, "点了「接着说」却没有发出请求");
+    const lastUser = await evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-user'));
+      return rows.length ? rows[rows.length - 1].textContent : '';
+    })()`);
+    assert(lastUser.indexOf("没说完") >= 0 && lastUser.indexOf("继续说") >= 0,
+      "接着说发出去的舞台提示应当看得见：" + JSON.stringify(lastUser));
+
+    // 台账里要能看出"这一轮被截断了"，以及按用途分开的长度
+    const metrics = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_METRICS_CORE;
+      const raw = await RoleWorld.store.getKV('metrics:Harry Potter (EN).png', []);
+      const summary = core.summarize(raw);
+      return {
+        truncated: raw.filter((turn) => turn.truncated === true).length,
+        byPurpose: summary.byPurpose,
+      };
+    })()`);
+    assert(metrics.truncated >= 1, "台账没有记下被截断的那一轮：" + JSON.stringify(metrics));
+    assert(metrics.byPurpose && metrics.byPurpose.chat && metrics.byPurpose.chat.avgOutputTokens > 0,
+      "台账没有按用途统计平均输出长度：" + JSON.stringify(metrics.byPurpose));
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {

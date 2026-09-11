@@ -377,6 +377,101 @@ async function main() {
   });
 
   console.log("");
+  console.log("== 记忆取向与「说得对」（P5-3）==");
+
+  const STORY_LINE = "他拔出魔杖，把玩家推进了密室";
+
+  await test("默认（平衡）：剧情一律不收 —— 这条底线不变", () => {
+    const result = Memory.applyMemories({}, [STORY_LINE], {});
+    assert.equal(result.added, 0);
+    assert.equal(result.rejected.length, 1);
+    assert.equal(result.rejected[0].reason, "story");
+    assert.equal(Memory.normalizeOrientation("不认识的值"), Memory.ORIENTATIONS.BALANCED);
+  });
+
+  await test("剧情取向：剧情可以记，但标成 story（不冒充用户事实）", () => {
+    const result = Memory.applyMemories({}, [STORY_LINE], { orientation: "story" });
+    assert.equal(result.added, 1, "剧情取向下应当收下：" + JSON.stringify(result.rejected));
+    const row = Memory.listEntries(result.entries)[0];
+    assert.equal(row.kind, "story", "必须标明是剧情");
+    assert.equal(row.content, STORY_LINE);
+    // 事实类在剧情取向下也仍然是事实
+    const both = Memory.applyMemories(result.entries, ["玩家喜欢乌龙茶"], { orientation: "story" });
+    const kinds = Memory.listEntries(both.entries).map((r) => r.kind).sort();
+    assert.deepEqual(kinds, ["fact", "story"]);
+  });
+
+  await test("「说得对」：标记后不会被上限挤掉", () => {
+    let entries = {};
+    // 先塞三条事实，把中间那条标成"确认过"
+    entries = Memory.applyMemories(entries, ["玩家叫小林"], {}).entries;
+    entries = Memory.applyMemories(entries, ["玩家住在杭州"], {}).entries;
+    entries = Memory.applyMemories(entries, ["玩家养了只猫"], {}).entries;
+    const rows = Memory.listEntries(entries);
+    const target = rows[1];
+    const marked = Memory.confirmEntry(entries, target.key, true);
+    assert.equal(marked.ok, true);
+    assert.equal(Memory.listEntries(marked.entries)[1].confirmed, true);
+
+    // 上限压到 2 条：最旧的（未确认）先走，确认过的那条留下
+    const trimmed = Memory.trim(marked.entries, 2);
+    assert.equal(Object.keys(trimmed.entries).length, 2);
+    const left = Memory.listEntries(trimmed.entries).map((r) => r.content);
+    assert.ok(left.indexOf("玩家住在杭州") >= 0, "确认过的条目不该被挤掉：" + JSON.stringify(left));
+    assert.equal(trimmed.removed.length, 1);
+    assert.equal(trimmed.removed[0].content, "玩家叫小林", "先走的应当是最旧的未确认条目");
+
+    const unmarked = Memory.confirmEntry(marked.entries, target.key, false);
+    assert.equal(Memory.listEntries(unmarked.entries)[1].confirmed, false, "应当能取消标记");
+  });
+
+  await test("挤占顺序（陪伴取向）：先剧情、再碎事件、最后才是「关于你这个人」", () => {
+    let entries = {};
+    entries = Memory.applyMemories(entries, ["玩家住在杭州"], {}).entries;                    // 住处：关于你
+    entries = Memory.applyMemories(entries, ["考拉"], {}).entries;                            // 具体东西：碎事件
+    entries = Memory.applyMemories(entries, [STORY_LINE], { orientation: "story" }).entries;  // 剧情
+    assert.equal(Object.keys(entries).length, 3);
+    const trimmed = Memory.trim(entries, 1, { orientation: "companion" });
+    const left = Memory.listEntries(trimmed.entries);
+    assert.equal(left.length, 1);
+    assert.equal(left[0].content, "玩家住在杭州", "陪伴取向下该保住关于你的事实：" + JSON.stringify(left));
+    const removedOrder = trimmed.removed.map((row) => row.content);
+    assert.equal(removedOrder[0], STORY_LINE, "剧情应当第一个被挤：" + JSON.stringify(removedOrder));
+    assert.equal(removedOrder[1], "考拉", "碎事件第二个：" + JSON.stringify(removedOrder));
+  });
+
+  await test("挤占顺序（平衡取向）：只把剧情提前，其余按新旧", () => {
+    let entries = {};
+    entries = Memory.applyMemories(entries, ["玩家住在杭州"], {}).entries;
+    entries = Memory.applyMemories(entries, ["考拉"], {}).entries;
+    entries = Memory.applyMemories(entries, [STORY_LINE], { orientation: "story" }).entries;
+    const trimmed = Memory.trim(entries, 1, { orientation: "balanced" });
+    const left = Memory.listEntries(trimmed.entries).map((row) => row.content);
+    // 平衡取向不区分主题质量：剧情先走，剩下两条按新旧 —— 最早的杭州先走。
+    assert.deepEqual(left, ["考拉"], "平衡取向应当按新旧：" + JSON.stringify(left));
+  });
+
+  await test("改口替换之后，「说得对」的标记跟着新内容走", () => {
+    let entries = Memory.applyMemories({}, ["玩家喜欢咖啡"], {}).entries;
+    const key = Object.keys(entries)[0];
+    entries = Memory.confirmEntry(entries, key, true).entries;
+    const next = Memory.applyMemories(entries, [{ topic: "饮料", content: "玩家现在不喜欢咖啡了" }], {});
+    assert.equal(next.replaced.length, 1, "同主题应当替换");
+    const row = Memory.listEntries(next.entries)[0];
+    assert.equal(row.content, "玩家现在不喜欢咖啡了");
+    assert.equal(row.confirmed, true, "确认过的态度不该因为改口就丢掉");
+  });
+
+  await test("取向只影响新写入，不动已有条目", () => {
+    const story = Memory.applyMemories({}, [STORY_LINE], { orientation: "story" }).entries;
+    // 切回平衡再写一条：老的剧情条目还在（不悄悄删用户的东西）
+    const next = Memory.applyMemories(story, ["玩家喜欢甜食"], { orientation: "balanced" });
+    const contents = Memory.listEntries(next.entries).map((r) => r.content);
+    assert.ok(contents.indexOf(STORY_LINE) >= 0, "已有条目不该被取向改动");
+    assert.ok(contents.indexOf("玩家喜欢甜食") >= 0);
+  });
+
+  console.log("");
   console.log(failures ? `MEMORY_UNIT=${results.length - failures}/${results.length}（有 ${failures} 项不达标）` : `MEMORY_UNIT=${results.length}/${results.length}`);
   process.exit(failures ? 1 : 0);
 }

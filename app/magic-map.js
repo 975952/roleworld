@@ -452,7 +452,10 @@
   }
 
   function buildSceneMessages(card, avatar, others, promptText) {
-    var base = window.TASK22_CORE.buildSystemPrompt(card, booksFor(avatar), promptText);
+    // purpose: "scene" —— 走剧情模式页那一档：只写自己这一小段、不替别人说话，
+    // 并且关掉自动历史检索（场景历史已经在下面这些消息里了）。
+    // 以前这里只是"碰巧"没有对话页那条格式指令，现在它是显式的选择。
+    var base = window.TASK22_CORE.buildSystemPrompt(card, booksFor(avatar), promptText, { purpose: "scene" });
     var lastSpeaker = lastSpeakerBefore(avatar);
     var system = base + "\n\n" + sceneDirective(avatar, others, lastSpeaker);
     var name = characterName(avatar);
@@ -509,6 +512,8 @@
       modelName: runtime.modelName,
       thinking: runtime.thinking === true,
       stream: false,
+      // 剧情模式页：采样口味、输出约定都按 scene 那一档（数字只在 task22-core 里定义）。
+      purpose: "scene",
     });
     payload.messages = messages;
     var response = await window.STApi.generate(payload, signal);

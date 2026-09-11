@@ -47,7 +47,7 @@
     const rawIndex = source.messageIndex;
     const index = (typeof rawIndex === "number" || (typeof rawIndex === "string" && rawIndex.trim() !== ""))
       ? Number(rawIndex) : NaN;
-    return {
+    const normalized = {
       file: cleanText(source.file, 200),
       messageIndex: Number.isFinite(index) && index >= 0 ? Math.floor(index) : null,
       at: cleanText(source.at, 40),
@@ -56,7 +56,40 @@
       edited: source.edited === true,
       // 这条替换掉的旧内容（改口时记下，便于解释）。
       replacedContent: cleanText(source.replacedContent, 200),
+      // 主题也走这里：它在别处（entryTopic）会被读，缺了就得从正文重推，容易推歪。
+      topic: cleanText(source.topic, 40),
+      // 类型与"用户确认过"这两个标记必须原样带出去 —— 它们是挤占顺序与注入前缀的依据，
+      // 归一化时丢掉的话，剧情就会当成事实、确认过的条目也会被挤掉（真踩过）。
+      kind: source.kind === "story" ? "story" : "fact",
+      confirmed: source.confirmed === true,
     };
+    return normalized;
+  }
+
+  /* ---------- 记忆取向（P5-3）----------
+   * 同一个模型，不同用法该记的东西不一样：
+   *   - 平衡（默认）：只记"你这个人"的事实与偏好，剧情一律不进（现有行为）；
+   *   - 陪伴：同平衡，但**上限满时优先保住**有明确主题的（偏好/习惯/关系/约定），
+   *     先挤掉说不清主题的碎事件；
+   *   - 剧情：剧情也可以记，但必须**标明是剧情**（注入时加 [剧情] 前缀，面板里单独一块），
+   *     而且剧情条目在挤占时**优先被挤掉**；用户确认过的条目任何时候都不挤。
+   */
+  const ORIENTATIONS = Object.freeze({
+    BALANCED: "balanced",
+    COMPANION: "companion",
+    STORY: "story",
+  });
+
+  const ORIENTATION_IDS = Object.freeze([ORIENTATIONS.BALANCED, ORIENTATIONS.COMPANION, ORIENTATIONS.STORY]);
+
+  function normalizeOrientation(value) {
+    const key = String(value || "").trim().toLowerCase();
+    return ORIENTATION_IDS.indexOf(key) >= 0 ? key : ORIENTATIONS.BALANCED;
+  }
+
+  /** 剧情取向才收剧情；其余一律拒（这是用户定的底线，默认不变）。 */
+  function orientationAllowsStory(orientation) {
+    return normalizeOrientation(orientation) === ORIENTATIONS.STORY;
   }
 
   /* ---------- 真实信息 vs 虚构剧情 ----------
@@ -208,6 +241,12 @@
     return topic;
   }
 
+  /* 陪伴取向下"关于你这个人"的稳定事实：这几类最后才被挤掉。
+   * 取值就是 TOPIC_ANCHORS / TOPIC_SYNONYMS 归一之后的那几个词，
+   * 所以"玩家喜欢咖啡"（→饮料）、"玩家住在杭州"（→住处）都算，
+   * 而"考拉""团子"这种具体东西不算 —— 它们更像碎事件。 */
+  const SUBJECT_TOPICS = Object.freeze(["称呼", "住处", "年龄", "工作", "约定", "怕的东西", "饮料", "食物"]);
+
   /* 同义词：模型今天写「称呼」、昨天写「名字」，指的是同一件事。
    * 不归一的话，"改口"就会变成两条互相矛盾的记忆并存。
    * 只在比较时归一，显示出来的仍是模型原本写的词。 */
@@ -301,6 +340,10 @@
         topic: entryTopic(entry),
         // 这条替换掉的旧内容（如果有），用于解释"为什么这条变了"。
         replacedContent: cleanText(sourceInfo.replacedContent, 200),
+        // 剧情取向记下来的剧情条目：面板单独一块，注入时会带 [剧情] 前缀。
+        kind: sourceInfo.kind === "story" ? "story" : "fact",
+        // 用户在面板上点过「这条说得对」：永不被上限挤掉。
+        confirmed: sourceInfo.confirmed === true,
         constant: entry.constant !== false,
         disabled: entry.disable === true,
       });
@@ -321,19 +364,45 @@
     return max + 1;
   }
 
-  function trim(entries, max) {
+  /**
+   * 超出上限时挤掉哪些条目。
+   * 顺序（越小越先被挤）：
+   *   ① 剧情 —— 只在剧情取向下才会存在，最不稀缺；
+   *   ② 其余按取向：
+   *        - 陪伴：先挤"说不清主题的"，再挤"具体东西/事件"，最后才动
+   *          「关于你这个人」的稳定事实（称呼/住处/年龄/工作/约定/怕的东西/饮料/食物）；
+   *        - 平衡 / 剧情：同一档，按新旧（最旧的先走）—— 也就是原来的行为；
+   *   ③ 用户点过「说得对」的：排在最前面，任何时候都不先动它。
+   */
+  function trim(entries, max, options) {
     const limit = Number(max) > 0 ? Number(max) : DEFAULT_MAX;
+    const orientation = normalizeOrientation(options && options.orientation);
     const keys = Object.keys(entries || {});
     if (keys.length <= limit) return { entries: entries || {}, removed: [] };
+    const rank = (key) => {
+      const entry = entries[key] || {};
+      const sourceInfo = normalizeSource(entry.rw_source);
+      if (sourceInfo.confirmed === true) return 4;          // 你确认过的：最后才轮到它
+      if (sourceInfo.kind === "story") return 0;            // 剧情：最先走
+      if (orientation !== ORIENTATIONS.COMPANION) return 2;  // 平衡/剧情：按新旧
+      const topic = canonicalTopic(entryTopic(entry));
+      if (!topic) return 1;                                  // 说不清主题的碎事件
+      return SUBJECT_TOPICS.indexOf(topic) >= 0 ? 3 : 2;     // 关于你这个人的事实最后走
+    };
     const ordered = keys
-      .map((key) => ({ key, uid: Number((entries[key] || {}).uid) || 0 }))
-      .sort((a, b) => a.uid - b.uid);
+      .map((key) => ({ key, uid: Number((entries[key] || {}).uid) || 0, rank: rank(key) }))
+      .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.uid - b.uid));
     const removed = [];
     const kept = Object.assign({}, entries);
     while (ordered.length > limit) {
-      const oldest = ordered.shift();
-      removed.push({ uid: oldest.uid, content: cleanText((kept[oldest.key] || {}).content, 200) });
-      delete kept[oldest.key];
+      const victim = ordered.shift();
+      const gone = kept[victim.key] || {};
+      removed.push({
+        uid: victim.uid,
+        content: cleanText(gone.content, 200),
+        kind: normalizeSource(gone.rw_source).kind,
+      });
+      delete kept[victim.key];
     }
     return { entries: kept, removed };
   }
@@ -353,6 +422,9 @@
     const source = normalizeSource(opts.source);
     const origin = opts.origin === ORIGIN.USER ? ORIGIN.USER : ORIGIN.MODEL;
     const at = source.at || new Date().toISOString();
+    // 记忆取向：只有剧情取向才收剧情条目，收进来的一律标成 story。
+    const orientation = normalizeOrientation(opts.orientation);
+    const allowStory = orientationAllowsStory(orientation);
     const next = Object.assign({}, entries || {});
     let uid = nextUid(next);
     let added = 0;
@@ -368,11 +440,15 @@
       const text = item.content;
       if (!text) return;
       // 底线一：剧情不是用户事实。判断在纯逻辑层做，不靠模型自觉。
+      // 剧情取向是**用户显式选的**：这时剧情可以进，但会带 kind=story 的标记，
+      // 注入时写成 [剧情]，面板里也单独一块 —— 存归存，绝不冒充用户的事实。
       const verdict = classifyMemory(text);
-      if (!verdict.keep) {
+      const isStory = !verdict.keep && verdict.reason === "story";
+      if (!verdict.keep && !(isStory && allowStory)) {
         rejected.push({ content: text, reason: verdict.reason });
         return;
       }
+      const kind = isStory ? "story" : "fact";
       if (!topic) topic = inferTopicOrEmpty(text);
 
       // 内容完全一样：跳过，不重复记。
@@ -392,18 +468,22 @@
           topic,
         });
         const previous = next[replaceKey];
+        // 替换时保留"用户确认过"这个标记：改口之后它仍然是你确认过的那件事。
+        const previousSource = normalizeSource(previous.rw_source);
+        const keepConfirmed = previousSource.confirmed === true ? { confirmed: true } : {};
         next[replaceKey] = Object.assign({}, previous, {
           content: text,
           comment: text.slice(0, 24),
-          rw_source: Object.assign({}, normalizeSource(previous.rw_source), {
+          rw_source: Object.assign({}, previousSource, {
             file: source.file,
             messageIndex: source.messageIndex,
             at,
             origin,
             topic,
+            kind,
             // 记下它替换了哪条旧内容，便于回头解释"为什么这条变了"。
             replacedContent: cleanText(previous.content, 200),
-          }),
+          }, keepConfirmed),
         });
         added += 1;
         return;
@@ -419,20 +499,21 @@
         constant: true,
         disable: false,
         displayIndex: uid,
-        // 我们的元数据：来源、时间、主题。对世界书格式是额外字段，读取方会忽略。
+        // 我们的元数据：来源、时间、主题、类型。对世界书格式是额外字段，读取方会忽略。
         rw_source: {
           file: source.file,
           messageIndex: source.messageIndex,
           at,
           origin,
           topic,
+          kind,
         },
       };
       uid += 1;
       added += 1;
     });
 
-    const trimmed = trim(next, max);
+    const trimmed = trim(next, max, { orientation });
     return { entries: trimmed.entries, added, skipped, replaced, rejected, removed: trimmed.removed };
   }
 
@@ -461,6 +542,22 @@
   }
 
   /**
+   * 「这条说得对」/ 撤销：把一条记忆标成用户确认过。
+   * 确认过的条目在上限挤占时**最后才考虑**（trim 里 rank 3），
+   * 因为那是你自己核过的事实，不该被新记的碎事件挤掉。
+   */
+  function confirmEntry(entries, key, confirmed) {
+    const next = Object.assign({}, entries || {});
+    const target = next[String(key)];
+    if (!target) return { ok: false, reason: "missing", entries: next };
+    const sourceInfo = Object.assign({}, normalizeSource(target.rw_source));
+    if (confirmed === false) delete sourceInfo.confirmed;
+    else sourceInfo.confirmed = true;
+    next[String(key)] = Object.assign({}, target, { rw_source: sourceInfo });
+    return { ok: true, confirmed: confirmed !== false, entries: next };
+  }
+
+  /**
    * 按主题分组，供记忆面板折叠显示。
    * 没有主题的条目归到「未分类」（固定排在最后），组内按 uid 排序。
    */
@@ -483,6 +580,10 @@
   return {
     ORIGIN,
     DEFAULT_MAX,
+    ORIENTATIONS,
+    ORIENTATION_IDS,
+    normalizeOrientation,
+    orientationAllowsStory,
     cleanText,
     normalizeSource,
     looksLikeStory,
@@ -499,5 +600,6 @@
     applyMemories,
     updateEntry,
     removeEntry,
+    confirmEntry,
   };
 });

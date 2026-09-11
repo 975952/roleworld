@@ -149,6 +149,30 @@ async function main() {
     assert.equal(Metrics.formatDuration(20000), "20s");
   });
 
+  await test("按用途分开统计：不同模式的回复长度与花费看得见", () => {
+    let turns = [];
+    turns = Metrics.appendTurn(turns, { turnId: "a", purpose: "companion", outputTokens: 300, inputTokens: 1000, cost: 0.001, totalMs: 3000 });
+    turns = Metrics.appendTurn(turns, { turnId: "b", purpose: "companion", outputTokens: 500, inputTokens: 1000, cost: 0.002, totalMs: 5000 });
+    turns = Metrics.appendTurn(turns, { turnId: "c", purpose: "scene", outputTokens: 120, inputTokens: 2000, cost: 0.003, totalMs: 4000, truncated: true });
+    const stats = Metrics.summarize(turns);
+    assert.equal(stats.byPurpose.companion.turns, 2);
+    assert.equal(stats.byPurpose.companion.avgOutputTokens, 400, "伴侣模式平均输出应当算得出来");
+    assert.equal(stats.byPurpose.companion.avgTotalMs, 4000);
+    assert.equal(stats.byPurpose.scene.turns, 1);
+    assert.equal(stats.byPurpose.scene.avgOutputTokens, 120);
+    assert.equal(stats.byPurpose.scene.truncated, 1, "被截断的轮次要单独计数");
+    assert.equal(stats.byPurpose.chat, undefined, "没有的用途不该凭空造出 0 轮");
+  });
+
+  await test("用途与截断标记：缺字段按 chat / 未截断，不编造", () => {
+    const turn = Metrics.makeTurn({ turnId: "x" });
+    assert.equal(turn.purpose, "chat");
+    assert.equal(turn.truncated, false);
+    assert.equal(Metrics.makeTurn({ purpose: "乱写" }).purpose, "chat");
+    assert.equal(Metrics.makeTurn({ purpose: "scene" }).purpose, "scene");
+    assert.equal(Metrics.makeTurn({ truncated: "yes" }).truncated, false, "只有 true 才算截断");
+  });
+
   console.log("");
   console.log(failures ? `METRICS_UNIT=${results.length - failures}/${results.length}（有 ${failures} 项不达标）` : `METRICS_UNIT=${results.length}/${results.length}`);
   process.exit(failures ? 1 : 0);

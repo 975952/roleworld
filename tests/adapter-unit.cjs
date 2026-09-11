@@ -945,6 +945,71 @@ async function main() {
     assert.equal(plan.truncated, true);
   });
 
+  console.log("== 用途档案：不同模式该有不同的默认 ==");
+
+  await test("三种用途各有档案，数字只在核心层定义一处", () => {
+    assert.deepEqual(Core22.PURPOSE_IDS.slice().sort(), ["chat", "companion", "scene"]);
+    const chat = Core22.resolveProfile("chat");
+    const companion = Core22.resolveProfile("companion");
+    const scene = Core22.resolveProfile("scene");
+    assert.equal(chat.replyFormat, "dialogue");
+    assert.equal(companion.replyFormat, "dialogue", "伴侣模式仍然是对话页那套格式约定");
+    assert.equal(scene.replyFormat, "scene", "剧情模式页要用多角色那一套");
+    assert.equal(chat.autoSearch, true);
+    assert.equal(scene.autoSearch, false, "剧情页不该自动翻旧对话（它有自己的场景历史）");
+    // 没见过的用途一律当 chat，不炸
+    assert.equal(Core22.normalizePurpose("nope"), "chat");
+    assert.equal(Core22.resolveProfile("nope").replyFormat, "dialogue");
+  });
+
+  await test("用途档案不能凭空加字段（防止页面各写各的）", () => {
+    const patched = Core22.resolveProfile("chat", { temperature: 0.2, 乱加的字段: 1 });
+    assert.equal(patched.temperature, 0.2);
+    assert.equal(patched["乱加的字段"], undefined, "表里没有的键不该被塞进来");
+    assert.equal(patched.topP, Core22.PURPOSE_PROFILES.chat.topP, "没覆盖的项保持表里的值");
+  });
+
+  await test("输出上限：用途与渠道一起决定；目前三种用途都不硬压", () => {
+    assert.equal(Core22.outputLimitFor("deepseek-flash", "chat"), 32768);
+    assert.equal(Core22.outputLimitFor("deepseek-flash", "scene"), 32768,
+      "用户明确否掉了按模式硬压输出：剧情页靠提示词约束 + 记录实测，不靠截断");
+    assert.equal(Core22.outputLimitFor("local", "companion"), 2048);
+    // 表里留了 maxOutput 这个口子：以后有数据了加上去，只改一处。
+    assert.equal(Core22.PURPOSE_PROFILES.scene.maxOutput, undefined);
+  });
+
+  await test("剧情模式页的提示词：只写自己这一小段，不替别人说话", () => {
+    const card = { name: "Harry", description: "被选中的男孩。", personality: "勇敢", scenario: "霍格沃茨" };
+    const scenePrompt = Core22.buildSystemPromptWithFormat(card, [], "这一幕", null, { purpose: "scene" });
+    assert.ok(scenePrompt.indexOf(Core22.SCENE_FORMAT_INSTRUCTION) >= 0, "缺剧情页的输出约定");
+    assert.ok(scenePrompt.indexOf("Do NOT speak, act, or decide for any other character") >= 0,
+      "必须明确禁止替别的角色说话");
+    assert.ok(scenePrompt.indexOf("Do NOT recap") >= 0, "必须禁止复述刚发生的事");
+    const chatPrompt = Core22.buildSystemPromptWithFormat(card, [], "这句话", null, { purpose: "chat" });
+    assert.ok(chatPrompt.indexOf(Core22.REPLY_FORMAT_INSTRUCTION) >= 0, "对话页仍用旁白/台词那套");
+    assert.ok(chatPrompt.indexOf(Core22.SCENE_FORMAT_INSTRUCTION) < 0, "对话页不该带上剧情页的约定");
+    // 采样口味按用途走（同一张表）
+    const payload = Core22.buildGeneratePayload({
+      card, memoryBooks: [], history: [], userText: "你好",
+      mode: "deepseek-flash", modelName: "deepseek-flash", engine: "A", purpose: "scene",
+    });
+    assert.equal(payload.temperature, Core22.PURPOSE_PROFILES.scene.temperature);
+    assert.ok(payload.messages[0].content.indexOf(Core22.SCENE_FORMAT_INSTRUCTION) >= 0,
+      "请求体里的系统提示也应当是剧情页那一套");
+  });
+
+  await test("剧情类记忆在注入时会带上 [剧情] 前缀", () => {
+    const card = { name: "Harry", description: "男孩。", personality: "", scenario: "" };
+    const books = [{ name: "MB Harry — 自动记忆", entries: [
+      { uid: 1, content: "玩家住在杭州", constant: true, rw_source: { kind: "fact" } },
+      { uid: 2, content: "他拔出魔杖", constant: true, rw_source: { kind: "story" } },
+    ] }];
+    const prompt = Core22.buildSystemPrompt(card, books, "", {});
+    assert.ok(prompt.indexOf("[1] 玩家住在杭州") >= 0, "事实条目原样注入");
+    assert.ok(prompt.indexOf("[2] [剧情] 他拔出魔杖") >= 0,
+      "剧情条目必须标明，否则模型会把它当成玩家的事实：" + JSON.stringify(prompt.slice(-260)));
+  });
+
   console.log("== 上下文上限 与 输出上限（分开算）==");
 
   await test("上下文与输出是两件事，各有各的值", () => {
