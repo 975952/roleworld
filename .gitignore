@@ -45,3 +45,5 @@ Thumbs.db
 *.commitmsg.tmp
 .commitmsg.tmp
 .git-commit-msg.txt
+*.cmsg.txt
+.cmsg.txt
