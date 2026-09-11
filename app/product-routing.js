@@ -26,7 +26,7 @@
   }
 
   // Returns the leading product base directory (no trailing slash), e.g.
-  // "/chat" for "/chat/login.html", or "/task21" for "/task21/index.html".
+  // "/chat" for "/chat/index.html", or "/task21" for "/task21/index.html".
   function productBasePath(pathname) {
     const p = String(pathname || currentPathname() || "");
     for (let i = 0; i < KNOWN_BASES.length; i++) {
@@ -41,12 +41,9 @@
 
   function productBaseUrl(pathname) { return productBasePath(pathname) + "/"; }
   function productHomeUrl(pathname) { return productBaseUrl(pathname); }
-  function productLoginUrl(pathname) { return productBaseUrl(pathname) + "login.html"; }
-
   return {
     productBasePath,
     productBaseUrl,
     productHomeUrl,
-    productLoginUrl,
   };
 });

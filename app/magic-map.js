@@ -7,8 +7,7 @@
  * 人格同场对话，关键时刻用 d20「命运骰子」推动剧情。
  *
  * 边界（只读 + 客户端）：
- *   - 只调用 STApi 的读取端点（/api/users/me、characters/all、characters/get、
- *     worldinfo/list|get、settings/get）与 /api/backends/chat-completions/generate。
+ *   - 只调用本机适配层读取接口与用户选择的云端模型服务。
  *   - 绝不调用 chats/save、worldinfo/edit、characters/create|delete|import 等写端点。
  *   - 场景记录只保存在本机 localStorage（按账号），可导出为剧本，可清空。
  */
@@ -530,7 +529,7 @@
     var deepseekMode = core.isDeepSeekChatMode(runtime.modelMode);
     var oai = (runtime.settings && runtime.settings.oai_settings) || {};
     if (!deepseekMode && !oai.custom_url) {
-      setStatus("生成后端未就绪：请到「设置 → 对话」选择 DeepSeek 并保存 API Key，或确认本地模型可用。", true);
+      setStatus("生成服务未就绪：请到「设置 → 模型」保存云端服务的 API Key。", true);
       return;
     }
 
@@ -565,8 +564,7 @@
     } catch (error) {
       if (error && error.name === "AbortError") setStatus("已停止。");
       else if (window.STApi.isAuthRequired(error)) {
-        var routes = window.TASK31_ROUTING;
-        window.location.replace(routes && routes.productLoginUrl ? routes.productLoginUrl() : "./login.html");
+        setStatus("本地数据层需要刷新，请重试。", true);
         return;
       } else setStatus((error && error.message) || "生成失败，请重试。", true);
     } finally {
@@ -775,8 +773,7 @@
       await loadAll();
     } catch (error) {
       if (window.STApi.isAuthRequired(error)) {
-        var routes = window.TASK31_ROUTING;
-        window.location.replace(routes && routes.productLoginUrl ? routes.productLoginUrl() : "./login.html");
+        setStatus("本地数据层需要刷新，请重试。", true);
         return;
       }
       setStatus("初始化失败：" + ((error && error.message) || "请刷新重试"), true);

@@ -39,7 +39,7 @@
   const DEFAULT_LOCAL_SETTINGS = Object.freeze({
     provider: "deepseek",
     model: "deepseek-flash",
-    // 留空表示用所选服务商的默认地址；填了就以这里为准（本地模型、代理、第三方端点）。
+    // 留空表示用所选云端服务商的默认地址；自定义云端服务必须填写地址。
     endpoint: "",
     stream: true,
     temperature: 0.8,
@@ -381,11 +381,11 @@
     return {};
   }
 
-  // 页面在"自定义"模式下会把模型名写成字面量 "local"（沿用了 SillyTavern 的约定），
+  // 页面在自定义模式下可能把模型名写成字面量 "local"（沿用了旧接口的约定），
   // 这里换成用户实际配置的模型名；端点同理，优先用页面传来的 custom_url。
   function requestOptions(payload, local) {
     const endpoint = (payload && payload.custom_url) || local.endpoint || "";
-    // 端点是已知服务商时以端点为准：页面把"本地模型"路径标成 custom，
+    // 端点是已知服务商时以端点为准：页面把自定义路径标成 custom，
     // 但用户配的可能是 DeepSeek 官方地址，密钥要按 deepseek 去取。
     const provider = Model.providerForEndpoint(endpoint)
       || settingsForPayload(payload).provider

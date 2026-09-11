@@ -36,7 +36,7 @@
 | `/api/worldinfo/list|get|edit|delete` | `store.listWorlds/getWorld/putWorld/deleteWorld` |
 | `/api/settings/get` | 合成一个 ST 形状的 `{settings: "{oai_settings:{custom_url}}", world_names}` |
 | `/api/secrets/read|write|delete` | 本机数据库，键形状保持 `{ [key]: [{id,label,value}] }` |
-| `/api/backends/chat-completions/generate` | `model.js` 直连用户配置的 OpenAI 兼容端点 |
+| 模型生成 | `model.js` 直连用户配置的 OpenAI 兼容云端端点 |
 
 ## 三、适配层接口
 

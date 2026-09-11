@@ -780,14 +780,14 @@ function accountErrorMessage(error) {
 }
 
 async function resolveAccountFailure(error) {
-  // 401/403 先验证会话是否真的失效；真的失效则跳转登录，否则按文案提示。
+  // 本地版没有会话；保留统一错误处理，异常时刷新页面恢复本地状态。
   if (error && error.authRequired === true) {
     try {
       await window.STApi.getCurrentUser();
     } catch (meError) {
       if (window.STApi.isAuthRequired && window.STApi.isAuthRequired(meError)) {
         clearThemeAccountHint();
-        window.location.replace(routes.productLoginUrl() + "?noauto=true");
+        window.location.reload();
         return "redirect";
       }
     }
@@ -1005,7 +1005,7 @@ async function confirmSelfDelete() {
   try {
     const password = passwordInput ? passwordInput.value : "";
     await window.STApi.deleteSelf(password, true);
-    // 成功后清除本地偏好与通用 AI 会话，再跳到登录页。
+    // 成功后清除本地偏好与通用 AI 会话，再刷新页面。
     if (state.user && accountCore) {
       accountCore.removePreferences(window.localStorage, state.user.handle);
       accountCore.clearGeneralAi(window.localStorage, state.user.handle);
@@ -1013,7 +1013,7 @@ async function confirmSelfDelete() {
     clearThemeAccountHint();
     state.user = null;
     if (window.STApi) window.STApi._token = null;
-    window.location.replace(routes.productLoginUrl() + "?noauto=true");
+    window.location.reload();
   } catch (error) {
     const label = await resolveAccountFailure(error);
     if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
@@ -1515,7 +1515,7 @@ async function confirmLogout() {
     clearThemeAccountHint();
     state.user = null;
     if (window.STApi) window.STApi._token = null;
-    window.location.replace(routes.productLoginUrl() + "?noauto=true");
+    window.location.reload();
   } catch (logoutError) {
     const kind = accountCore ? accountCore.classifyLogoutError(logoutError) : "unknown";
     if (kind === "auth") {
@@ -1526,7 +1526,7 @@ async function confirmLogout() {
           state.user = null;
           clearThemeAccountHint();
           window.STApi._token = null;
-          window.location.replace(routes.productLoginUrl() + "?noauto=true");
+          window.location.reload();
           return;
         }
       }

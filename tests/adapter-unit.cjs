@@ -285,16 +285,16 @@ async function main() {
 
   console.log("== 适配层门面 ==");
 
-  await test("已知端点自动匹配服务商（AI 写角色失败的根因）", () => {
+  await test("已知云端端点自动匹配服务商", () => {
     assert.equal(Model.providerForEndpoint("https://api.deepseek.com/chat/completions"), "deepseek");
     assert.equal(Model.providerForEndpoint("https://api.deepseek.com/chat/completions/"), "deepseek");
-    assert.equal(Model.providerForEndpoint("HTTP://127.0.0.1:8080/v1/chat/completions"), "custom");
+    assert.equal(Model.providerForEndpoint("HTTP://127.0.0.1:8080/v1/chat/completions"), "");
     assert.equal(Model.providerForEndpoint("https://my-proxy.example/v1/chat/completions"), "");
     assert.equal(Model.providerForEndpoint(""), "");
   });
 
   await test("写角色走 custom 路径时带的是 DeepSeek 的 Key", async () => {
-    // 页面在「本地模型」路径上会发 chat_completion_source:"custom" + custom_url，
+    // 页面在自定义路径上会发 chat_completion_source:"custom" + custom_url，
     // 如果只按 custom 取密钥就会拿到空串 → 请求 401 → "角色生成失败"。
     await Adapter.secrets.set("api_key_deepseek", "sk-deepseek-test");
     await Adapter.saveLocalSettings({

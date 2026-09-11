@@ -150,16 +150,7 @@
     const gate = document.querySelector("#authGate");
     if (gate) gate.hidden = false;
     disableComposer("登录后即可开始对话。");
-    const routes = window.TASK31_ROUTING;
-    // 本地版没有登录页：只提示，不跳转（否则会跳到一个不存在的地址）。
-    if (window.STApi && window.STApi.isLocal === true) {
-      disableComposer("出现了一个需要重新加载的问题，请刷新页面。");
-      return;
-    }
-    if (!authRedirecting && window.location.pathname !== routes.productLoginUrl()) {
-      authRedirecting = true;
-      window.location.replace(routes.productLoginUrl());
-    }
+    disableComposer("出现了一个需要重新加载的问题，请刷新页面。");
   }
 
   function showPageError(title, message) {
@@ -1693,17 +1684,13 @@
   }
 
   async function generateChatStream(payload, signal, onDelta) {
-    const token = (window.STApi && window.STApi._token) || "";
     // 本地版：适配层直接把请求发到用户配置的模型端点，并原样返回 Response。
-    const request = (body) => (window.STApi && typeof window.STApi.generateStream === "function")
-      ? window.STApi.generateStream(body, signal)
-      : fetch("/api/backends/chat-completions/generate", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "x-csrf-token": token },
-        body: JSON.stringify(body),
-        signal: signal,
-      });
+    const request = (body) => {
+      if (window.STApi && typeof window.STApi.generateStream === "function") {
+        return window.STApi.generateStream(body, signal);
+      }
+      throw new Error("模型适配层未加载，请刷新页面后重试");
+    };
     const response = await request(payload);
     if (!response.ok) throw Object.assign(new Error("generation failed"), { status: response.status });
 
@@ -1927,7 +1914,7 @@
   }
 
   /* ---------- 对话模型（统一由「设置 → 模型」决定，2026-09-10） ----------
-   * 以前这里另有一套"对话模型"下拉（本地模型 / DeepSeek V4 Flash / V4 Pro / V4.1），
+   * 以前这里另有一套"对话模型"下拉（固定型号列表），
    * 和「设置 → 模型」里的服务商 + 模型名互相覆盖：在下拉里选一个就会把你在模型页
    * 填的模型名顶掉，Key 也在两个地方各有一个输入框。
    * 现在只认一份配置：provider 决定走哪条通道，model 决定模型名，thinking 决定是否要思维链。

@@ -93,8 +93,8 @@ html[data-theme="light"] .rw-ob{
     if (step === "welcome") {
       return [
         "<h2>欢迎使用角色世界</h2>",
-        "<p>这是一个**完全本地**的角色对话应用：没有服务器、没有账号、没有遥测。</p>",
-        "<p>角色卡、对话记录、记忆书、API Key 全部只存在这台设备上，谁也不会替你看到它们。</p>",
+        "<p>这是一个本地优先的角色对话应用：没有账号、没有遥测。</p>",
+        "<p>角色卡、对话记录、记忆书、API Key 全部只存在这台设备上；发送给模型的内容只会到达你选定的云端服务。</p>",
         "<p>代价只有一条：没人替你备份，换电脑前记得自己导出。</p>",
         "<p>接下来两步：先写一个**称呼**，再填模型接口的 **API Key**（可以先准备好）。</p>",
       ].join("");
@@ -116,13 +116,13 @@ html[data-theme="light"] .rw-ob{
         '<option value="openai">OpenAI</option>',
         '<option value="openrouter">OpenRouter</option>',
         '<option value="siliconflow">硅基流动</option>',
-        '<option value="custom">自定义 / 本地模型</option>',
+        '<option value="custom">自定义云端服务</option>',
         "</select>",
         '<input type="password" data-ob="key" placeholder="粘贴 API Key（sk-…）" autocomplete="off" spellcheck="false" maxlength="200" aria-label="API Key">',
         "</div>",
         '<div class="rw-ob-field"><input type="text" data-ob="endpoint" placeholder="接口地址（留空用服务商默认）" spellcheck="false" autocomplete="off" aria-label="接口地址"></div>',
         '<p class="rw-ob-status" data-ob="status"></p>',
-        '<p class="rw-ob-hint">用本地模型（llama.cpp / Ollama / LM Studio）就把服务商选成"自定义"，地址填 <code>/v1/chat/completions</code>，Key 留空即可。</p>',
+        '<p class="rw-ob-hint">自定义服务需要填写支持跨域访问的 HTTPS 接口地址和对应 API Key。</p>',
       ].join("");
     }
     return [
@@ -256,11 +256,9 @@ html[data-theme="light"] .rw-ob{
     const endpoint = overlay.querySelector('[data-ob="endpoint"]');
     if (!provider || !keyInput || !endpoint) return;
     const isCustom = provider.value === "custom";
-    keyInput.disabled = isCustom;
-    keyInput.placeholder = isCustom ? "本地模型不需要 Key" : "粘贴 API Key（sk-…）";
-    endpoint.placeholder = isCustom
-      ? "http://127.0.0.1:8080/v1/chat/completions"
-      : "接口地址（留空用服务商默认）";
+    keyInput.disabled = false;
+    keyInput.placeholder = "粘贴 API Key（sk-…）";
+    endpoint.placeholder = isCustom ? "https://你的服务/v1/chat/completions" : "接口地址（留空用服务商默认）";
   }
 
   function setStatus(text, kind) {
@@ -281,7 +279,7 @@ html[data-theme="light"] .rw-ob{
     busy = true;
     try {
       await adapter.saveLocalSettings({ provider, endpoint });
-      if (provider !== "custom" && key) {
+      if (key) {
         await adapter.secrets.set(global.RoleWorldModel.secretKeyFor({ provider }), key);
         keyInput.value = "";
       }
@@ -323,14 +321,13 @@ html[data-theme="light"] .rw-ob{
     await finish();
   }
 
-  // 第二步的放行条件：本地端点，或者已经存好了对应服务商的 Key。
+  // 第二步必须已有对应服务商的 Key。
   async function keyReady() {
     const adapter = global.RoleWorld;
     const provider = overlay.querySelector('[data-ob="provider"]').value;
-    if (provider === "custom") return true;
     const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
     if (saved && saved.value) return true;
-    setStatus("请先粘贴 API Key 并点「保存并测试」，或者把服务商换成「自定义 / 本地模型」。", "bad");
+    setStatus("请先粘贴 API Key 并点「保存并测试」。", "bad");
     return false;
   }
 

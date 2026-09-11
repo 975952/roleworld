@@ -38,9 +38,8 @@
   <div class="auth-gate" id="authGate" hidden>
     <div class="auth-gate-card" role="alert" aria-live="assertive">
       <div class="brand-mark" aria-hidden="true"></div>
-      <h2>需要登录</h2>
-      <p>登录后才能继续使用对话与记忆。</p>
-      <a class="primary-button" id="authGateLoginLink" href="./login.html">前往登录</a>
+      <h2>页面暂时无法加载</h2>
+      <p>本地数据层遇到问题，请刷新页面后重试。</p>
     </div>
   </div>
 
@@ -260,8 +259,8 @@
           <section class="settings-section" data-settings-panel="model">
             <div class="settings-section-heading"><h2>模型</h2><p>请求从这台设备直接发出，不经过任何中转服务器。</p></div>
             <div class="settings-card">
-              <label class="settings-row"><div><strong>服务商</strong><span>选择预设，或自定义一个 OpenAI 兼容端点。</span></div><select data-roleworld="provider"><option value="deepseek">DeepSeek 官方</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="siliconflow">硅基流动</option><option value="custom">自定义 / 本地模型</option></select></label>
-              <label class="settings-row"><div><strong>接口地址</strong><span>留空则用服务商默认地址；本地模型填 http://127.0.0.1:8080/v1/chat/completions。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
+              <label class="settings-row"><div><strong>服务商</strong><span>选择预设，或自定义一个支持跨域访问的 OpenAI 兼容云端接口。</span></div><select data-roleworld="provider"><option value="deepseek">DeepSeek 官方</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="siliconflow">硅基流动</option><option value="custom">自定义云端服务</option></select></label>
+              <label class="settings-row"><div><strong>接口地址</strong><span>留空则使用服务商默认地址；自定义服务必须填写 HTTPS 地址。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
               <label class="settings-row"><div><strong>模型名</strong><span>DeepSeek 最新：deepseek-flash（V4.1 Flash）；也可填写其他服务商的模型名。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-flash" spellcheck="false" autocomplete="off"></label>
               <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
               <label class="settings-row"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" data-roleworld="thinking"></label>

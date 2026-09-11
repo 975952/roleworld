@@ -1,7 +1,7 @@
-# 角色世界 · RoleWorld
+# 角色世界 · RoleWorld（网站部署分支）
 
-> 本地优先、完全开源的 AI 角色对话应用。没有服务器，没有账号，没有遥测。
-> 角色卡、对话记录、记忆书、API Key 全部只存在你自己的设备上。
+> 面向国内访问的静态网站版 AI 角色对话应用。没有业务后端，没有账号，没有遥测。
+> 角色卡、对话记录、记忆书、API Key 全部只存在用户自己的设备上。
 
 **English** — A local-first, fully open-source AI roleplay chat app. No backend, no accounts,
 no telemetry. Character cards, chat history, memory books and API keys live only on your own
@@ -18,13 +18,13 @@ device. MIT licensed. [Jump to English](#english)
 | `app/index.html` | 角色对话。导入 CCv2 / CCv3 / PNG / CHARX 角色卡，支持流式回复、多会话管理、记忆书（世界书），还可以让模型帮你写角色卡 |
 | `app/magic-map.html` | 剧情模式。多角色同场演出，带点名规则与「导演模式」（你不在场也能推进剧情） |
 
-## 为什么是「本地优先」
+## 网站版怎么工作
 
-原来的版本跑在一台服务器上，用 SillyTavern 做后端。这一版把后端整个去掉了：
+原来的版本跑在一台服务器上，用 SillyTavern 做后端。网站版把后端整个去掉了：
 
 - **数据在本机** —— 角色卡、对话、记忆书存在浏览器的 IndexedDB 里；
 - **没有账号系统** —— 只有一个本地档案，不需要注册、不设密码、不会同步；
-- **模型直连** —— 请求从你的设备直接发给你配置的模型接口，中间没有任何中转；
+- **模型直连** —— 请求从你的设备直接发给你配置的云端模型接口，中间没有任何中转；
 - **可以自己验证** —— 全部代码在这个仓库里，没有混淆、没有打包、没有构建步骤，读得懂就能改。
 
 代价也说清楚：没有人替你备份。换电脑前记得用「设置 → 关于 → 导出存档」存一份。
@@ -90,15 +90,10 @@ data/blobs/<id>                 头像等图片
 2. 点「测试连接」确认能通；
 3. 回到对话页，导入一个角色卡（`.json` / `.png` / `.charx`），开始聊天。
 
-### 用本地模型
+### 模型服务要求
 
-「设置 → 模型」里把服务商选成 **自定义 / 本地模型**，接口地址填你的推理服务：
-
-- llama.cpp：`http://127.0.0.1:8080/v1/chat/completions`
-- Ollama：`http://127.0.0.1:11434/v1/chat/completions`
-- LM Studio：`http://127.0.0.1:1234/v1/chat/completions`
-
-模型名按服务里实际的模型 ID 填。API Key 留空即可。
+网站版使用 DeepSeek、OpenAI、OpenRouter、硅基流动或其他支持浏览器跨域访问的云端 OpenAI 兼容接口。
+自定义服务必须使用 HTTPS，并填写对应 API Key；网站不会替用户保存或转发 Key。
 
 ## 内置内容包
 

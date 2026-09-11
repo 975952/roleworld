@@ -3,13 +3,13 @@
 /*
  * adapter/model.js —— 直接调用 OpenAI 兼容的对话补全接口
  *
- * 这个文件取代了 SillyTavern 后端的 /api/backends/chat-completions/generate 代理：
+ * 这个文件取代了 SillyTavern 后端代理：
  * 浏览器/桌面端直接向模型服务商发请求，不再经过任何中转服务器。
  *
  * 已验证：api.deepseek.com 对浏览器跨域请求返回
  *   access-control-allow-origin: <请求方 Origin>
  *   access-control-allow-headers: authorization,content-type
- * 因此纯前端（PWA）可以直接调用，不需要代理。桌面端（Tauri）走原生请求，不受 CORS 限制。
+ * 因此纯前端网站可以直接调用，不需要代理。桌面端（Tauri）走原生请求，不受 CORS 限制。
  *
  * 关键约定：流式请求返回**原始 fetch Response**，调用方可以直接
  * `response.body.getReader()` 读 SSE —— 与原来 SillyTavern 代理的行为一致，
@@ -44,8 +44,8 @@
       models: [],
     },
     custom: {
-      label: "自定义（本地或第三方）",
-      endpoint: "http://127.0.0.1:8080/v1/chat/completions",
+      label: "自定义云端服务",
+      endpoint: "",
       secretKey: "api_key_custom",
       models: [],
     },
@@ -75,8 +75,7 @@
   }
 
   // 由端点反查服务商。
-  // 页面在「本地模型」路径上会把 chat_completion_source 写成 "custom"，并把当前端点塞进
-  // custom_url —— 如果用户其实配的是 DeepSeek 官方端点，只按 "custom" 去找密钥就会拿到
+  // 页面会把自定义端点标成 "custom"，并把当前端点塞进 custom_url —— 如果用户其实配的是 DeepSeek 官方端点，只按 "custom" 去找密钥就会拿到
   // 空 Key，请求带着 401 回来（AI 写角色就是这么失败的）。所以先看端点认不认得。
   function providerForEndpoint(url) {
     const target = String(url || "").trim().replace(/\/+$/, "").toLowerCase();
