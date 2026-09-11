@@ -87,6 +87,9 @@ const MEASURE = `(() => {
     sidebarBg: (() => { const n = document.querySelector(".archive-sidebar"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
     stageColor: (() => { const n = document.querySelector(".main-stage") || document.querySelector(".map-app .stage-main"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
     sendButtonBg: (() => { const n = document.getElementById("sendButton"); return n ? getComputedStyle(n).backgroundImage : ""; })(),
+    sendButtonRadius: (() => { const n = document.getElementById("sendButton"); return n ? getComputedStyle(n).borderRadius : ""; })(),
+    sendButtonW: (() => { const n = document.getElementById("sendButton"); return n ? Math.round(n.getBoundingClientRect().width) : -1; })(),
+    sendArrow: (() => !!document.querySelector(".send-button b"))(),
     pillBg: (() => {
       const n = document.querySelector(".plain-button") || document.querySelector(".new-conversation-button")
         || document.querySelector(".map-app .cast-chip") || document.querySelector(".map-app .map-node");
@@ -319,6 +322,13 @@ async function main() {
   check("返校金：暖金底（接管原来那版羊皮纸的质感）", goldDark.canvas === "#14110a" && rgbLuma(goldDark.shellBgColor) <= 40, `${goldDark.canvas} / ${goldDark.shellBgColor}`);
   check("返校金：金箔纤维纹理在", /repeating-linear-gradient/.test(goldDark.shellBg || ""), (goldDark.shellBg || "").slice(0, 68));
   check("返校金：金色仍是最纯的那个", goldDark.focus === "#f5c518", goldDark.focus);
+
+  console.log("── 发送按钮形状（键帽做长、箭头不似签子）──");
+  {
+    const m = await open(CHAT, GOLD_DARK, [1280, 900]);
+    check("发送按钮是胶囊形（键帽做长）", m.sendButtonW > 40 && /px/.test(m.sendButtonRadius) && parseFloat(m.sendButtonRadius) >= 900, `${m.sendButtonW}px / radius ${m.sendButtonRadius}`);
+    check("发送箭头是 CSS 实心箭头（不是 ↑ 字符）", m.sendArrow === true, `b 元素存在=${m.sendArrow}`);
+  }
 
   console.log("── 主区顶部缝隙（最多 0.几毫米）──");
   for (const [label, viewport] of [["宽屏", [1280, 900]], ["窄屏", [360, 740]]]) {

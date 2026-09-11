@@ -238,9 +238,13 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
+.send-button { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 34px; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 999px; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
 .send-button:hover { background: #fff; transform: translateY(-1px); }
 .send-button:disabled { opacity: .38; cursor: wait; transform: none; }
+/* 发送箭头：不再用「↑」字符 —— 细杆加小箭头缩在圆钮里像一根签子。
+   改成 CSS 画的实心粗箭头（短粗的杆 + 三角箭头），键帽也做长成胶囊形。 */
+.send-button b { position: relative; display: block; width: 5px; height: 9px; border-radius: 2px; background: currentColor; }
+.send-button b::after { content: ""; position: absolute; left: 50%; bottom: calc(100% - 1px); transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 6px solid currentColor; }
 .stop-glyph { display: block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
 .send-button[data-mode="stop"] { color: var(--button-text); }
 .send-button[data-mode="stop"]:hover { transform: scale(1.04); }
@@ -604,7 +608,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .composer-box { width: 100%; max-width: 100%; padding: 8px 10px 8px 12px; border-radius: 16px; }
   .composer-box textarea { min-height: 34px; max-height: 132px; padding: 4px 2px 7px; font-size: 16px; line-height: 1.45; }
   .composer-footer { min-height: 44px; }
-  .send-button { width: 44px; height: 44px; flex: 0 0 44px; }
+  .send-button { width: 60px; height: 44px; flex: 0 0 60px; }
   .stop-button { min-width: 64px; min-height: 44px; }
   .character-picker { padding: 0 0 6px; }
   .character-picker-trigger { min-height: 44px; padding-inline: 12px; }
@@ -756,7 +760,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .message-row-user .message-stack { max-width: 88%; }
   .user-bubble { padding: 11px 14px; border-radius: 14px 14px 4px 14px; }
   .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 10px + var(--mobile-safe-bottom)) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
-  .composer-box { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: end; column-gap: 8px; padding: 8px; border-radius: var(--input-radius); box-shadow: none; }
+  .composer-box { display: grid; grid-template-columns: minmax(0, 1fr) 60px; align-items: end; column-gap: 8px; padding: 8px; border-radius: var(--input-radius); box-shadow: none; }
   .composer-box:focus-within { box-shadow: none; transform: none; border-color: var(--muted-text); }
   .composer-box .character-picker { grid-column: 1 / -1; grid-row: 1; padding: 0; }
   .character-picker-trigger { min-height: 44px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }

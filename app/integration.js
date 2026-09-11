@@ -1521,7 +1521,7 @@
         send.setAttribute("aria-label", generating ? "停止生成" : saving ? "正在保存" : "发送");
         send.innerHTML = generating
           ? '<span class="stop-glyph" aria-hidden="true"></span>'
-          : saving ? '<span aria-hidden="true">…</span>' : '<span aria-hidden="true">↑</span>';
+          : saving ? '<span aria-hidden="true">…</span>' : '<b aria-hidden="true"></b>';
       }
     } else if (!liveState.pending && !liveState.switching) {
       disableComposer(liveState.templateBusy ? "正在准备对话…" : liveState.templateError ? "准备失败，请重试" : "正在准备对话…");
