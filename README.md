@@ -194,8 +194,8 @@ docs/PUBLISH.md      打包与发布流程
 
 - Character cards, chat history, memory books and API keys are stored on your own device
   (IndexedDB + localStorage) — nothing is uploaded anywhere except your own model requests.
-- You bring your own model: DeepSeek, OpenAI, OpenRouter, SiliconFlow, or a local
-  llama.cpp / Ollama / LM Studio server. Requests go straight from your device to that endpoint.
+- You bring your own cloud model: DeepSeek, OpenAI, OpenRouter, SiliconFlow, or another
+  OpenAI-compatible HTTPS endpoint with CORS enabled. Requests go straight from your device to that endpoint.
 - Built-in content ships as optional "packs" under `packs/`; **the repository itself contains
   no character data**.
 
@@ -209,7 +209,7 @@ python -m http.server 8080
 ```
 
 No build step, no bundler, no dependencies. Then open **Settings → Model**, choose a provider,
-paste your API key (or point at your local inference server), and import a character card.
+paste your API key, and import a character card.
 
 ### Import format
 

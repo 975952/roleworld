@@ -33,18 +33,24 @@
     max_tokens: 2048,
   };
 
-  /* 2026-09-09：对话模型可选本地或 DeepSeek 官方 API（SillyTavern deepseek 源，
-   * 密钥只在服务端 secrets，浏览器不持有）。 */
+  /* 网站版对话模型走用户选定的云端 API，密钥只保存在浏览器本机。 */
   const CHAT_MODES = Object.freeze({
     LOCAL: "local",
-    DEEPSEEK_FLASH: "deepseek-v4-flash",
+    // DeepSeek 正式目录（2026-09-10）：V4.1 Flash 使用这个模型名。
+    DEEPSEEK_FLASH: "deepseek-flash",
     DEEPSEEK_PRO: "deepseek-v4-pro",
-    DEEPSEEK_V41_FLASH_PREVIEW: "deepseek-v4.1-flash-expires-on-0910",
   });
   const DEEPSEEK_CHAT_MODES = Object.freeze([
     CHAT_MODES.DEEPSEEK_FLASH,
     CHAT_MODES.DEEPSEEK_PRO,
-    CHAT_MODES.DEEPSEEK_V41_FLASH_PREVIEW,
+  ]);
+  // 旧配置仍能正常发送，但不再出现在网站的模型选择里。
+  const DEEPSEEK_LEGACY_MODES = Object.freeze([
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4.1-flash-expires-on-0910",
+    "deepseek-chat",
+    "deepseek-reasoner",
   ]);
   const DEEPSEEK_CHAT_SAMPLING = Object.freeze({
     temperature: 0.8,
@@ -53,7 +59,7 @@
   });
 
   function isDeepSeekChatMode(mode) {
-    return DEEPSEEK_CHAT_MODES.indexOf(mode) >= 0;
+    return DEEPSEEK_CHAT_MODES.indexOf(mode) >= 0 || DEEPSEEK_LEGACY_MODES.indexOf(mode) >= 0;
   }
 
   /* 卡内 character_book 中这些 id 恒注入（Task-20 合同）。 */
@@ -266,7 +272,7 @@
     return msgs;
   }
 
-  /* ---------- 生成请求 payload（本地走 ST custom 代理；DeepSeek 走 ST deepseek 源） ---------- */
+  /* ---------- 生成请求 payload（网站版由浏览器直连云端端点） ---------- */
   function buildGeneratePayload(opts) {
     if (!opts) throw new Error("生成参数缺失");
     const mode = String(opts.mode || CHAT_MODES.LOCAL);
@@ -846,6 +852,7 @@
     SAMPLING,
     CHAT_MODES,
     DEEPSEEK_CHAT_MODES,
+    DEEPSEEK_LEGACY_MODES,
     DEEPSEEK_CHAT_SAMPLING,
     isDeepSeekChatMode,
     CARD_CONSTANT_IDS,

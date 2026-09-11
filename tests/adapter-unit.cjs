@@ -426,6 +426,23 @@ async function main() {
     assert.ok(payload.max_tokens >= 4096, "1024 太紧，整张卡会被截断");
   });
 
+  await test("DeepSeek 正式模型名用于对话，旧别名仍可兼容", () => {
+    assert.equal(Core22.CHAT_MODES.DEEPSEEK_FLASH, "deepseek-flash");
+    assert.ok(Core22.DEEPSEEK_CHAT_MODES.includes("deepseek-flash"));
+    assert.ok(!Core22.DEEPSEEK_CHAT_MODES.includes("deepseek-v4-flash"), "旧型号不应再作为可选项");
+    assert.ok(Core22.isDeepSeekChatMode("deepseek-v4-flash"), "旧型号应仍能识别为 DeepSeek 请求");
+    const payload = Core22.buildGeneratePayload({
+      mode: Core22.CHAT_MODES.DEEPSEEK_FLASH,
+      card: { name: "甲", description: "角色" },
+      memoryBooks: [],
+      history: [],
+      userText: "你好",
+      stream: true,
+    });
+    assert.equal(payload.model, "deepseek-flash");
+    assert.equal(payload.chat_completion_source, "deepseek");
+  });
+
   console.log("== 角色记忆归属与自动记忆 ==");
 
   await test("记忆书按角色短名归属：Harry 的老书仍归 Harry，新角色各归各的", () => {
@@ -540,9 +557,11 @@ async function main() {
   });
 
   await test("官方旧别名自动迁移，第三方端点不动", async () => {
-    // 2026-09-11 起官方目录里 flash 系列统一叫 deepseek-flash；老用户本机存的旧名要自动升。
+    // 2026-09-10 起官方目录里 flash 系列统一叫 deepseek-flash；老用户本机存的旧名要自动升。
     await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-v4-flash" });
     assert.equal((await Adapter.getLocalSettings()).model, "deepseek-flash", "官方别名没有迁移");
+    await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-v4-flash-0731" });
+    assert.equal((await Adapter.getLocalSettings()).model, "deepseek-flash", "V4 Flash 0731 没有迁移");
     await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "", model: "deepseek-chat" });
     assert.equal((await Adapter.getLocalSettings()).model, "deepseek-flash", "deepseek-chat 没有迁移");
     await Adapter.saveLocalSettings({ provider: "deepseek", endpoint: "https://my-proxy.example/v1/chat/completions", model: "deepseek-v4-flash" });

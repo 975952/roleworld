@@ -115,7 +115,7 @@
     const settings = Object.assign({}, DEFAULT_LOCAL_SETTINGS, stored || {});
     // Upgrade retired official aliases only; third-party model IDs remain untouched.
     if (settings.provider === "deepseek" && (!settings.endpoint || Model.providerForEndpoint(settings.endpoint) === "deepseek") &&
-        ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4.1-flash-expires-on-0910", "deepseek-chat", "deepseek-reasoner"].includes(settings.model)) {
+        ["deepseek-v4-flash", "deepseek-v4-flash-0731", "deepseek-v4-flash-vision-exp", "deepseek-v4.1-flash-expires-on-0910", "deepseek-chat", "deepseek-reasoner"].includes(settings.model)) {
       settings.model = "deepseek-flash";
     }
     return settings;
