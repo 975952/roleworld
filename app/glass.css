@@ -587,17 +587,17 @@ html[data-style="forest"] .map-app .scene-line.is-dice { background: var(--accen
 /* =====================================================================
    风格「樱」：粉的面积要小，而且要很浅
    ---------------------------------------------------------------------
-   用户要求（2026-09-11）："粉色太浓了，区域要变小，而且要变很浅"。
+   用户要求（2026-09-11）："粉色太浓了，区域要变小，而且要变很浅"，随后"还要变浅到现在的 2/5"。
    所以这里把上一版"所有药片都上粉底"整段删掉 —— 普通按钮、剧情模式的按钮、
    角色药片全部回到中性底色；粉只留在**选中的那一块**（小面积）与主按钮上，
-   而且比例从 22% 收到 10%，主按钮改成很浅的粉底。
+   选中底色从 10% 收到 **4%**，顶部光带从 .26 收到 **.10**。
    ===================================================================== */
 html[data-style="sakura"] .settings-nav-item.is-active,
 html[data-style="sakura"] .history-item.is-active,
 html[data-style="sakura"] .cast-chip.is-on,
 html[data-style="sakura"] .map-node.is-active,
 html[data-style="sakura"] .scene-presence.is-on {
-  background: color-mix(in srgb, var(--focus) 10%, var(--raised));
+  background: color-mix(in srgb, var(--focus) 4%, var(--raised));
 }
 html[data-style="sakura"] .primary-button,
 html[data-style="sakura"] #seasonLetterEnter,
@@ -611,13 +611,9 @@ html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
   filter: brightness(.98);
 }
-/* 顶部那条光带也收小收淡：樱是六个风格里最轻的一个。 */
-html[data-style="sakura"]::after { height: min(120px, 16vh); opacity: .26; }
-html[data-theme="light"][data-style="sakura"]::after { height: min(120px, 16vh); opacity: .2; }
-html[data-style="sakura"] .season-letter-seal,
-html[data-style="sakura"] .settings-count {
-  color: var(--focus);
-}
+/* 顶部那条光带也按同一比例收淡（.26 → .10）。 */
+html[data-style="sakura"]::after { height: min(120px, 16vh); opacity: .1; }
+html[data-theme="light"][data-style="sakura"]::after { height: min(120px, 16vh); opacity: .08; }
 
 /* =====================================================================
    风格「羊皮纸」：不是换配色，是换一套界面

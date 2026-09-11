@@ -88,6 +88,11 @@ const MEASURE = `(() => {
     })(),
     fontFamily: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).fontFamily : ""; })(),
     displayName: (() => { const n = document.getElementById("userDisplayName"); return n ? n.textContent.trim() : ""; })(),
+    focusRgb: (() => {
+      const hex = String(css.getPropertyValue("--focus") || "").trim().replace("#", "");
+      if (!/^[0-9a-f]{6}$/i.test(hex)) return [-1, -1, -1];
+      return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    })(),
     // 强调色的色相：用来钉住"樱不要偏红"（红=0/360，粉≈325）。
     focusHue: (() => {
       const hex = String(css.getPropertyValue("--focus") || "").trim().replace("#", "");
@@ -242,9 +247,13 @@ async function main() {
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
   check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
-  check("樱（暗）：粉很浅", sakuraDark.focus === "#f7c9e4", sakuraDark.focus);
+  check("樱（暗）：粉很浅", sakuraDark.focus === "#f7e5ef", sakuraDark.focus);
   // 红=0/360°。335° 往上就开始发红，所以钉在"品红—粉"这一段。
   check("樱（暗）：粉不偏红（色相在 318–330°）", sakuraDark.focusHue >= 318 && sakuraDark.focusHue <= 330, `${sakuraDark.focusHue}°`);
+  {
+    const [r, g, b] = sakuraDark.focusRgb;
+    check("樱（暗）：粉的偏离量收到 2/5（红绿差 ≤20）", r >= 0 && r - g <= 20 && b >= g, `R${r} G${g} B${b}（红绿差 ${r - g}）`);
+  }
   {
     // 中性底色也会有 r>b>g 的微小差（--main-text 本身偏暖白），
     // 所以这里比的是"红绿差"：粉底会明显拉开，中性底色不会。

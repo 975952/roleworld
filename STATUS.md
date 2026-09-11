@@ -142,7 +142,7 @@ roleworld/
 |---|---|
 | `node tests/adapter-unit.cjs` | **50/50** —— 数据层、请求翻译、SSE、ZIP、价格、记忆归属、草稿解析、称呼、BOM 检查 |
 | `node tests/local-app-check.cjs` | **22/22** —— 无头 Chrome 跑真实页面（合成 fixture + 假模型端点，不联网） |
-| `node tests/gold-visual-check.cjs` | **64/64** —— 六个风格的外观回归 + 称呼 + 主区顶部缝隙 + 第一封信（需先起本地服务） |
+| `node tests/gold-visual-check.cjs` | **68/68** —— 六个风格的外观回归 + 称呼 + 主区顶部缝隙 + 第一封信（需先起本地服务） |
 | `node tests/desktop-smoke.cjs` | 1/1 —— 启动真 exe，验证数据真的落盘 |
 | CI（`.github/workflows/ci.yml`） | 每次 push 在 Windows 上跑前两项 |
 | Release（`.github/workflows/release.yml`） | 推 `v*` 标签 → 自动构建 NSIS 安装包并挂到 Release |
@@ -369,6 +369,7 @@ roleworld 完全不依赖服务器。
 | 粉的浓度 | 强调色提到接近白（暗 `#ffc2da`）；主按钮不再是实粉块，改成**很浅的粉底 + 深梅色字**（`#ffe9f3 → #ffd3e4` / 亮 `#ffdcec → #ffc4de`）；`--accent-soft` .08（亮 .07） |
 | 顶部光带 | 樱单独缩小到 `min(120px, 16vh)`、透明度 .26（亮 .2） |
 | 粉不偏红 | 用户："这个粉色太偏红了"。旧的 `#ffc2da` 色相约 **336°**（红=0/360°，越靠近 0 越红），红绿差 61；换成 `#f7c9e4`（色相 **325°**、红绿差 46，并带一点蓝），按钮渐变同步换成 `#ffeaf6 → #f9d3ea`，亮色 `#db7fb4` / `#ffdcef → #f7c2e0`。回归里加了色相断言（318–330°），偏红就红 |
+| 粉再收到 2/5 | 用户："还要变浅到现在的 2/5"。把"粉的偏离量"整体乘 2/5：暗色强调色 `#f7c9e4`（红绿差 46 / 蓝绿差 27）→ **`#f7e5ef`（18 / 11）**；亮色 `#db7fb4`（92 / 53）→ **`#dbb6cb`（37 / 21）**；按钮渐变 `#ffeaf6→#f9d3ea` → `#fff7fc→#f9eaf3`（亮 `#fff1f9→#f7e2ee`）；选中底色 10% → **4%**；顶部光带 .26 → **.10**（亮 .2 → .08）；`--accent-soft` .08 → **.03**（亮 .07 → .028）。顺手删掉樱里"把设置计数染成粉字"那条（既多一块粉，浅色主题下也读不清） |
 
 改动文件：`app/styles.css`（主区 margin-top）、`app/tokens.css`（樱色板）、`app/glass.css`（樱药片与光带）、
 `tests/gold-visual-check.cjs`（新增"主区顶部只剩发丝缝 ≤2px"两项，并把首条内容距主区顶的距离打进结果里：
