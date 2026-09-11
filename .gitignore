@@ -42,3 +42,6 @@ app/packs/
 .DS_Store
 Thumbs.db
 *.log
+*.commitmsg.tmp
+.commitmsg.tmp
+.git-commit-msg.txt
