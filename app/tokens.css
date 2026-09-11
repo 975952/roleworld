@@ -209,12 +209,11 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格四：樱（浅粉 + 粉色药片）
-   用户要求（2026-09-11）："粉色要做得更浅，而且药片更粉色"，
-   随后又补一句"把樱再弄淡一点"。
-   做法：底色中性近黑（不染粉），粉本身提亮提纯（#ffb6d6 一类），
-   药片那类小块用一点实粉（glass.css 的 sakura 段，比例已从 28% 收到 22%），
-   整片面积保持干净、不刺眼。
+   风格四：樱（很浅的粉，而且粉的面积很小）
+   用户要求（2026-09-11）：先"粉色更浅、药片更粉"，再"把樱再弄淡一点"，
+   再"粉色太浓了，区域要变小，而且要变很浅"。
+   最终做法：粉只出现在**很小的几处**（选中项、主按钮、焦点环），
+   大块一律不上粉底；粉本身提到接近白（暗色 #ffc2da / 按钮 #ffe9f3）。
    --------------------------------------------------------------------- */
 :root[data-style="sakura"] {
   --canvas: #0c0a0c;
@@ -228,12 +227,13 @@
   --secondary-text: #e6d7e0;
   --muted-text: #b39cac;
   --quiet-text: #8d7788;
-  --focus: #ffb6d6;
-  --focus-grad: linear-gradient(160deg, #ffd2e5, #ffa0cb);
+  --focus: #ffc2da;
+  /* 按钮不再是一块实粉，而是很浅的粉底 + 深梅色字。 */
+  --focus-grad: linear-gradient(160deg, #ffe9f3, #ffd3e4);
   --topbar-bg: rgba(12,10,12,.94);
-  --button-text: #2c0f20;
+  --button-text: #4a1d33;
   --overlay: rgba(12,10,12,.93);
-  --accent-soft: rgba(255,182,214,.12);
+  --accent-soft: rgba(255,194,218,.08);
 }
 :root[data-style="sakura"][data-theme="light"] {
   --canvas: #fffafd;
@@ -247,12 +247,12 @@
   --secondary-text: #4d3243;
   --muted-text: #805f72;
   --quiet-text: #9d8291;
-  --focus: #e268a2;
-  --focus-grad: linear-gradient(160deg, #ff9fce, #e268a2);
+  --focus: #e07aa8;
+  --focus-grad: linear-gradient(160deg, #ffdcec, #ffc4de);
   --topbar-bg: rgba(255,250,253,.94);
-  --button-text: #ffffff;
+  --button-text: #5c2140;
   --overlay: rgba(255,250,253,.94);
-  --accent-soft: rgba(226,104,162,.10);
+  --accent-soft: rgba(224,122,168,.07);
 }
 
 /* ---------------------------------------------------------------------

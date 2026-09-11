@@ -225,14 +225,17 @@ async function main() {
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
   check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
-  check("樱（暗）：粉色更浅更淡", sakuraDark.focus === "#ffb6d6", sakuraDark.focus);
+  check("樱（暗）：粉很浅", sakuraDark.focus === "#ffc2da", sakuraDark.focus);
   {
-    const [r, g, b] = rgbParts(sakuraDark.pillBg);
-    check("樱（暗）：药片（小按钮）更粉", g >= 0 && r > g && b > g, sakuraDark.pillBg);
+    // 中性底色也会有 r>b>g 的微小差（--main-text 本身偏暖白），
+    // 所以这里比的是"红绿差"：粉底会明显拉开，中性底色不会。
+    const [r, g] = rgbParts(sakuraDark.pillBg);
+    const tint = g < 0 ? 0 : r - g;
+    check("樱（暗）：普通按钮不再上粉（粉的面积变小）", tint <= 6, `${sakuraDark.pillBg}（红绿差 ${tint}）`);
   }
-  check("樱（暗）：主按钮走粉色渐变", /gradient/.test(sakuraDark.buttonBg), sakuraDark.buttonBg.slice(0, 68));
+  check("樱（暗）：主按钮是很浅的粉（不是实粉）", rgbLuma(sakuraDark.buttonBg) >= 225 && /gradient/.test(sakuraDark.buttonBg), `${rgbLuma(sakuraDark.buttonBg)} / ${sakuraDark.buttonBg.slice(0, 48)}`);
   check("樱（暗）：顶栏是渐变不是平涂", /gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68));
-  check("樱（暗）：光带和金色一样小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 240, `${sakuraDark.ambientHeight}px`);
+  check("樱（暗）：光带比其他风格更小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 130, `${sakuraDark.ambientHeight}px`);
 
   const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
   const fd = rgbParts(forestDark.shellBgColor);

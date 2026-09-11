@@ -585,45 +585,35 @@ html[data-style="forest"] .map-app .stage-composer {
 html[data-style="forest"] .map-app .scene-line.is-dice { background: var(--accent-soft); }
 
 /* =====================================================================
-   风格「樱」：药片更粉
+   风格「樱」：粉的面积要小，而且要很浅
    ---------------------------------------------------------------------
-   整体保持"近黑底 + 浅粉",但按钮/药片这类小块要更粉 —— 块越小越敢上色，
-   整片面积才不会糊成一片粉。
+   用户要求（2026-09-11）："粉色太浓了，区域要变小，而且要变很浅"。
+   所以这里把上一版"所有药片都上粉底"整段删掉 —— 普通按钮、剧情模式的按钮、
+   角色药片全部回到中性底色；粉只留在**选中的那一块**（小面积）与主按钮上，
+   而且比例从 22% 收到 10%，主按钮改成很浅的粉底。
    ===================================================================== */
-html[data-style="sakura"] .plain-button,
-html[data-style="sakura"] .new-conversation-button,
-html[data-style="sakura"] .character-picker-trigger,
-html[data-style="sakura"] .history-empty-action,
-html[data-style="sakura"] .map-app button:not(.map-button-primary),
-html[data-style="sakura"] .cast-chip,
-html[data-style="sakura"] .map-node,
-html[data-style="sakura"] .scene-presence {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--focus) 22%, var(--raised));
-  color: color-mix(in srgb, var(--focus) 38%, var(--main-text));
-}
-html[data-style="sakura"] .plain-button:hover,
-html[data-style="sakura"] .new-conversation-button:hover,
-html[data-style="sakura"] .history-empty-action:hover,
-html[data-style="sakura"] .map-app button:not(.map-button-primary):hover,
-html[data-style="sakura"] .cast-chip:hover,
-html[data-style="sakura"] .map-node:hover,
-html[data-style="sakura"] .scene-presence:hover {
-  background: color-mix(in srgb, var(--focus) 32%, var(--raised));
-}
+html[data-style="sakura"] .settings-nav-item.is-active,
+html[data-style="sakura"] .history-item.is-active,
 html[data-style="sakura"] .cast-chip.is-on,
 html[data-style="sakura"] .map-node.is-active,
 html[data-style="sakura"] .scene-presence.is-on {
-  color: color-mix(in srgb, var(--focus) 48%, var(--main-text));
-  background: color-mix(in srgb, var(--focus) 36%, var(--raised));
+  background: color-mix(in srgb, var(--focus) 10%, var(--raised));
 }
-html[data-style="sakura"] .settings-nav-item.is-active,
-html[data-style="sakura"] .history-item.is-active {
-  background: color-mix(in srgb, var(--focus) 24%, var(--raised));
+html[data-style="sakura"] .primary-button,
+html[data-style="sakura"] #seasonLetterEnter,
+html[data-style="sakura"] .map-app .map-button-primary {
+  color: var(--button-text);
+  background: var(--focus-grad);
+  box-shadow: none;
 }
-/* 整片的光带也再淡一档：樱是六个风格里最该"轻"的一个。 */
-html[data-style="sakura"]::after { opacity: .38; }
-html[data-theme="light"][data-style="sakura"]::after { opacity: .3; }
+html[data-style="sakura"] .primary-button:hover,
+html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
+  background: var(--focus-grad);
+  filter: brightness(.98);
+}
+/* 顶部那条光带也收小收淡：樱是六个风格里最轻的一个。 */
+html[data-style="sakura"]::after { height: min(120px, 16vh); opacity: .26; }
+html[data-theme="light"][data-style="sakura"]::after { height: min(120px, 16vh); opacity: .2; }
 html[data-style="sakura"] .season-letter-seal,
 html[data-style="sakura"] .settings-count {
   color: var(--focus);
