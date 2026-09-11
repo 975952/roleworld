@@ -157,14 +157,15 @@ packs/<包名>/pack.json               # 包的说明与授权信息
 ## 测试
 
 ```bash
-npm test                         # 全部 8 个套件（约 4 分钟，全部离线、不碰真实模型）
+npm test                         # 全部 9 个套件（约 5 分钟，全部离线、不碰真实模型）
 node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / ZIP / 记忆 / 上下文预算 / 仓库卫生（不需要浏览器）
 node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的能跑起来
+node tests/offline-check.cjs     # 离线壳：清单、接管页面、关掉服务器后仍能打开并读到本机数据
 node tests/desktop-smoke.cjs     # 启动真 exe，验证数据以普通文件落盘（需先 desktop:build）
 ```
 
 `npm test` 依次跑：`adapter-unit`、`memory-unit`、`search-unit`、`metrics-unit`、
-`companion-unit`、`local-app-check`、`viewport-check`、`data-integrity`。
+`companion-unit`、`local-app-check`、`viewport-check`、`data-integrity`、`offline-check`。
 需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
 CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
 
@@ -190,12 +191,21 @@ CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
 
 - [ ] macOS / Linux 构建（Tauri 配置已留好，取消 `release.yml` 里 matrix 的注释即可；
       macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
-- [ ] PWA（manifest + service worker，可装到手机桌面；会改变缓存与更新行为，等确认后再做）
 - [ ] Android（Capacitor）
 - [ ] 语音输入与朗读（要先定录音是否离开设备）
 - [ ] 跨设备同步（要先定同步范围与冲突规则）
 - [ ] 把 `app.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
 - [ ] 更细的生成参数面板（温度 / 上下文长度 / 预设）
+
+### 网页版可以装到桌面/手机，断网也能打开
+
+`app/manifest.webmanifest` + `app/sw.js`：Chrome / Edge / Safari 里会显示"安装"入口，
+装好之后是一个独立窗口；断网时界面照常打开，数据本来就在本机。
+
+缓存策略是**网络优先**（有网时永远先拿最新文件，缓存只做兜底）——
+这样不会出现"线上改了、用户那里还是旧的，刷新也没用"。
+线上发了新版会在页面上弹一个小提示（`app/pwa.js` 拿 `app/version.json` 和自己加载时的版本对照），
+点一下刷新即可。托管平台那种"首次访问插一页提示"的页面**不会被当成应用缓存**（有专门的用例盯着）。
 
 ## 目录结构
 

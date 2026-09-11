@@ -506,8 +506,11 @@ async function main() {
     for (const file of files) {
       const rel = path.relative(path.join(__dirname, ".."), file);
       const text = fs.readFileSync(file, "utf8");
-      // 1) 系统通知 / 推送 / 后台唤醒：一个都不该有。
-      for (const api of ["new Notification", "Notification.requestPermission", "pushManager", "serviceWorker.register", "PeriodicSync"]) {
+      // 1) 能在应用没打开时"够到"用户的东西：通知、推送、后台同步 —— 一个都不该有。
+      //    注意：serviceWorker 本身不在此列 —— 离线壳只是让界面断网能开，
+      //    它**不会**主动联系用户；真正的判据是下面第二条（壳里不许有 push/notification/sync 处理）。
+      for (const api of ["new Notification", "Notification.requestPermission", "showNotification",
+        "pushManager", "periodicSync", "PeriodicSync", "registration.sync"]) {
         if (text.indexOf(api) >= 0) offenders.push(rel + " 用了 " + api);
       }
       // 2) 长定时器（≥ 5 分钟）当调度用；短定时器是界面防抖，不算。
@@ -519,6 +522,15 @@ async function main() {
       intervalRe.lastIndex = 0;
       while ((match = intervalRe.exec(text))) {
         if (Number(match[1]) >= 60000) offenders.push(rel + " 里有一个 " + match[1] + "ms 的 setInterval");
+      }
+    }
+    // 离线壳里不许有任何"被服务端唤醒"的入口。
+    const swPath = path.join(appDir, "sw.js");
+    if (fs.existsSync(swPath)) {
+      const sw = fs.readFileSync(swPath, "utf8");
+      for (const handler of ["\"push\"", "'push'", "\"notificationclick\"", "'notificationclick'",
+        "\"periodicsync\"", "'periodicsync'", "\"sync\"", "'sync'"]) {
+        if (sw.indexOf("addEventListener(" + handler) >= 0) offenders.push("app/sw.js 里注册了 " + handler + " 事件");
       }
     }
     assert.deepEqual(offenders, [], "发现了疑似主动提醒/后台调度：" + offenders.join("；"));
@@ -546,6 +558,39 @@ async function main() {
         assert.ok(text.indexOf(phrase) < 0, rel + " 里出现了内疚话术「" + phrase + "」");
       }
     }
+  });
+
+  await test("版本号三处一致：package.json / tauri.conf.json / app/version.json", () => {
+    // app/version.json 是给网页版判断"线上是不是发了新版"用的（见 app/pwa.js）。
+    // 它由 node scripts/set-version.cjs 一起改；这里盯着别漏。
+    const root = path.join(__dirname, "..");
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    const tauri = JSON.parse(fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+    const web = JSON.parse(fs.readFileSync(path.join(root, "app", "version.json"), "utf8"));
+    assert.equal(web.version, pkg.version, "app/version.json 与 package.json 版本号不一致");
+    assert.equal(tauri.version, pkg.version, "tauri.conf.json 与 package.json 版本号不一致");
+  });
+
+  await test("PWA 清单与离线壳都在位，且清单里的图标真的存在", () => {
+    const root = path.join(__dirname, "..");
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, "app", "manifest.webmanifest"), "utf8"));
+    assert.ok(manifest.name && manifest.short_name, "清单缺名称");
+    assert.equal(manifest.start_url, "./index.html", "start_url 应当是相对路径（部署在子路径下也能用）");
+    assert.ok(Array.isArray(manifest.icons) && manifest.icons.length >= 2, "清单里的图标太少");
+    for (const icon of manifest.icons) {
+      const file = path.join(root, "app", icon.src);
+      assert.ok(fs.existsSync(file), "清单里的图标不存在：" + icon.src);
+      assert.ok(fs.statSync(file).size > 0, "图标是空文件：" + icon.src);
+    }
+    // index.html 要真的挂上清单，否则前面这些都没用。
+    const html = fs.readFileSync(path.join(root, "app", "index.html"), "utf8");
+    assert.ok(html.indexOf('rel="manifest"') >= 0, "index.html 没有引用清单");
+    assert.ok(html.indexOf("pwa.js") >= 0, "index.html 没有加载 pwa.js");
+    // 离线壳必须能被解析（语法错误会让整个离线能力失效，而且只在浏览器里才报）。
+    const sw = fs.readFileSync(path.join(root, "app", "sw.js"), "utf8");
+    assert.ok(sw.indexOf('addEventListener("fetch"') >= 0, "离线壳没有 fetch 处理");
+    assert.ok(sw.indexOf('addEventListener("install"') >= 0, "离线壳没有 install 处理");
+    // 行为正确性（真离线打开、提示页不覆盖外壳）由 tests/offline-check.cjs 在真实浏览器里验。
   });
 
   await test("仓库文本文件不带 UTF-8 BOM", () => {

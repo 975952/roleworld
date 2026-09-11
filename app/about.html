@@ -102,9 +102,11 @@
       <li><strong>伴侣模式那几条硬规矩是写在提示词里的</strong>，能大幅降低但不保证 100% 杜绝
         内疚话术。所以面板里带一个自检：把最近回复里像内疚话术的原话点出来给你看（只报告，不改写）；</li>
       <li><strong>没有跨设备同步</strong>。换设备靠导出/导入存档；</li>
+      <li><strong>离线包</strong>：网页版可以装到桌面/手机，断网时也能打开界面并读到本机数据
+        （外壳按"网络优先"缓存，所以有网时永远是最新版，不会出现"改了却看不到"；
+        没有网络时会用最后一次成功打开的那份界面，对话内容本来就在本机）；</li>
       <li><strong>没有主动提醒</strong>。应用不会在你没打开的时候唤起你，也不做连续打卡、好感度、冷落惩罚
-        —— 这条有自动化用例盯着；</li>
-      <li><strong>还没有 PWA 离线包</strong>。断网时打不开界面（数据仍在本机，联网后照常）。</li>
+        —— 这条有自动化用例盯着（离线壳里也不允许有推送/通知/后台同步的入口）；</li>
     </ul>
   </section>
 
@@ -163,14 +165,15 @@
   "runs": {
     "command": "npm test",
     "suites": [
-      { "name": "adapter-unit", "checks": 84, "covers": "数据层 / 模型请求 / 存档 / 草稿解析 / 记忆归属 / 语言约束 / 历史预算 / 上下文与输出上限 / 价格 / 仓库卫生 / 无主动提醒机制" },
+      { "name": "adapter-unit", "checks": 86, "covers": "数据层 / 模型请求 / 存档 / 草稿解析 / 记忆归属 / 语言约束 / 历史预算 / 上下文与输出上限 / 价格 / 仓库卫生 / 无主动提醒机制 / 版本号与 PWA 清单" },
       { "name": "memory-unit", "checks": 31, "covers": "记忆的来源、去重、改口替换、上限挤出、删除" },
       { "name": "search-unit", "checks": 21, "covers": "关键词检索、出处、翻不到时的诚实说明、引用判定" },
       { "name": "metrics-unit", "checks": 13, "covers": "台账：延迟、用量、费用、人工标记" },
       { "name": "companion-unit", "checks": 27, "covers": "关系档案、时间感、硬规矩、内疚话术自检、上次说到" },
       { "name": "local-app-check", "checks": 56, "covers": "真实浏览器：发送、保存、记忆、检索、引用、伴侣模式、AI 写角色、设置" },
       { "name": "viewport-check", "checks": 35, "covers": "1440/1280/768/390/320 五种宽度的布局、可点区域与预估行不挤坏输入区" },
-      { "name": "data-integrity", "checks": 11, "covers": "存档往返、长对话压力、隐私出口自查" }
+      { "name": "data-integrity", "checks": 11, "covers": "存档往返、长对话压力、隐私出口自查" },
+      { "name": "offline-check", "checks": 7, "covers": "PWA 清单与图标、离线壳接管、断网后仍能打开并读到本机数据、新版提示、平台提示页不覆盖缓存" }
     ],
     "allGreen": true
   },

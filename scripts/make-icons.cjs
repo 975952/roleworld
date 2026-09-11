@@ -169,3 +169,15 @@ write("icon.ico", encodeIco([
   { size: 256, data: rendered[2].data },
 ]));
 console.log("图标已生成到 src-tauri/icons");
+
+/* 网页版 PWA 也要图标（装到桌面/手机时用），同一份画法再出两个尺寸到 app/icons/。
+ * 放在 app/ 下是因为部署只带 app/ 与 packs/，src-tauri/ 不上线。 */
+const WEB_OUT = path.join(__dirname, "..", "app", "icons");
+fs.mkdirSync(WEB_OUT, { recursive: true });
+const writeWeb = (name, buffer) => {
+  fs.writeFileSync(path.join(WEB_OUT, name), buffer);
+  console.log(`app/icons/${name}  ${buffer.length} 字节`);
+};
+writeWeb("icon-192.png", encodePng(192, draw(192)));
+writeWeb("icon-512.png", encodePng(512, draw(512)));
+console.log("网页版图标已生成到 app/icons");

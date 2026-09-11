@@ -403,6 +403,11 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .confirm-actions button:disabled { cursor: wait; opacity: .56; }
 .toast { position: fixed; right: 18px; bottom: 18px; z-index: 50; max-width: min(380px, calc(100vw - 36px)); padding: 11px 14px; color: var(--secondary-text); font-size: 11px; line-height: 1.5; border: 1px solid var(--strong-line); border-radius: 8px; background: var(--hover); box-shadow: 0 16px 40px rgba(0,0,0,.35); opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 190ms ease, transform var(--panel-motion) var(--motion-ease); }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
+/* PWA 的"有新版本"胶囊：固定定位、不参与布局，避免影响任何页面排版。
+   位置选左下角（右下角是 toast），压在输入区上方留出余量。 */
+.update-pill { position: fixed; left: 18px; bottom: 96px; z-index: 49; padding: 9px 13px; color: var(--main-text); font-size: 11px; font-weight: 600; border: 1px solid var(--strong-line); border-radius: 999px; background: var(--raised); box-shadow: 0 14px 36px rgba(0,0,0,.4); cursor: pointer; }
+.update-pill[hidden] { display: none; }
+.update-pill:hover { border-color: var(--main-text); }
 .auth-gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: var(--overlay); }
 .auth-gate[hidden] { display: none; }
 .auth-gate-card { width: min(420px, 100%); padding: 28px; text-align: center; border: 1px solid var(--hairline); border-radius: 14px; background: var(--raised); }

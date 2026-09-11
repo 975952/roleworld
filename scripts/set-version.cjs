@@ -5,7 +5,9 @@
  *
  *   node scripts/set-version.cjs 0.1.2
  *
- * 同时改 src-tauri/tauri.conf.json 与 package.json。
+ * 同时改 src-tauri/tauri.conf.json、package.json 与 app/version.json。
+ * app/version.json 是给网页版用的：页面拿它和自己加载时的版本对照，
+ * 不一致就提示"有新版本，点这里刷新"（见 app/pwa.js）。
  * 刻意不用 PowerShell 改：PS 5.1 的 Set-Content -Encoding UTF8 会写 UTF-8 BOM，
  * 而 Rust 的 serde_json 不接受 BOM —— 曾经因此让一次发布 37 秒就打包失败。
  */
@@ -21,7 +23,7 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) {
   process.exit(1);
 }
 
-const targets = ["src-tauri/tauri.conf.json", "package.json"];
+const targets = ["src-tauri/tauri.conf.json", "package.json", "app/version.json"];
 let changed = 0;
 
 for (const relative of targets) {
