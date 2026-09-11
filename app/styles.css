@@ -238,7 +238,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
+.send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
 .send-button:hover { background: #fff; transform: translateY(-1px); }
 .send-button:disabled { opacity: .38; cursor: wait; transform: none; }
 /* 发送箭头：圆形按钮里画一个粗细不变的线宽箭头（SVG stroke，圆头）。
@@ -882,9 +882,9 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
   .assistant-body .stream-text::after { animation: none !important; opacity: .6; }
 }
 
-/* ---------- ����������ֻ���鿴��2026-09-11�� ----------
-   ƽʱֻ��һ���ܵ�����ڣ��㿪�Ǹ��ǲ㣬�ص�����ʧ��
-   ��������ɫ��ȫ����������Ʊ��������ַ���Զ����档 */
+/* ---------- 「本次请求」只读查看（2026-09-11） ----------
+   平时只是一个很淡的入口；点开是覆盖层，关掉即消失。
+   不新增配色，全部走现有设计变量，六种风格自动跟随。 */
 .composer-peek { padding: 0; color: var(--quiet-text); font: inherit; font-size: 12px; border: 0; background: none; cursor: pointer; white-space: nowrap; transition: color var(--hover-motion) ease; }
 .composer-peek:hover { color: var(--secondary-text); }
 .composer-peek[hidden] { display: none; }
@@ -912,7 +912,7 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .request-peek-empty { margin: 0; color: var(--muted-text); font-size: 13px; }
 .request-peek-dropped { margin: 10px 0 0; padding: 8px 10px; color: var(--secondary-text); font-size: 12px; line-height: 1.6; border-left: 2px solid var(--strong-line); background: var(--hover); border-radius: 0 var(--base-radius) var(--base-radius) 0; }
 
-/* ---------- ���䣺�㿪����Ŀ + �������� / �� / ɾ�� ---------- */
+/* ---------- 记忆：点开看条目 + 管理（看 / 改 / 删） ---------- */
 .request-peek-book { cursor: pointer; }
 .request-peek-book:hover .request-peek-label { color: var(--main-text); }
 .request-peek-caret { flex: 0 0 100%; color: var(--quiet-text); font-size: 11px; }
@@ -932,11 +932,21 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .memory-edit { min-width: 220px; flex: 1; }
 .memory-add-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 
-/* ---------- ÿ���ظ��Եı����ڣ��Ǵ� / ���죩 ----------
-   ���᣺ƽʱ�������������������ȥ���Ѿ���ǹ������Σ�������һ�ɿɼ��� */
-.message-flags { display: inline-flex; gap: 6px; margin-left: 8px; }
-.message-flag { padding: 0; color: var(--quiet-text); font: inherit; font-size: 11px; border: 0; background: none; cursor: pointer; opacity: 0; transition: opacity var(--hover-motion) ease, color var(--hover-motion) ease; }
+/* ---------- 每条回复旁的标记入口（记错 / 编造） ----------
+   很轻：平时几乎看不见，鼠标移上去或已经标记过才显形；触屏上一律可见。 */
+.message-flags { display: inline-flex; gap: 2px; margin-left: 8px; }
+/* 命中区必须够大：以前 padding:0、字号 11px，实际只有 22×14，鼠标都难点，触屏更点不到。
+   视觉上仍然很轻（透明、小字），但可点区域给到 24×24 以上，触屏再放大到 44。 */
+.message-flag { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; min-height: 24px; padding: 2px 3px; color: var(--quiet-text); font: inherit; font-size: 11px; line-height: 1; border: 0; border-radius: 4px; background: none; cursor: pointer; opacity: 0; transition: opacity var(--hover-motion) ease, color var(--hover-motion) ease, background var(--hover-motion) ease; }
 .message-row:hover .message-flag, .message-flag:focus-visible { opacity: 1; }
-.message-flag:hover { color: var(--secondary-text); }
+.message-flag:hover { color: var(--secondary-text); background: var(--hover); }
 .message-flag.flag-on { opacity: 1; color: var(--error); }
-@media (hover: none) { .message-flag { opacity: .55; } }
+@media (hover: none) { .message-flag { opacity: .6; } }
+/* 窄屏给足命中区：不只看 (hover: none) —— 有些环境（含无头浏览器）会把
+   hover 报成 hover，只按媒体查询会让手机拿到 24px 的小按钮。
+   宽度是最可靠的判据：窄屏 = 可能用手指点。 */
+@media (max-width: 760px) {
+  .message-flag { min-width: 44px; min-height: 44px; font-size: 12px; opacity: .6; }
+  .message-flags { gap: 4px; margin-left: 6px; }
+  .message-meta { flex-wrap: wrap; }
+}

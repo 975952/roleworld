@@ -1,0 +1,30 @@
+fix(ui): 多视口回归抓到的两个真实缺陷 + 修掉我自己写入的乱码
+
+P0-1 多视口布局回归（新增 tests/viewport-check.cjs，25 项，已加入 npm test）
+覆盖 1440x900 / 1280x800 / 768x1024 / 390x844 / 320x568 五个视口，每项检查：
+横向溢出、输入框与发送键在视口内、「本次请求」弹层可开可关且内容可滚动、
+「角色记忆」面板可开可关、消息旁标记按钮的命中区尺寸。
+
+它当场抓到两个真缺陷：
+
+1) 平板 768px 下发送键被压成 23px 宽
+   原因：.send-button 的 44px 规则只在 760px 以下生效，768px 落在 34px 的默认尺寸，
+   且 .composer-footer 是 flex，按钮被 flex 压缩。
+   修法：基础规则加 flex: 0 0 auto（不许被压扁）。
+
+2) 「记错 / 编造」按钮命中区只有 22x14，鼠标都难点、触屏更点不到
+   原因：padding: 0 + font-size: 11px，且只在 (hover: none) 下才放大。
+   修法：基础命中区提到 26x24，窄屏（<=760px）提到 44x44 且不透明度 .6。
+   窄屏用宽度判定而不是只看 (hover: none) —— 实测无头 Chrome 会把 hover 报成 hover，
+   只按媒体查询会让手机拿到小按钮。
+
+顺带修掉一个我自己造成的事故：用 PowerShell 追加中文 CSS 注释时被写成 GBK，
+app/styles.css 混进 153 处非法 UTF-8 字节（浏览器把中文注释全变乱码、编辑器打不开该文件）。
+已按 GBK 解码后重写为 UTF-8，并新增一条永久防线：
+
+3) adapter-unit 新增「仓库文本文件是合法 UTF-8」用例
+   逐字节校验 app/、tests/、docs/ 下所有文本文件；已用"故意植入坏字节"验证它真的会报错。
+   （既有的 BOM 检查抓不到这种编码错误。）
+
+测试：adapter-unit 69/69、memory-unit 25/25、search-unit 15/15、metrics-unit 13/13、
+inventory-probe 14/14、local-app-check 39/39、viewport-check 25/25。

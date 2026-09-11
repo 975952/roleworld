@@ -480,6 +480,50 @@ async function main() {
     assert.deepEqual(offenders, [], "这些文件带 BOM：" + offenders.join(", "));
   });
 
+  await test("仓库文本文件是合法 UTF-8（不乱码）", () => {
+    // 真发生过：用 PowerShell 的 Add-Content -Encoding UTF8 追加中文 CSS 注释，
+    // 结果那一整段被写成 GBK，文件里混进 153 处非法字节 —— 浏览器把中文注释全变成乱码，
+    // 而且编辑器打不开这个文件。BOM 检查抓不到这种，必须逐个字节校验编码。
+    const skip = new Set([".git", "node_modules", "target", "gen", "packs", "build"]);
+    const exts = [".json", ".js", ".cjs", ".html", ".css", ".yml", ".yaml", ".toml", ".rs", ".md", ".txt"];
+    const offenders = [];
+    let checked = 0;
+
+    const invalidOffset = (buffer) => {
+      let i = 0;
+      while (i < buffer.length) {
+        const byte = buffer[i];
+        if (byte < 0x80) { i += 1; continue; }
+        const need = (byte & 0xe0) === 0xc0 ? 1 : (byte & 0xf0) === 0xe0 ? 2 : (byte & 0xf8) === 0xf0 ? 3 : -1;
+        if (need < 0 || i + need >= buffer.length) return i;
+        for (let k = 1; k <= need; k += 1) if ((buffer[i + k] & 0xc0) !== 0x80) return i;
+        i += need + 1;
+      }
+      return -1;
+    };
+
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          if (skip.has(entry.name)) continue;
+          walk(path.join(dir, entry.name));
+          continue;
+        }
+        if (!exts.includes(path.extname(entry.name).toLowerCase())) continue;
+        const file = path.join(dir, entry.name);
+        const buffer = fs.readFileSync(file);
+        checked += 1;
+        const bad = invalidOffset(buffer);
+        if (bad >= 0) {
+          offenders.push(path.relative(path.join(__dirname, ".."), file) + "（偏移 " + bad + "）");
+        }
+      }
+    };
+    walk(path.join(__dirname, ".."));
+    assert.ok(checked >= 20, "扫描到的文本文件太少，检查可能失效：" + checked);
+    assert.deepEqual(offenders, [], "这些文件不是合法 UTF-8：" + offenders.join(", "));
+  });
+
   console.log("== 角色草稿解析 ==");
 
   const CharCore = require(path.join(__dirname, "..", "app", "task29-character-core.js"));
