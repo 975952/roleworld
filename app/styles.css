@@ -355,7 +355,18 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .modal-field textarea:focus { border-color: #555b67; }
 .modal-field textarea[readonly] { color: var(--muted-text); }
 .modal-field select { width: 100%; padding: 9px 11px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 8px; background: var(--canvas); cursor: pointer; }
+.modal-field input:not([type="checkbox"]) { width: 100%; padding: 9px 11px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 8px; outline: 0; background: var(--canvas); }
+.modal-field input:not([type="checkbox"]):focus { border-color: #555b67; }
 .modal-helper { margin: 10px 0 0; color: var(--muted-text); font-size: 10px; }
+/* 长表单（AI 写角色 / 关系档案）在矮屏上必须能滚，否则底部的按钮点不到。 */
+.confirm-backdrop .memory-modal { max-height: calc(100vh - 36px); overflow-y: auto; }
+@supports (height: 100dvh) { .confirm-backdrop .memory-modal { max-height: calc(100dvh - 36px); } }
+/* 伴侣模式：关系档案 */
+.modal-field-check { margin-top: 14px; }
+.modal-field-check span { display: flex; align-items: center; gap: 8px; color: var(--main-text); font-size: 12px; cursor: pointer; }
+.companion-rules { margin-top: 12px; font-size: 10px; }
+.companion-rules summary { color: var(--secondary-text); cursor: pointer; }
+.companion-rules ol { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 18px; color: var(--muted-text); line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .primary-button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 13px; color: var(--button-text); font-size: 12px; font-weight: 700; text-decoration: none; border: 0; border-radius: 7px; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease); }
 .primary-button:hover { background: #fff; transform: translateY(-1px); }
@@ -923,8 +934,8 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .request-peek-book-content { display: block; }
 .request-peek-book-source { display: block; margin-top: 2px; color: var(--quiet-text); font-size: 11px; }
 .request-peek-manage { margin-top: 4px; }
-.memory-panel-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.memory-panel-bar .request-peek-note { margin: 0 0 12px; }
+.memory-panel-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.memory-panel-bar .request-peek-note { margin: 0 0 12px; flex: 1 1 220px; }
 .memory-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .memory-list .request-peek-book-content { flex: 1; min-width: 0; }
 .memory-list .request-peek-book-source { flex: 0 0 100%; }

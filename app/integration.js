@@ -101,6 +101,8 @@
     memoryRows: [],
     memoryEntries: {},
     memoryPanelOpen: false,
+    // 伴侣模式：正在编辑关系档案的那个角色（保存时用它，避免中途切角色写错人）。
+    companionEntry: null,
     // 设置页刚改、还没落盘完成的值：整量重读时不能被旧值盖回去。
     pendingSettingsPatch: null,
     // Task-29A：AI 创建角色状态
@@ -1340,6 +1342,260 @@
   function closeMemoryPanel() {
     const surface = document.querySelector("#memoryPanel");
     if (surface) surface.hidden = true;
+  }
+
+  /* ---------- 伴侣模式：关系档案（用户亲手写的那一份） ----------
+   * 和「角色记忆」是两件事，所以分开存：
+   *   - 角色记忆：模型从对话里自己记的，存在该角色的记忆书里，可以一键清空；
+   *   - 关系档案：你亲手写的关系 / 称呼 / 共同经历 / 起点，存在 kv 的 companion:<avatar>，
+   *     清空记忆不会动它，删记忆也不会误伤它。
+   * 打开后每轮多带一小段系统提示（companion-core.js 的 buildCompanionBlock），
+   * 里面除了关系本身，还有那几条硬规矩：不编共同回忆、不内疚留人、不索取陪伴。
+   */
+  const COMPANION_KEY_PREFIX = "companion:";
+  const COMPANION_CHECK_WINDOW = 20;
+  let companionCache = { avatar: "", profile: null };
+
+  function companionKey(entry) {
+    return COMPANION_KEY_PREFIX + ((entry && entry.avatar) || "");
+  }
+
+  /** 读这个角色的关系档案。读不到就是一份空档案（默认关闭），不编内容。 */
+  async function loadCompanion(entry) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core) return null;
+    if (!entry || !entry.avatar) return core.defaultProfile();
+    if (companionCache.avatar === entry.avatar && companionCache.profile) return companionCache.profile;
+    let stored = null;
+    try { stored = await window.RoleWorld.store.getKV(companionKey(entry), null); } catch (_) { stored = null; }
+    const profile = core.normalizeProfile(stored);
+    companionCache = { avatar: entry.avatar, profile: profile };
+    return profile;
+  }
+
+  async function saveCompanion(entry, profile) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core || !entry || !entry.avatar) return null;
+    const next = core.normalizeProfile(profile);
+    await window.RoleWorld.store.setKV(companionKey(entry), next);
+    companionCache = { avatar: entry.avatar, profile: next };
+    return next;
+  }
+
+  /** 卡片语言：英文卡要拿英文的伴侣段落，否则整段中文会把角色带跑。 */
+  function companionLangFor(entry) {
+    const card = (liveState.cardCache && entry && liveState.cardCache.get(entry.avatar)) || null;
+    try {
+      return window.TASK22_CORE.cardLanguageOf(card) === "en" ? "en" : "zh";
+    } catch (_) { return "zh"; }
+  }
+
+  /** 这一轮要额外带上的陪伴段落；关掉就是空串。发送路径与面板预览共用它。 */
+  function companionBlockFor(entry, profile) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core || !profile || profile.enabled !== true) return "";
+    try {
+      return core.buildCompanionBlock(profile, { lang: companionLangFor(entry) });
+    } catch (_) { return ""; }
+  }
+
+  function renderCompanionRelationOptions() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const select = document.querySelector("#companionRelation");
+    if (!core || !select || select.options.length) return;
+    for (const row of core.RELATIONS) {
+      const option = document.createElement("option");
+      option.value = row.id;
+      option.textContent = row.zh;
+      select.appendChild(option);
+    }
+  }
+
+  function renderCompanionRules() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const list = document.querySelector("#companionRuleList");
+    if (!core || !list || list.childNodes.length) return;
+    for (const rule of core.RULES.zh) {
+      const item = document.createElement("li");
+      item.textContent = rule;
+      list.appendChild(item);
+    }
+  }
+
+  /** 把表单读成一份档案。不校验的部分交给 core 归一化（截断、去重、日期合法性）。 */
+  function readCompanionForm() {
+    const read = (selector) => (document.querySelector(selector)?.value || "").trim();
+    const shared = read("#companionShared").split("\n").map((line) => line.trim()).filter(Boolean);
+    return {
+      enabled: document.querySelector("#companionEnabled")?.checked === true,
+      relation: read("#companionRelation") || "friend",
+      relationCustom: read("#companionRelationCustom"),
+      charCallsUser: read("#companionCharCallsUser"),
+      userCallsChar: read("#companionUserCallsChar"),
+      since: read("#companionSince"),
+      shared: shared,
+    };
+  }
+
+  function renderCompanionCustomRow() {
+    const row = document.querySelector("#companionCustomRow");
+    const select = document.querySelector("#companionRelation");
+    if (row) row.hidden = !(select && select.value === "custom");
+  }
+
+  /**
+   * 表单 + 上一次的聊天时间 → 一份档案。
+   * 表单里没有"上次聊天时间"这个字段（用户不该手填），但保存时不能把它丢掉，
+   * 否则每次改完档案，时间感就归零了。
+   */
+  async function profileFromForm(entry) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const previous = await loadCompanion(entry);
+    return core.normalizeProfile(Object.assign({}, readCompanionForm(), {
+      lastChatAt: previous ? previous.lastChatAt : "",
+    }));
+  }
+
+  /** 面板上的"这份档案会让每轮多发多少" —— 发之前就看得见，和台账一个口径。 */
+  async function renderCompanionPreview() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const node = document.querySelector("#companionPreview");
+    if (!core || !node) return;
+    const entry = activeCharacterEntry();
+    const profile = await profileFromForm(entry);
+    const off = "伴侣模式没打开：这一轮一个字符都不会多带。";
+    if (!profile.enabled) {
+      node.textContent = off;
+      return;
+    }
+    const block = companionBlockFor(entry, profile);
+    if (!block) {
+      node.textContent = off;
+      return;
+    }
+    let tokens = 0;
+    try { tokens = window.RoleWorldPricing.estimateTokens(block); } catch (_) { tokens = 0; }
+    node.textContent = `每轮会多带约 ${block.length} 字`
+      + (tokens ? `（约 ${tokens} token）` : "")
+      + `：关系 / 称呼 / 起点 / 今天几号 / 上次聊天时间 + ${core.RULES.zh.length} 条硬规矩`
+      + (profile.shared.length ? ` + 你写的 ${profile.shared.length} 件共同经历。` : "。");
+  }
+
+  /**
+   * 陪伴自检：拿最近若干条回复查一遍"内疚话术"。
+   * 只报告，不改写模型的话 —— 过滤会误伤正常表达，而且拦住了不等于没发生。
+   */
+  function renderCompanionSelfCheck() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const node = document.querySelector("#companionCheck");
+    if (!core || !node) return;
+    const replies = (liveState.chatMessages || [])
+      .filter((message) => message && message.is_user !== true && typeof message.mes === "string" && message.mes)
+      .slice(-COMPANION_CHECK_WINDOW);
+    if (!replies.length) {
+      node.textContent = "自检：这个角色还没有回复可查。";
+      return;
+    }
+    const hits = core.lintGuiltIn(replies.map((message) => message.mes));
+    if (!hits.length) {
+      node.textContent = `自检：最近 ${replies.length} 条回复里没有发现内疚话术。`;
+      return;
+    }
+    const sample = hits.slice(0, 3).map((hit) => `「${hit.phrase}」`).join("、");
+    node.textContent = `自检：最近 ${replies.length} 条回复里有 ${hits.length} 处像内疚话术（${sample}）。`
+      + "这几句只是提醒，不会被自动改掉。";
+  }
+
+  function fillCompanionForm(profile) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core) return;
+    const p = core.normalizeProfile(profile);
+    renderCompanionRelationOptions();
+    const set = (selector, value) => { const node = document.querySelector(selector); if (node) node.value = value; };
+    const enabled = document.querySelector("#companionEnabled");
+    if (enabled) enabled.checked = p.enabled === true;
+    set("#companionRelation", p.relation);
+    set("#companionRelationCustom", p.relationCustom);
+    set("#companionCharCallsUser", p.charCallsUser);
+    set("#companionUserCallsChar", p.userCallsChar);
+    set("#companionSince", p.since);
+    set("#companionShared", p.shared.map((row) => row.text).join("\n"));
+    renderCompanionCustomRow();
+    renderCompanionPreview();
+    renderCompanionSelfCheck();
+  }
+
+  async function openCompanionDialog() {
+    const surface = document.querySelector("#companionDialog");
+    const entry = activeCharacterEntry();
+    const subtitle = document.querySelector("#companionSubtitle");
+    if (!surface) return;
+    if (!entry || !entry.avatar) {
+      showToast("先选一个角色，再写关系档案");
+      return;
+    }
+    closeMemoryPanel();
+    liveState.companionEntry = entry;
+    const profile = await loadCompanion(entry);
+    if (subtitle) {
+      subtitle.textContent = `${entry.charName || entry.name}：这部分是你自己写的，模型不能改口；`
+        + "它和「角色记忆」分开存，清空记忆不会动它。";
+    }
+    fillCompanionForm(profile);
+    const error = document.querySelector("#companionError");
+    if (error) { error.textContent = ""; error.hidden = true; }
+    window.TASK25C_UI?.rememberDialogFocus?.("companionDialog");
+    surface.hidden = false;
+    window.TASK25C_UI?.syncOverlayScrollLock?.();
+  }
+
+  function closeCompanionDialog() {
+    const surface = document.querySelector("#companionDialog");
+    if (surface) surface.hidden = true;
+    liveState.companionEntry = null;
+    window.TASK25C_UI?.syncOverlayScrollLock?.();
+    window.TASK25C_UI?.restoreDialogFocus?.("companionDialog");
+  }
+
+  async function submitCompanionDialog() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const entry = liveState.companionEntry || activeCharacterEntry();
+    const error = document.querySelector("#companionError");
+    if (!core || !entry || !entry.avatar) return;
+    const next = core.touch(await profileFromForm(entry), new Date().toISOString());
+    // 第一次打开、又还没聊过：把"上次聊天"对齐到当前这段对话的最后一句，
+    // 否则时间感要等到下一轮才出现（用户会觉得"开了没用"）。
+    if (next.enabled && !next.lastChatAt) {
+      const messages = liveState.chatMessages || [];
+      const last = messages[messages.length - 1];
+      if (last && last.send_date) next.lastChatAt = String(last.send_date);
+    }
+    // 打开伴侣模式却什么都没写：照样能存，但要说清楚存的是什么。
+    if (error) { error.textContent = ""; error.hidden = true; }
+    try {
+      await saveCompanion(entry, next);
+    } catch (err) {
+      if (error) {
+        error.textContent = err && err.message ? `保存失败：${err.message}` : "保存失败，请重试。";
+        error.hidden = false;
+      }
+      return;
+    }
+    closeCompanionDialog();
+    showToast(next.enabled
+      ? (core.hasDetails(next) ? "伴侣模式已打开，下一轮开始生效" : "伴侣模式已打开（还没写内容，只有那几条硬规矩）")
+      : "伴侣模式已关闭，下一轮不再带上关系档案");
+  }
+
+  /** 聊过一轮之后记下时间，下一轮的时间感才有依据（"上次聊天是 3 天前"）。 */
+  async function markCompanionChat(entry) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core || !entry || !entry.avatar) return;
+    try {
+      const profile = await loadCompanion(entry);
+      if (!profile || profile.enabled !== true) return;
+      await saveCompanion(entry, core.markChat(profile, new Date().toISOString()));
+    } catch (_) { /* 记不上时间不影响对话 */ }
   }
 
   /* ---------- 用量与费用估算 ---------- */
@@ -2717,6 +2973,14 @@
       const extraParts = [];
       let searchResult = null;
       let requestedResults = [];
+      // 伴侣模式：关系档案 + 时间感 + 那几条硬规矩。放在最前面 ——
+      // 它定的是"你是谁、你们什么关系"，后面的诚实规则和检索结果都建立在这上面。
+      let companionProfile = null;
+      try {
+        companionProfile = await loadCompanion(entry);
+        const companionBlock = companionBlockFor(entry, companionProfile);
+        if (companionBlock) extraParts.push(companionBlock);
+      } catch (_) { companionProfile = null; }
       if (search) {
         extraParts.push(search.honestyRule());
         try {
@@ -2916,6 +3180,10 @@
           activeSearches: requestedResults.length,
         });
       } catch (_) { /* 台账写失败不影响对话 */ }
+      // 伴侣模式：记下"这次聊过了"，下一轮的时间感才有依据。
+      if (companionProfile && companionProfile.enabled === true) {
+        markCompanionChat(entry).catch(() => {});
+      }
       if (stopped) showToast("已停止（保留已生成的部分）");
       setChatListStatus("");
     } catch (err) {
@@ -3358,6 +3626,12 @@
     closeRequestPeek,
     openMemoryPanel,
     closeMemoryPanel,
+    // 伴侣模式：关系档案（用户亲手写的那一份）。
+    openCompanionDialog,
+    closeCompanionDialog,
+    loadCompanion,
+    saveCompanion,
+    companionBlockFor,
     clearAllMemories,
     clearMemoryGroup,
     jumpToMemorySource,
@@ -3494,10 +3768,38 @@
     if (memorySurface) {
       memorySurface.addEventListener("click", (event) => { if (event.target === memorySurface) closeMemoryPanel(); });
     }
+    // 伴侣模式：关系档案的开关、保存、以及"边写边看这一轮会多带多少"。
+    renderCompanionRules();
+    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
+      node.addEventListener("click", () => { openCompanionDialog().catch(() => {}); });
+    });
+    document.querySelectorAll("[data-action='close-companion']").forEach((node) => {
+      node.addEventListener("click", closeCompanionDialog);
+    });
+    const companionSurface = document.querySelector("#companionDialog");
+    if (companionSurface) {
+      companionSurface.addEventListener("click", (event) => { if (event.target === companionSurface) closeCompanionDialog(); });
+    }
+    const companionSave = document.querySelector("#companionSaveButton");
+    if (companionSave) companionSave.addEventListener("click", () => { submitCompanionDialog().catch(() => {}); });
+    const companionRelation = document.querySelector("#companionRelation");
+    if (companionRelation) companionRelation.addEventListener("change", () => {
+      renderCompanionCustomRow();
+      renderCompanionPreview();
+    });
+    ["#companionEnabled", "#companionCharCallsUser", "#companionUserCallsChar", "#companionSince",
+      "#companionRelationCustom", "#companionShared"].forEach((selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return;
+      node.addEventListener("input", renderCompanionPreview);
+      node.addEventListener("change", renderCompanionPreview);
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       const memory = document.querySelector("#memoryPanel");
-      if (memory && !memory.hidden) { event.preventDefault(); closeMemoryPanel(); }
+      if (memory && !memory.hidden) { event.preventDefault(); closeMemoryPanel(); return; }
+      const companion = document.querySelector("#companionDialog");
+      if (companion && !companion.hidden) { event.preventDefault(); closeCompanionDialog(); }
     });
     document.addEventListener("keydown", (event) => {
       const surface = document.querySelector("#requestPeek");

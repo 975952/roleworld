@@ -237,7 +237,7 @@ async function main() {
             data: { name: "Harry Potter", description: "被选中的男孩。", personality: "勇敢",
                     scenario: "霍格沃茨", first_mes: "你好。", mes_example: "", tags: [] } },
           { avatar: "Hermione Granger (EN).png", name: "Hermione Granger", description: "最聪明的女巫。",
-            first_mes: "你好。", spec: "chara_card_v3", spec_version: "3.0",
+            first_mes: "你好。", spec: "chara_card_v3", spec_version: "3.0", language: "en",
             data: { name: "Hermione Granger", description: "最聪明的女巫。", first_mes: "你好。", tags: [] } }
         ],
         worlds: [
@@ -1006,6 +1006,249 @@ async function main() {
     await waitFor("document.querySelector('#dynamicMessages').textContent.indexOf('团子') >= 0", 15000);
     const marked = await evaluate("document.querySelectorAll('.memory-source-hit').length");
     assert(marked >= 1, "跳到对话后没有标出来源消息");
+  });
+
+  await check("伴侣模式默认关闭：请求里一个字符都不多带，面板也说得明白", async () => {
+    const sent = requests.filter((row) => row.stream === true);
+    const last = sent[sent.length - 1];
+    assert(last.systemText.indexOf("[陪伴模式]") < 0, "没打开伴侣模式却带上了陪伴段落");
+    const stored = await evaluate("(async () => JSON.stringify(await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)))()");
+    assert(stored === "null", "还没写过关系档案，kv 里不该有东西：" + stored);
+  });
+
+  await check("伴侣模式：关系、称呼、起点、时间感与硬规矩都进了请求", async () => {
+    // 走用户真正会走的那条路：角色记忆面板 → 关系档案。
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    assert(await evaluate("document.querySelector(\"#memoryPanel [data-action='open-companion']\") !== null"),
+      "记忆面板里没有「关系档案」入口");
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='open-companion']\").click(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    assert(await evaluate("document.querySelector('#memoryPanel').hidden === true"), "打开关系档案后记忆面板应当让开");
+    assert(await evaluate("document.querySelector('#companionPreview').textContent.indexOf('一个字符都不会多带') >= 0"),
+      "没打开时应当说清楚不会多带内容");
+
+    // 界面上列出的硬规矩，必须是模型真正被告知的那一份（同一个来源）。
+    const rulesShown = await evaluate("document.querySelectorAll('#companionRuleList li').length");
+    assert(rulesShown >= 5, "界面没有列出伴侣模式的硬规矩：" + rulesShown);
+
+    await evaluate(`(() => {
+      const set = (selector, value) => {
+        const node = document.querySelector(selector);
+        node.value = value;
+        node.dispatchEvent(new Event('input', { bubbles: true }));
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const enabled = document.querySelector('#companionEnabled');
+      enabled.checked = true;
+      enabled.dispatchEvent(new Event('change', { bubbles: true }));
+      set('#companionRelation', 'partner');
+      set('#companionCharCallsUser', '阿林');
+      set('#companionUserCallsChar', '小默');
+      set('#companionSince', '2026-01-01');
+      set('#companionShared', '第一次聊天是在雨天的图书馆\\n答应过要一起看一次海');
+      return true;
+    })()`);
+    const preview = await evaluate("document.querySelector('#companionPreview').textContent");
+    assert(/每轮会多带约 \d+ 字/.test(preview), "预览没说清每轮多带多少：" + preview);
+    assert(preview.indexOf("token") >= 0, "预览里应当给出 token 估算：" + preview);
+    assert(preview.indexOf("2 件共同经历") >= 0, "预览没有算上用户写的共同经历：" + preview);
+
+    await evaluate("document.querySelector('#companionSaveButton').click(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '今天下班晚了，随便聊聊';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+
+    const sent = requests.filter((row) => row.stream === true);
+    const last = sent[sent.length - 1];
+    const text = last.systemText;
+    assert(text.indexOf("[陪伴模式]") >= 0, "伴侣段落没进请求");
+    assert(text.indexOf("关系：恋人") >= 0, "关系没进请求");
+    assert(text.indexOf("叫对方「阿林」") >= 0, "称呼没进请求");
+    assert(text.indexOf("答应过要一起看一次海") >= 0, "共同经历没进请求");
+    assert(text.indexOf("今天是 ") >= 0, "没告诉模型今天几号");
+    assert(text.indexOf("认识：2026-01-01 起") >= 0, "关系起点没进请求");
+    for (const rule of ["不编造共同经历", "不用内疚或冷淡留人", "不索取陪伴", "承认自己是程序"]) {
+      assert(text.indexOf(rule) >= 0, "硬规矩没进请求：" + rule);
+    }
+    // 中文角色的段落不带英文模板，英文卡的段落也不该混中文（下面单独验证语言选择）。
+    assert(await evaluate("document.querySelector('#companionEnabled').checked === true"), "保存后复选框状态不对");
+  });
+
+  await check("伴侣模式只属于这个角色：换个角色既没有档案，也没有它的段落", async () => {
+    const other = await evaluate(`(async () => {
+      const profile = await window.TASK21.loadCompanion({ avatar: 'Hermione Granger (EN).png', charName: 'Hermione Granger' });
+      return profile.enabled === true;
+    })()`);
+    assert(other === false, "另一个角色继承了别人的关系档案");
+    const keys = await evaluate(`(async () => {
+      const rows = await RoleWorld.store.getKV('companion:Hermione Granger (EN).png', null);
+      return JSON.stringify(rows);
+    })()`);
+    assert(keys === "null", "另一个角色的档案不该存在：" + keys);
+    // 而且这份档案不能被"清空记忆"顺手删掉：它是用户自己写的，不是模型记的。
+    const still = await evaluate("(async () => (await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null) || {}).enabled === true)()");
+    assert(still === true, "关系档案不见了");
+  });
+
+  await check("关系档案：改口后以新的为准，而且是每轮都重新读一次", async () => {
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    await evaluate(`(() => {
+      const node = document.querySelector('#companionCharCallsUser');
+      node.value = '小林';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#companionSaveButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '那你叫我一声试试';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const text = sent[sent.length - 1].systemText;
+    assert(text.indexOf("叫对方「小林」") >= 0, "改过之后的称呼没生效：" + text.slice(text.indexOf("[陪伴模式]"), text.indexOf("[陪伴模式]") + 120));
+    assert(text.indexOf("叫对方「阿林」") < 0, "旧的称呼还在请求里");
+  });
+
+  await check("关掉伴侣模式：下一轮就不再带上关系档案", async () => {
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    await evaluate(`(() => {
+      const node = document.querySelector('#companionEnabled');
+      node.checked = false;
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#companionSaveButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '关掉之后再说一句';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const text = sent[sent.length - 1].systemText;
+    assert(text.indexOf("[陪伴模式]") < 0, "关掉后仍然带上了陪伴段落");
+    assert(text.indexOf("叫对方「小林」") < 0, "关掉后仍然带上了关系档案");
+
+    // 重新打开，后面的用例（英文卡语言）还要用。
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    await evaluate(`(() => {
+      const node = document.querySelector('#companionEnabled');
+      node.checked = true;
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#companionSaveButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+  });
+
+  await check("陪伴自检：模型说了内疚话术，面板会照实点出来（但不改写它）", async () => {
+    // 让模型这一轮说一句内疚话术（合成回复由测试端点给）。
+    await evaluate(`fetch('/__reply', { method: 'POST', body: JSON.stringify({ content: '……你都不理我了。我这几天一直在等你好久。' }) }).then(() => true)`);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '在吗';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const shown = await evaluate("document.querySelector('#dynamicMessages').textContent");
+    assert(shown.indexOf("你都不理我了") >= 0, "合成回复没进对话，自检就没意义了");
+
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    const check = await evaluate("document.querySelector('#companionCheck').textContent");
+    assert(check.indexOf("内疚话术") >= 0, "自检没有指出内疚话术：" + check);
+    assert(check.indexOf("你都不理我") >= 0, "自检没有给出命中的原话：" + check);
+    // 只报告，不改写：原话应该还在对话里。
+    assert((await evaluate("document.querySelector('#dynamicMessages').textContent")).indexOf("你都不理我了") >= 0,
+      "自检把模型的话改掉了");
+    await evaluate("document.querySelector('#companionDialog [data-action=\\'close-companion\\']').click(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+  });
+
+  await check("伴侣段落跟着卡片语言走：英文卡拿英文段落，中文卡拿中文段落", async () => {
+    const previousChat = await evaluate("window.TASK21.activeChatFileName()");
+    // 新开一段对话 → 用真实的选择器换到英文卡（这也是"每个角色各一份档案"的真实路径）。
+    await evaluate("window.TASK21.createNewConversation(); true");
+    await waitFor("document.querySelector('#characterPicker').hidden === false", 8000);
+    await evaluate("document.querySelector('#characterPickerTrigger').click(); true");
+    await waitFor("document.querySelector('#characterPickerMenu').hidden === false", 8000);
+    const picked = await evaluate(`(() => {
+      const item = Array.from(document.querySelectorAll('.character-picker-item'))
+        .find((node) => node.dataset.avatar === 'Hermione Granger (EN).png');
+      if (!item) return false;
+      item.click();
+      return true;
+    })()`);
+    assert(picked, "选择器里没有英文卡");
+    await waitFor("document.querySelector('#characterPickerName').textContent.indexOf('Hermione') >= 0", 8000);
+
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    // 先确认换人之后表单是空的：别人的档案不该跟过来。
+    assert(await evaluate("document.querySelector('#companionCharCallsUser').value === ''"),
+      "换了角色，上一个人的档案跟过来了");
+    await evaluate(`(() => {
+      const enabled = document.querySelector('#companionEnabled');
+      enabled.checked = true;
+      enabled.dispatchEvent(new Event('change', { bubbles: true }));
+      const relation = document.querySelector('#companionRelation');
+      relation.value = 'partner';
+      relation.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#companionSaveButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+    // 英文卡的关系档案要单独存一份，不能落在中文角色的键上。
+    assert(await evaluate("(async () => (await RoleWorld.store.getKV('companion:Hermione Granger (EN).png', null) || {}).enabled === true)()"),
+      "英文角色的档案没有按角色分别保存");
+
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = 'Hello there';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const text = sent[sent.length - 1].systemText;
+    assert(text.indexOf("[Companion mode]") >= 0, "英文卡没拿到英文伴侣段落");
+    assert(text.indexOf("[陪伴模式]") < 0, "英文卡上不该出现中文伴侣段落");
+    assert(text.indexOf("Relationship: partner") >= 0, "英文段落缺关系");
+    assert(text.indexOf("Today is ") >= 0, "英文段落缺今天的日期");
+    const start = text.indexOf("[Companion mode]");
+    const end = text.indexOf("Hard rules:", start);
+    assert(end > start, "英文段落缺硬规矩");
+    const block = text.slice(start, end);
+    assert(!/[\u4e00-\u9fff]/.test(block), "英文段落里混进了中文：" + JSON.stringify(block.slice(0, 120)));
+    console.log("        英文段落 " + block.length + " 字（" + (text.length - start) + " 字含硬规矩）");
+
+    // 把当前对话切回去，别影响后面的用例。
+    if (previousChat) {
+      await evaluate(`window.TASK21.selectChat(${JSON.stringify(previousChat)}); true`);
+      await waitFor("document.querySelector('#sendButton').disabled === false", 15000);
+    }
   });
 
   await check("AI 写角色：先扩写成提示词，再照提示词写卡", async () => {

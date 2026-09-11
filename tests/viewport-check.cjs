@@ -271,6 +271,36 @@ async function main() {
       await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
     });
 
+    await check(`${viewport.label}：「关系档案」表单能开、能滚、按钮点得到`, async () => {
+      await evaluate("window.TASK21.openCompanionDialog(); true");
+      await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+      const info = await evaluate(`(() => {
+        const surface = document.querySelector('#companionDialog');
+        const card = surface.querySelector('.memory-modal');
+        const save = document.querySelector('#companionSaveButton');
+        const enabled = document.querySelector('#companionEnabled');
+        const doc = document.documentElement;
+        const r = card.getBoundingClientRect();
+        const s = save.getBoundingClientRect();
+        return {
+          // 表单比屏幕高时必须自己滚，否则底部的"保存"永远点不到。
+          scrollable: card.scrollHeight <= card.clientHeight + 1 || getComputedStyle(card).overflowY === 'auto',
+          cardInView: r.top >= -1 && r.left >= -1 && r.right <= window.innerWidth + 1,
+          saveReachable: s.width >= 28 && s.height >= 24,
+          // 开关本身要能被点到（窄屏上很容易被挤成一条缝）。
+          enabledHit: (() => { const e = enabled.getBoundingClientRect(); return e.width >= 13 && e.height >= 13; })(),
+          overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
+        };
+      })()`);
+      assert(info.scrollable, "表单不可滚动，矮屏上保存按钮会点不到");
+      assert(info.cardInView, "表单横向超出视口：" + JSON.stringify(info));
+      assert(info.saveReachable, "保存按钮不可达");
+      assert(info.enabledHit, "伴侣模式开关太小，点不到");
+      assert(info.overflow <= 4, "打开关系档案后出现横向溢出：" + info.overflow);
+      await evaluate("document.querySelector(\"#companionDialog [data-action='close-companion']\").click(); true");
+      await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+    });
+
     await check(`${viewport.label}：触屏上「记错 / 编造」按钮够大好点`, async () => {
       const probe = await evaluate(`(() => {
         const button = document.querySelector('.message-flag');
@@ -301,7 +331,7 @@ async function main() {
     });
 
     // 每个视口检查完把弹层状态清掉，避免影响下一个视口
-    await evaluate("try { window.TASK21.closeRequestPeek(); window.TASK21.closeMemoryPanel(); } catch (_) {} true");
+    await evaluate("try { window.TASK21.closeRequestPeek(); window.TASK21.closeMemoryPanel(); window.TASK21.closeCompanionDialog(); } catch (_) {} true");
   }
 
   await cdp.sessionSend(session, "Page.removeScriptToEvaluateOnNewDocument", { identifier: fixtureScript.identifier });

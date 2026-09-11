@@ -288,6 +288,38 @@ async function main() {
     console.log("        （本用例的合成卡没有图片文件，头像二进制未参与往返）");
   });
 
+  await check("关系档案（伴侣模式）往返后一字不差，而且和记忆书分开存", async () => {
+    const result = await evaluate(`(async () => {
+      await window.TASK21.saveCompanion({ avatar: '甲角色.png' }, {
+        enabled: true, relation: 'partner', relationCustom: '',
+        charCallsUser: '阿林', userCallsChar: '小默',
+        since: '2026-01-01',
+        shared: [{ text: '第一次聊天是在雨天的图书馆' }, { text: '答应过要一起看一次海' }],
+        lastChatAt: '2026-09-10T12:00:00.000Z'
+      });
+      const before = await window.RoleWorld.store.getKV('companion:甲角色.png', null);
+      const dump = await window.RoleWorld.exportArchive();
+      await window.RoleWorld.store.clearAll();
+      await window.RoleWorld.importArchive(dump, { mode: 'replace' });
+      const after = await window.RoleWorld.store.getKV('companion:甲角色.png', null);
+      const books = (await window.RoleWorld.store.listWorlds()).map((w) => w.name);
+      const inMemory = JSON.stringify(await window.RoleWorld.store.getWorld('MB 甲 — 自动记忆'));
+      return {
+        same: JSON.stringify(before) === JSON.stringify(after),
+        after: after, books: books,
+        leakedIntoMemory: inMemory.indexOf('雨天的图书馆') >= 0,
+      };
+    })()`);
+    assert(result.same, "关系档案在往返后变了：" + JSON.stringify(result.after));
+    assert(result.after && result.after.enabled === true && result.after.relation === "partner",
+      "关系档案内容不对：" + JSON.stringify(result.after));
+    assert(result.after.shared.length === 2 && result.after.shared[1].text === "答应过要一起看一次海",
+      "共同经历丢了：" + JSON.stringify(result.after.shared));
+    assert(result.after.lastChatAt === "2026-09-10T12:00:00.000Z", "上次聊天时间丢了");
+    assert(result.books.indexOf("MB 甲 — 自动记忆") >= 0, "记忆书不见了：" + JSON.stringify(result.books));
+    assert(result.leakedIntoMemory === false, "关系档案被混进记忆书了 —— 真实信息和模型记的东西必须分开");
+  });
+
   console.log("== P0-3 长对话压力 ==");
 
   await check("写入 800 轮对话：能列、能开、打开时间可接受", async () => {

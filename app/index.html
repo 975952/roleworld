@@ -229,11 +229,43 @@
         <div class="memory-panel-bar">
           <p class="request-peek-note" id="memoryPanelSubtitle"></p>
           <button class="plain-button" type="button" data-action="add-memory">手动加一条</button>
+          <button class="plain-button" type="button" data-action="open-companion">关系档案</button>
         </div>
         <div class="request-peek-body" id="memoryList"></div>
         <p class="request-peek-notice">这些内容每次对话都会发送给模型服务商。删掉一条，它就不再出现在后续请求里。</p>
       </div>
     </section>
+
+    <!-- 关系档案（伴侣模式）：用户亲手写的关系、称呼、共同经历与时间起点。
+         刻意不放在记忆书里 —— 你写的真实信息，和模型自己记的东西分开存。 -->
+    <div class="confirm-backdrop" id="companionDialog" hidden>
+      <section class="memory-modal" role="dialog" aria-modal="true" aria-labelledby="companionTitle">
+        <button class="modal-close" type="button" data-action="close-companion" aria-label="关闭">×</button>
+        <h2 class="modal-label" id="companionTitle">关系档案</h2>
+        <p class="modal-helper" id="companionSubtitle"></p>
+
+        <label class="modal-field modal-field-check"><span><input type="checkbox" id="companionEnabled"> 给这个角色打开伴侣模式</span></label>
+
+        <div id="companionFields">
+          <label class="modal-field"><span>关系</span><select id="companionRelation"></select></label>
+          <label class="modal-field" id="companionCustomRow" hidden><span>关系名称（自定义）</span><input id="companionRelationCustom" maxlength="12" autocomplete="off" placeholder="例如：师父 / 同桌 / 搭档"></label>
+          <label class="modal-field"><span>他怎么称呼你</span><input id="companionCharCallsUser" maxlength="12" autocomplete="off" placeholder="例如：阿林"></label>
+          <label class="modal-field"><span>你怎么称呼他</span><input id="companionUserCallsChar" maxlength="12" autocomplete="off" placeholder="留空就用角色卡里的名字"></label>
+          <label class="modal-field"><span>关系起点（可留空）</span><input type="date" id="companionSince"></label>
+          <label class="modal-field"><span>你们之间的事（一行一件，最多 8 件）</span><textarea id="companionShared" rows="5" spellcheck="false" placeholder="例如：第一次聊天是在雨天的图书馆"></textarea></label>
+          <p class="modal-helper" id="companionPreview"></p>
+          <p class="modal-helper" id="companionCheck"></p>
+          <details class="companion-rules"><summary>伴侣模式会额外遵守这几条</summary><ol id="companionRuleList"></ol></details>
+          <p class="modal-helper">这份档案只有你自己能改；它不进「角色记忆」，清空记忆也不会动它。每次对话都会把它发给模型服务商。</p>
+        </div>
+
+        <p class="confirm-error" id="companionError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="plain-button" type="button" data-action="close-companion">取消</button>
+          <button class="primary-button" id="companionSaveButton" type="button">保存</button>
+        </div>
+      </section>
+    </div>
 
     <section class="settings-surface" id="settingsSurface" aria-labelledby="settingsTitle" hidden>
       <header class="settings-topbar">
@@ -521,6 +553,7 @@
 <script src="memory-core.js"></script>
 <script src="search-core.js"></script>
 <script src="metrics-core.js"></script>
+<script src="companion-core.js"></script>
   <script src="adapter/store.js"></script>
   <script src="adapter/desktop.js"></script>
 <script src="adapter/model.js"></script>
