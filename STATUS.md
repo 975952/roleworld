@@ -1,5 +1,7 @@
 # 项目状态 · 角色世界（RoleWorld）
 
+> 网站部署分支（2026-09-11）：从 `main` 的 v0.1.13 建立 `codex/web-deploy`，保留桌面应用版不变。该分支已将网站入口中的本地模型提示、登录跳转和 SillyTavern 后端回退移除，并部署到 CloudBase 静态托管环境 `cyan1-d2gpky2z903b86182`。访问地址：<https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com>。上传 40 个静态文件，发布后远端校验通过；未启用数据库、云函数或付费资源。
+
 > 最后更新：2026-09-10 · 当前版本 **v0.1.10**
 > 仓库：https://github.com/975952/roleworld （MIT）
 
