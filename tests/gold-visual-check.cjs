@@ -85,6 +85,8 @@ const MEASURE = `(() => {
     shellBg: bgImage("#appShell") || bgImage(".map-app"),
     shellBgColor: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
     sidebarBg: (() => { const n = document.querySelector(".archive-sidebar"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
+    stageColor: (() => { const n = document.querySelector(".main-stage") || document.querySelector(".map-app .stage-main"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
+    sendButtonBg: (() => { const n = document.getElementById("sendButton"); return n ? getComputedStyle(n).backgroundImage : ""; })(),
     pillBg: (() => {
       const n = document.querySelector(".plain-button") || document.querySelector(".new-conversation-button")
         || document.querySelector(".map-app .cast-chip") || document.querySelector(".map-app .map-node");
@@ -259,10 +261,12 @@ async function main() {
     check("樱（暗）：粉的偏离量收到 2/5（红绿差 ≤20）", r >= 0 && r - g <= 20 && b >= g, `R${r} G${g} B${b}（红绿差 ${r - g}）`);
   }
   {
-    // "整个界面都泛着粉色"的根因是大面上色：侧栏被 --focus 调过色、主区有光晕。
+    // "不要整栏变粉"：侧栏必须回到中性；粉只允许出现在按钮上。
     const [sr, sg, sb] = rgbParts(sakuraDark.sidebarBg);
-    check("樱（暗）：侧栏是中性灰，不泛粉", sr < 0 || (sr - sg <= 6 && Math.abs(sb - sg) <= 6), `${sakuraDark.sidebarBg}`);
-    check("樱（暗）：主区平涂，没有粉色光晕", !/gradient/.test(sakuraDark.stageBg), sakuraDark.stageBg.slice(0, 50) || "none");
+    check("樱（暗）：侧栏不泛粉（中性灰）", sr < 0 || (sr - sg <= 3 && Math.abs(sb - sg) <= 3), `${sakuraDark.sidebarBg}`);
+    const [mr, mg] = rgbParts(sakuraDark.stageColor);
+    check("樱（暗）：主区也不泛粉（中性）", mg < 0 || mr - mg <= 3, `${sakuraDark.stageColor}`);
+    check("樱（暗）：大面不是渐变色块", !/gradient/.test(sakuraDark.stageBg), sakuraDark.stageBg.slice(0, 50) || "none");
     check("樱（暗）：开了氛围也不出现整屏宽的粉带", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);
   }
   {
@@ -272,13 +276,18 @@ async function main() {
     const tint = g < 0 ? 0 : r - g;
     check("樱（暗）：普通按钮不再上粉（粉的面积变小）", tint <= 6, `${sakuraDark.pillBg}（红绿差 ${tint}）`);
   }
-  check("樱（暗）：主按钮是很浅的粉（不是实粉）", rgbLuma(sakuraDark.buttonBg) >= 225 && /gradient/.test(sakuraDark.buttonBg), `${rgbLuma(sakuraDark.buttonBg)} / ${sakuraDark.buttonBg.slice(0, 48)}`);
+  check("樱（暗）：主按钮是明确的粉（不是接近白）", rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1] >= 40, `${sakuraDark.buttonBg.slice(0, 52)}`);
+  {
+    // "有些按钮变粉"：动作按钮（发送）变粉，普通按钮保持中性。
+    const [r, g] = rgbParts(sakuraDark.sendButtonBg);
+    check("樱（暗）：发送按钮也是粉的", g >= 0 ? r - g >= 40 : /gradient/.test(sakuraDark.sendButtonBg), `${sakuraDark.sendButtonBg.slice(0, 52)}`);
+  }
   check("樱（暗）：顶栏是中性，不带粉光", !/gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68) || "none");
   check("樱（暗）：整屏光带被取消", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);
 
   const sakuraLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura", theme: "light" }), [1280, 900]);
   check("樱（亮）：粉也不偏红（色相在 318–330°）", sakuraLight.focusHue >= 318 && sakuraLight.focusHue <= 330, `${sakuraLight.focusHue}°`);
-  check("樱（亮）：主按钮是很浅的粉", rgbLuma(sakuraLight.buttonBg) >= 225, `${rgbLuma(sakuraLight.buttonBg)} / ${sakuraLight.buttonBg.slice(0, 48)}`);
+  check("樱（亮）：主按钮也是明确的粉", rgbParts(sakuraLight.buttonBg)[0] - rgbParts(sakuraLight.buttonBg)[1] >= 40, `${sakuraLight.buttonBg.slice(0, 52)}`);
 
   const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
   const fd = rgbParts(forestDark.shellBgColor);

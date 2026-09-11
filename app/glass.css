@@ -589,13 +589,15 @@ html[data-style="sakura"] .map-app .stage-composer {
 html[data-style="forest"] .map-app .scene-line.is-dice { background: var(--accent-soft); }
 
 /* =====================================================================
-   风格「樱」：粉只剩极小几处
+   风格「樱」：粉在按钮上，不在整栏上
    ---------------------------------------------------------------------
-   用户："现在太粉了，一看整个界面都泛着粉色，看着恶心。"
-   大面已经在上面按回中性平涂；这里只保留：
-     * 主按钮（浅藕粉底）
-     * 选中的那一块（4% 粉底）
-   顶部那条整屏宽的粉光带已在 tokens.css 里取消。
+   一路收下来：更浅 → 区域变小 → 不偏红 → 2/5 → "整个界面泛粉，恶心"
+   → "一点颜色也没有了" → 最后定调：**"不要整栏变粉，做成按钮有些按钮变粉"**。
+   所以最终形态是：
+     * 侧栏 / 主区 / 顶栏：中性平涂（见上面的平涂段），一点粉都不加；
+     * 选中的那一块：4% 粉底（标出"当前选的是谁"）；
+     * **动作按钮是粉的**：发送、新建对话、主按钮、剧情模式主按钮、返校季信的按钮；
+     * 其它按钮（普通/次要按钮、图标按钮、危险按钮）保持中性，层级才分得开。
    ===================================================================== */
 html[data-style="sakura"] .settings-nav-item.is-active,
 html[data-style="sakura"] .history-item.is-active,
@@ -605,16 +607,20 @@ html[data-style="sakura"] .scene-presence.is-on {
   background: color-mix(in srgb, var(--focus) 4%, var(--raised));
 }
 html[data-style="sakura"] .primary-button,
+html[data-style="sakura"] .send-button,
+html[data-style="sakura"] .new-conversation-button,
 html[data-style="sakura"] #seasonLetterEnter,
 html[data-style="sakura"] .map-app .map-button-primary {
   color: var(--button-text);
   background: var(--focus-grad);
-  box-shadow: none;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--wash) 18%, transparent);
 }
 html[data-style="sakura"] .primary-button:hover,
+html[data-style="sakura"] .send-button:hover,
+html[data-style="sakura"] .new-conversation-button:hover,
 html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
-  filter: brightness(.98);
+  filter: brightness(1.05);
 }
 
 /* =====================================================================

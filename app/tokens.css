@@ -24,6 +24,9 @@
   --success: #58a875;
   --error: #c58e88;
   --focus: #8d95ff;
+  /* 大面积底色用的"淡洗色"：默认等于强调色；某个风格想要大面也带一点颜色时
+     单独覆盖它（见樱）。它比 --focus 更实一点才看得出，因为 --focus 往往接近白。 */
+  --wash: var(--focus);
   /* 强调色统一用渐变，不用平涂：需要"亮色"的地方都取这个变量。 */
   --focus-grad: linear-gradient(160deg, color-mix(in srgb, var(--focus) 84%, #ffffff), var(--focus));
   --topbar-bg: rgba(14,15,18,.94);
@@ -234,10 +237,13 @@
   --muted-text: #a6a1a6;
   --quiet-text: #827d82;
   --focus: #f7e5ef;
-  /* 按钮：很浅的藕粉底 + 深梅色字（粉的偏离量只有原来 2/5）。 */
-  --focus-grad: linear-gradient(160deg, #fff7fc, #f9eaf3);
+  /* 大面积底色用的"洗色"：默认不启用（等于强调色），
+     只有需要给"按钮阴影/大面积淡染"一个更实的颜色时才覆盖它。 */
+  --wash: #ff8cc4;
+  /* 动作按钮：明确的樱粉（不是接近白）—— 用户要求"有些按钮变粉"。 */
+  --focus-grad: linear-gradient(160deg, #ffb3d6, #ff8cc4);
   --topbar-bg: rgba(10,10,11,.94);
-  --button-text: #4a1d33;
+  --button-text: #4a1027;
   --overlay: rgba(10,10,11,.93);
   --accent-soft: rgba(247,229,239,.03);
 }
@@ -254,9 +260,10 @@
   --muted-text: #6f686f;
   --quiet-text: #948d94;
   --focus: #dbb6cb;
-  --focus-grad: linear-gradient(160deg, #fff1f9, #f7e2ee);
+  --wash: #f06aab;
+  --focus-grad: linear-gradient(160deg, #ff9ecb, #f06aab);
   --topbar-bg: rgba(252,251,252,.94);
-  --button-text: #5c2140;
+  --button-text: #3a0f2c;
   --overlay: rgba(252,251,252,.94);
   --accent-soft: rgba(219,182,203,.028);
 }
