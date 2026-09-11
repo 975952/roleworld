@@ -268,6 +268,83 @@ async function main() {
     assert.equal(second.rejected.length, 1);
   });
 
+  console.log("== 主题归类与分组（面板按组折叠的数据来源） ==");
+
+  await test("吃喝、称呼、住处、宠物、怕的东西各自归一类", () => {
+    const cases = [
+      ["玩家喜欢咖啡", "饮料"],
+      ["玩家喝乌龙茶", "饮料"],
+      ["玩家爱喝奶茶", "饮料"],
+      ["玩家爱吃辣", "食物"],
+      ["玩家对花生过敏", "食物"],
+      ["玩家叫小林", "称呼"],
+      ["玩家改名叫小琳", "称呼"],
+      ["玩家住在杭州", "住处"],
+      ["玩家养了一只猫叫团子", "宠物"],
+      ["玩家有只狗", "宠物"],
+      ["玩家怕黑", "怕的东西"],
+      ["玩家怕打雷", "怕的东西"],
+    ];
+    for (const [text, expected] of cases) {
+      assert.equal(Memory.inferTopic(text), expected, "归类不对：" + text + " → " + Memory.inferTopic(text));
+    }
+  });
+
+  await test("“养了一只猫叫团子”里的“叫”不算称呼", () => {
+    // 这条踩过：`叫` 当称呼锚点时，宠物会被误判成称呼。
+    assert.equal(Memory.inferTopic("玩家养了一只猫叫团子"), "宠物");
+    assert.equal(Memory.inferTopic("玩家叫小林"), "称呼");
+  });
+
+  await test("按主题分组：条数多的在前，未分类排最后", () => {
+    let entries = {};
+    // 饮料组两条：用两个**不同**主题词但同属饮品的内容，
+    // 刻意不用"同主题替换"（那条路径另有测试），这里只要能凑出两组。
+    entries = Memory.applyMemories(entries, [{ topic: "饮料", content: "玩家喜欢咖啡" }], {}).entries;
+    entries = Memory.applyMemories(entries, [{ topic: "饮料", content: "玩家平时爱喝乌龙茶" }], {}).entries;
+    entries = Memory.applyMemories(entries, [{ topic: "称呼", content: "玩家叫小林" }], {}).entries;
+    // 再放一条推不出词组的，凑出「未分类」这一组。
+    entries = Memory.applyMemories(entries, [{ topic: " ", content: "明天下午三点见" }], {}).entries;
+    const groups = Memory.groupByTopic(entries);
+    const labels = groups.map((g) => g.label);
+    const counts = groups.map((g) => g.rows.length);
+    // 条数最多的组排第一；条数相同时按标签排，所以断言"最大组在前 + 未分类在最后"。
+    assert.equal(Math.max.apply(null, counts), counts[0],
+      "条数最多的组应排第一：" + JSON.stringify(labels) + " " + JSON.stringify(counts));
+    assert.equal(labels[labels.length - 1], "未分类", "未分类应排最后：" + JSON.stringify(labels));
+  });
+
+  await test("『明天下午三点见』这类句子不当主题，归入未分类", () => {
+    // 主题是词组不是句子：硬把整句当主题会让分组碎成一片。
+    assert.equal(Memory.inferTopicOrEmpty("明天下午三点见"), "");
+    const entries = Memory.applyMemories({}, [{ topic: " ", content: "明天下午三点见" }], {}).entries;
+    const groups = Memory.groupByTopic(entries);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].label, "未分类", "应当归入未分类：" + groups[0].label);
+    assert.equal(groups[0].topic, "", "未分类组的 topic 应为空");
+  });
+
+  await test("分组不会丢条目、不会重复", () => {
+    let entries = {};
+    for (const [topic, text] of [["饮料", "玩家喜欢咖啡"], ["称呼", "玩家叫小林"],
+      ["怕的东西", "玩家怕黑"], ["宠物", "玩家养了一只猫叫团子"]]) {
+      entries = Memory.applyMemories(entries, [{ topic: topic, content: text }], {}).entries;
+    }
+    const groups = Memory.groupByTopic(entries);
+    const total = groups.reduce((sum, g) => sum + g.rows.length, 0);
+    assert.equal(total, Object.keys(entries).length, "分组后条目数对不上：" + total);
+    const keys = groups.flatMap((g) => g.rows.map((r) => r.key));
+    assert.equal(new Set(keys).size, keys.length, "有条目被分到了多个组");
+  });
+
+  await test("空记忆与脏数据分组不炸", () => {
+    assert.deepEqual(Memory.groupByTopic({}), []);
+    assert.deepEqual(Memory.groupByTopic(null), []);
+    const groups = Memory.groupByTopic({ 0: { content: "" }, 1: null, 2: { content: "玩家怕黑" } });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].rows.length, 1);
+  });
+
   console.log("== 忠实读取 ==");
 
   await test("读取时按 uid 排序，顺序稳定", () => {

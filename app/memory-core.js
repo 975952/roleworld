@@ -141,6 +141,9 @@
    * 所以先认"锚点"：一句话只要在说这件事，就统一归到同一个主题词，
    * 改口才能真正覆盖。锚点不命中时再退回按句式取具体词。 */
   const TOPIC_ANCHORS = [
+    // 顺序很重要：先匹配先赢。
+    // 「养了一只猫叫团子」里的「叫」不是称呼，所以把宠物放在称呼前面。
+    [/养了|养的|宠物|一只猫|一只狗|养猫|养狗|猫叫|狗叫|有只猫|有只狗|有猫|有狗/, "宠物"],
     // 注意把 `叫` 放到最后：正则的可选分支是"先匹配先赢"，
     // 写在前面的 `叫我` 会把 `叫小林` 里的 `叫` 提前吃掉。
     [/称呼|名字|姓名|外号|昵称|改名叫|名叫|大家都叫|叫/, "称呼"],
@@ -148,6 +151,12 @@
     [/年龄|生日|多大|几岁/, "年龄"],
     [/工作|职业|公司|上班|上学|学校|专业/, "工作"],
     [/约定|约好|答应|计划|见面|碰头/, "约定"],
+    // 怕的东西：光说"怕黑"里的"黑"太碎，和"怕打雷"对不上，统一归一类。
+    [/怕黑|怕高|怕水|怕火|怕打雷|害怕|最怕|恐惧|怕/, "怕的东西"],
+    // 吃喝是同一类话题：说"喝乌龙茶"和说"喜欢咖啡"都是在讲饮品。
+    [/喝的|饮料|喝茶|喝咖啡|喝酒|咖啡|奶茶/, "饮料"],
+    // 食物同理：吃面、口味、忌口都算一件事。
+    [/吃的|食物|口味|忌口|过敏|不吃|爱吃/, "食物"],
   ];
 
   function anchorTopic(text) {
@@ -169,19 +178,34 @@
     const anchor = anchorTopic(text);
     if (anchor) return anchor;
     const patterns = [
-      /(?:喜欢|不喜欢|爱喝|爱吃|爱|讨厌|最怕|害怕|怕|担心|想要|在学|正在学|会)([^，。；、！？,;!?\s]{1,12})/,
+      /(?:喜欢|不喜欢|爱喝|爱|讨厌|最怕|害怕|怕|担心|想要|在学|正在学|会|喝|吃)([^，。；、！？,;!?\s]{1,12})/,
       /(?:住在|来自|在)([^，。；、！？,;!?\s]{1,10})(?:工作|上学|生活|住)/,
     ];
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        const topic = normalizeTopic(match[1]);
+        const topic = refineTopic(normalizeTopic(match[1]), text);
         if (topic) return topic;
       }
     }
     // 没有可用的句式：取第一个逗号前的主体，并剥掉"玩家/我"这类主语。
     const clause = text.split(/[，。；、！？,;!?\s]/)[0] || "";
-    return normalizeTopic(clause.replace(/^(?:玩家|用户|我|你们|你)/, ""));
+    return refineTopic(normalizeTopic(clause.replace(/^(?:玩家|用户|我|你们|你)/, "")), text);
+  }
+
+  /* 主题是**词组**，不是句子。
+   * 像「明天下午三点见」「玩家答应帮哈利找线索」这种推出来是整句或动作，
+   * 拿它当主题只会让分组碎成一片；这类一律不归组（面板里进「未分类」），比硬塞一个好。 */
+  const TOPIC_MAX_LENGTH = 6;
+  // 带这些字的"主题"基本是句子或动作，不是"一件事"的名字。
+  const TOPIC_VERB_RE = /[见去来想要能在得给做说找帮走回很太都]/;
+
+  function inferTopicOrEmpty(content) {
+    const topic = inferTopic(content);
+    if (!topic) return "";
+    if (topic.length > TOPIC_MAX_LENGTH) return "";
+    if (TOPIC_VERB_RE.test(topic)) return "";
+    return topic;
   }
 
   /* 同义词：模型今天写「称呼」、昨天写「名字」，指的是同一件事。
@@ -207,12 +231,27 @@
     return value;
   }
 
+  /* 饮品/食物的具体名字：乌龙茶、拿铁、火锅、拉面…… 这些是"具体值"，
+   * 它们会变（今天喝乌龙茶、明天喝拿铁），但说的是同一件事：饮品 / 食物。
+   * 不归到一起，"改口"就覆盖不了，面板里也会碎成十几个主题。 */
+  const DRINK_WORD_RE = /茶|咖啡|奶茶|拿铁|可乐|果汁|汽水|啤酒|红酒|白酒|牛奶|豆浆|饮料/;
+  const FOOD_WORD_RE = /饭|面|粉|粥|火锅|烧烤|蛋糕|面包|水果|零食|辣|甜|咸|素|荤|肉|过敏/;
+
+  function refineTopic(topic, content) {
+    const value = topic || "";
+    const text = cleanText(content, 500);
+    if (!text) return value;
+    if (value !== "饮料" && DRINK_WORD_RE.test(text)) return "饮料";
+    if (value !== "食物" && value !== "饮料" && FOOD_WORD_RE.test(text)) return "食物";
+    return value;
+  }
+
   /** 读一条记忆的主题。
    * 顺序很重要：**先按当前规则从正文重算**，再退回记下来的元数据。
    * 因为规则会随版本改进，早年存下的主题可能已经过时（"叫小林" → 现在是"称呼"），
    * 只认存下来的值会导致老条目永远覆盖不了。 */
   function entryTopic(entry) {
-    const inferred = inferTopic(entry && entry.content);
+    const inferred = inferTopicOrEmpty(entry && entry.content);
     if (inferred) return inferred;
     return entry && entry.rw_source ? normalizeTopic(entry.rw_source.topic) : "";
   }
@@ -334,7 +373,7 @@
         rejected.push({ content: text, reason: verdict.reason });
         return;
       }
-      if (!topic) topic = inferTopic(text);
+      if (!topic) topic = inferTopicOrEmpty(text);
 
       // 内容完全一样：跳过，不重复记。
       const duplicateKey = Object.keys(next).find((key) => cleanText(next[key] && next[key].content, 2000) === text);
@@ -421,6 +460,26 @@
     return { ok: true, entries: next };
   }
 
+  /**
+   * 按主题分组，供记忆面板折叠显示。
+   * 没有主题的条目归到「未分类」（固定排在最后），组内按 uid 排序。
+   */
+  function groupByTopic(entries) {
+    const rows = listEntries(entries);
+    const groups = new Map();
+    for (const row of rows) {
+      const topic = row.topic || "";
+      const key = topic || "未分类";
+      if (!groups.has(key)) groups.set(key, { topic: topic, label: topic || "未分类", rows: [] });
+      groups.get(key).rows.push(row);
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+      if (!a.topic !== !b.topic) return a.topic ? -1 : 1;
+      if (b.rows.length !== a.rows.length) return b.rows.length - a.rows.length;
+      return String(a.label).localeCompare(String(b.label), "zh-Hans-CN");
+    });
+  }
+
   return {
     ORIGIN,
     DEFAULT_MAX,
@@ -430,9 +489,11 @@
     classifyMemory,
     normalizeTopic,
     inferTopic,
+    inferTopicOrEmpty,
     entryTopic,
     isSameTopic,
     listEntries,
+    groupByTopic,
     nextUid,
     trim,
     applyMemories,

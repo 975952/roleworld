@@ -929,6 +929,19 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .memory-list .request-peek-book-content { flex: 1; min-width: 0; }
 .memory-list .request-peek-book-source { flex: 0 0 100%; }
 .memory-actions { display: flex; gap: 6px; }
+
+/* ---------- 记忆面板：分组折叠 + 用量 + 来源跳转 ---------- */
+.memory-usage { margin: 0 0 10px; color: var(--muted-text); font-size: 12px; }
+.memory-group { margin-bottom: 6px; }
+.memory-group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.memory-group-toggle { flex: 1; min-width: 0; padding: 6px 0; color: var(--main-text); font: inherit; font-size: 13px; font-weight: 600; text-align: left; border: 0; background: none; cursor: pointer; }
+.memory-group-toggle:hover { color: var(--focus); }
+.memory-group .memory-list { padding-left: 12px; padding-bottom: 8px; }
+.memory-source-link { padding: 0; color: var(--quiet-text); font: inherit; font-size: 11px; text-decoration: underline; border: 0; background: none; cursor: pointer; }
+.memory-source-link:hover { color: var(--secondary-text); }
+.memory-panel-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+/* 跳过去的源消息闪一下，方便一眼看到 */
+.memory-source-hit { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: var(--base-radius); transition: outline-color var(--hover-motion) ease; }
 .memory-edit { min-width: 220px; flex: 1; }
 .memory-add-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 

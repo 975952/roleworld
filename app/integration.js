@@ -1019,7 +1019,7 @@
     liveState.memoryEntries = data.entries;
     if (subtitle) {
       subtitle.textContent = `${entry.charName || entry.name} · 《${data.bookName}》 共 ${data.rows.length} 条`
-        + `（上限 ${AUTO_MEMORY_MAX} 条，超出会挤掉最旧的）`;
+        + `（上限 ${autoMemoryMax()} 条，超出会挤掉最旧的）`;
     }
     renderMemoryList();
   }
@@ -1036,37 +1036,194 @@
       list.appendChild(empty);
       return;
     }
-    const holder = document.createElement("ol");
-    holder.className = "request-peek-book-list memory-list";
-    rows.forEach((item) => {
-      const li = document.createElement("li");
-      li.dataset.key = item.key;
-      const content = document.createElement("span");
-      content.className = "request-peek-book-content";
-      content.textContent = item.content;
-      li.appendChild(content);
-      const meta = document.createElement("span");
-      meta.className = "request-peek-book-source";
-      meta.textContent = describeMemorySource(item.source, item.topic, item.replacedContent);
-      li.appendChild(meta);
-      const actions = document.createElement("span");
-      actions.className = "memory-actions";
-      const edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "plain-button";
-      edit.textContent = "改";
-      edit.addEventListener("click", () => editMemoryEntry(item.key, content));
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "plain-button";
-      remove.textContent = "删";
-      remove.addEventListener("click", () => deleteMemoryEntry(item.key));
-      actions.appendChild(edit);
-      actions.appendChild(remove);
-      li.appendChild(actions);
-      holder.appendChild(li);
+
+    const core = window.ROLEWORLD_MEMORY_CORE;
+    const groups = core && typeof core.groupByTopic === "function"
+      ? core.groupByTopic(liveState.memoryEntries || {})
+      : [{ topic: "", label: "全部", rows: rows }];
+
+    // 条数用量：还剩多少额度一眼可见。
+    const max = autoMemoryMax();
+    const usage = document.createElement("p");
+    usage.className = "memory-usage";
+    usage.textContent = `已用 ${rows.length} / 上限 ${max} 条`
+      + (rows.length >= max ? "（已满，再记会挤掉最旧的）" : "");
+    list.appendChild(usage);
+
+    groups.forEach((group, groupIndex) => {
+      const section = document.createElement("section");
+      section.className = "memory-group";
+
+      const head = document.createElement("div");
+      head.className = "memory-group-head";
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "memory-group-toggle";
+      // 第一组默认展开：多数时候用户只想看"最近记了什么"。
+      const startOpen = groupIndex === 0;
+      toggle.setAttribute("aria-expanded", startOpen ? "true" : "false");
+      toggle.textContent = `${startOpen ? "▾" : "▸"} ${group.label}（${group.rows.length}）`;
+      head.appendChild(toggle);
+
+      const groupActions = document.createElement("span");
+      groupActions.className = "memory-actions";
+      const clearGroup = document.createElement("button");
+      clearGroup.type = "button";
+      clearGroup.className = "plain-button";
+      clearGroup.textContent = "清空这组";
+      clearGroup.addEventListener("click", () => { clearMemoryGroup(group).catch(() => {}); });
+      groupActions.appendChild(clearGroup);
+      head.appendChild(groupActions);
+      section.appendChild(head);
+
+      const body = document.createElement("ol");
+      body.className = "request-peek-book-list memory-list";
+      body.hidden = !startOpen;
+      group.rows.forEach((item) => body.appendChild(memoryRowNode(item)));
+      section.appendChild(body);
+
+      toggle.addEventListener("click", () => {
+        const open = !body.hidden;
+        body.hidden = open;
+        toggle.setAttribute("aria-expanded", open ? "false" : "true");
+        toggle.textContent = `${open ? "▸" : "▾"} ${group.label}（${group.rows.length}）`;
+      });
+
+      list.appendChild(section);
     });
-    list.appendChild(holder);
+
+    // 一键清空该角色全部记忆：二次确认，并明说"删了就真的不再带上"。
+    const footer = document.createElement("div");
+    footer.className = "memory-panel-foot";
+    const clearAll = document.createElement("button");
+    clearAll.type = "button";
+    clearAll.className = "danger-button";
+    clearAll.textContent = `清空这个角色的全部记忆（${rows.length} 条）`;
+    clearAll.addEventListener("click", () => { clearAllMemories().catch(() => {}); });
+    footer.appendChild(clearAll);
+    list.appendChild(footer);
+  }
+
+  /** 一条记忆的 DOM：改 / 删 / 看原话都在这里。 */
+  function memoryRowNode(item) {
+    const li = document.createElement("li");
+    li.dataset.key = item.key;
+    const content = document.createElement("span");
+    content.className = "request-peek-book-content";
+    content.textContent = item.content;
+    li.appendChild(content);
+
+    const meta = document.createElement("span");
+    meta.className = "request-peek-book-source";
+    meta.textContent = describeMemorySource(item.source, item.topic, item.replacedContent);
+    // P1-3 来源可追溯：点一下跳回那句原话（那段对话还在的话）。
+    if (item.source && item.source.file) {
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.className = "memory-source-link";
+      jump.textContent = "看原话";
+      jump.title = "跳到这句记忆的来源消息";
+      jump.addEventListener("click", () => { jumpToMemorySource(item).catch(() => {}); });
+      meta.appendChild(document.createTextNode(" "));
+      meta.appendChild(jump);
+    }
+    li.appendChild(meta);
+
+    const actions = document.createElement("span");
+    actions.className = "memory-actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "plain-button";
+    edit.textContent = "改";
+    edit.addEventListener("click", () => editMemoryEntry(item.key, content));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "plain-button";
+    remove.textContent = "删";
+    remove.addEventListener("click", () => deleteMemoryEntry(item.key));
+    actions.appendChild(edit);
+    actions.appendChild(remove);
+    li.appendChild(actions);
+    return li;
+  }
+
+  /** 清空某一组（同主题）记忆。 */
+  async function clearMemoryGroup(group) {
+    const keys = (group.rows || []).map((row) => row.key);
+    if (!keys.length) return;
+    if (!window.confirm(`清空「${group.label}」的 ${keys.length} 条记忆？删掉后不会再出现在后续对话里。`)) return;
+    const next = Object.assign({}, liveState.memoryEntries || {});
+    keys.forEach((key) => { delete next[String(key)]; });
+    if (await saveMemoryEntries(next)) showToast(`已清空「${group.label}」的 ${keys.length} 条`);
+    await openMemoryPanel();
+  }
+
+  /** 清空该角色的全部自动记忆。 */
+  async function clearAllMemories() {
+    const rows = liveState.memoryRows || [];
+    if (!rows.length) return;
+    if (!window.confirm(`清空这个角色的全部 ${rows.length} 条记忆？删掉后不会再出现在后续对话里。`)) return;
+    if (await saveMemoryEntries({})) showToast(`已清空 ${rows.length} 条记忆`);
+    await openMemoryPanel();
+  }
+
+  /**
+   * 跳到某条记忆的来源消息。找不到就明说（对话可能已被删除），不装作跳成功。
+   * 返回值只用于测试与诊断：{ found, session, marked, reason }。
+   */
+  async function jumpToMemorySource(item) {
+    const source = item && item.source ? item.source : {};
+    const file = String(source.file || "");
+    if (!file) { showToast("这条记忆没有记录来源"); return { found: false, reason: "no-source" }; }
+    const model = liveState.chatModel;
+    if (!model) { showToast("对话还没准备好"); return { found: false, reason: "no-model" }; }
+
+    // 文件名比对要容忍后缀差异：会话表里的名字是去掉 .jsonl 的，
+    // 而记忆里存的是原始文件名（带 .jsonl）。真踩过这个坑 —— 不修就永远找不到来源对话。
+    const baseName = (value) => String(value || "").replace(/\.jsonl$/i, "");
+    const same = (candidate) => candidate === file || baseName(candidate) === baseName(file);
+    const findTarget = () => model.getSessions().find((session) => same(session.fileName) || same(session.id)) || null;
+
+    let target = findTarget();
+    if (!target) {
+      // 内存里没有就重拉一次：来源那段可能已经归档，不在主列表里。
+      try { await model.refresh(); } catch (_) { /* 拉取失败就按找不到处理 */ }
+      target = findTarget();
+    }
+    if (!target) {
+      showToast("那段来源对话已经不在了（可能被删除）");
+      return { found: false, reason: "missing", wanted: file };
+    }
+
+    closeMemoryPanel();
+    const alreadyOpen = liveState.activeSession && same(liveState.activeSession.fileName);
+    if (!alreadyOpen) {
+      try {
+        await selectChat(target.id || target.fileName);
+      } catch (_) {
+        showToast("打开那段对话失败");
+        return { found: true, marked: false, reason: "select-failed" };
+      }
+    }
+    const marked = markSourceMessage(item, source);
+    if (!marked) showToast(alreadyOpen ? "没能定位到那条消息（可能已被编辑或删除）" : "对话已打开，但没能定位到那条消息（可能已被编辑或删除）");
+    return { found: true, marked: marked, session: target.fileName, reopened: !alreadyOpen };
+  }
+
+  /** 在已渲染的消息里标出源消息：先按内容找，找不到再用序号兜底。 */
+  function markSourceMessage(item, source) {
+    const container = document.querySelector("#dynamicMessages") || document.querySelector("#chatScroll");
+    if (!container) return false;
+    const rows = Array.from(container.querySelectorAll(".message-row"));
+    const wanted = String(item.content || "").trim();
+    const index = Number(source.messageIndex);
+    let hit = wanted ? rows.find((row) => row.textContent.indexOf(wanted) >= 0) : null;
+    if (!hit && Number.isFinite(index) && index >= 0 && rows[index]) hit = rows[index];
+    if (!hit) return false;
+    hit.classList.add("memory-source-hit");
+    hit.scrollIntoView({ block: "center" });
+    window.setTimeout(() => hit.classList.remove("memory-source-hit"), 2600);
+    return true;
   }
 
   async function saveMemoryEntries(entries) {
@@ -1158,7 +1315,7 @@
       if (!trimmed) { close(); return; }
       confirm.disabled = true;
       const result = window.ROLEWORLD_MEMORY_CORE.applyMemories(liveState.memoryEntries || {}, [trimmed], {
-        max: AUTO_MEMORY_MAX,
+        max: autoMemoryMax(),
         origin: window.ROLEWORLD_MEMORY_CORE.ORIGIN.USER,
         // 手动加的记忆：来源写"你自己写的"，不编造来自哪段对话。
         source: { origin: window.ROLEWORLD_MEMORY_CORE.ORIGIN.USER, file: "", messageIndex: null },
@@ -1245,7 +1402,16 @@
 
   /* ---------- 角色记忆：按角色归属 + 模型自动记 ---------- */
   const AUTO_MEMORY_BOOK = "自动记忆";
-  const AUTO_MEMORY_MAX = 50;
+  // 上限默认值。用户可以在「设置 → 模型」里改（auto_memory_max），
+  // 因为"记多少条"跟模型上下文与个人习惯有关，写死一个数字不合适。
+  const AUTO_MEMORY_MAX_DEFAULT = 50;
+
+  function autoMemoryMax() {
+    const value = Number(liveState.localSettings && liveState.localSettings.auto_memory_max);
+    if (!Number.isFinite(value) || value <= 0) return AUTO_MEMORY_MAX_DEFAULT;
+    // 下限 5 条（再少就没意义了），上限 500 条（再多会吃掉大量上下文）。
+    return Math.min(500, Math.max(5, Math.floor(value)));
+  }
 
   // 把模型给的要点写进「MB <角色短名> — 自动记忆」。
   // 每条记下来源（哪段对话的第几条消息、什么时候、谁写的）与主题；
@@ -1263,7 +1429,7 @@
       if (existing && existing.entries) data = existing;
     } catch (_) { /* 还没有这本书，下面新建 */ }
     const result = memory.applyMemories(data.entries || {}, memories, {
-      max: AUTO_MEMORY_MAX,
+      max: autoMemoryMax(),
       source: Object.assign({ origin: memory.ORIGIN.MODEL }, source || {}),
     });
     if (!result.added) return result;
@@ -3092,6 +3258,13 @@
     closeRequestPeek,
     openMemoryPanel,
     closeMemoryPanel,
+    clearAllMemories,
+    clearMemoryGroup,
+    jumpToMemorySource,
+    // 诊断用：当前打开的对话文件名、会话表（含归档）、手动刷新会话表。
+    activeChatFileName: () => (liveState.activeSession && liveState.activeSession.fileName) || "",
+    sessionFiles: () => (liveState.chatModel ? liveState.chatModel.getSessions().map((s) => s.fileName) : []),
+    refreshSessions: () => (liveState.chatModel ? liveState.chatModel.refresh() : Promise.resolve()),
     flagTurnFromMessage,
     addMemoryEntry,
     isLiveBusy: () => liveState.pending,

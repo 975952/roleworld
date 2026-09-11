@@ -79,6 +79,10 @@
     pick("history-budget").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.history_token_budget) > 0 ? settings.history_token_budget : "";
     });
+    // 自动记忆上限：留空用默认 50。
+    pick("memory-max").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.auto_memory_max) > 0 ? settings.auto_memory_max : "";
+    });
 
     // 单价提示：把币种、时段、高峰翻倍一次说清（官方英文页用美元报价，容易被误读成"价格不对"）。
     const pricing = global.RoleWorldPricing;
@@ -127,8 +131,14 @@
     const historyBudget = first("history-budget");
     if (historyBudget) {
       const raw = String(historyBudget.value || "").trim();
-      // 留空 = 用默认（60000）。填了就是填的值，下限 1000，避免填 0 把历史全关掉。
+      // 留空 = 用默认（不限制）。填了就是填的值，下限 1000，避免填 0 把历史全关掉。
       patch.history_token_budget = raw === "" ? 0 : Math.max(1000, Number(raw) || 0);
+    }
+    const memoryMax = first("memory-max");
+    if (memoryMax) {
+      const raw = String(memoryMax.value || "").trim();
+      // 留空 = 用默认 50；填了就按填的算，下限 5 上限 500。
+      patch.auto_memory_max = raw === "" ? 50 : Math.min(500, Math.max(5, Number(raw) || 50));
     }
     await adapter.saveLocalSettings(patch);
     await refresh();

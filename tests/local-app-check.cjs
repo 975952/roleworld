@@ -831,6 +831,138 @@ async function main() {
     assert(last.systemText.indexOf("不要猜测") >= 0, "翻不到时没有禁止编造");
   });
 
+  await check("记忆面板按主题分组、能折叠、显示用量", async () => {
+    // 先塞两条记忆（不同主题），这样才有多个分组可看。
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const store = window.RoleWorld.store;
+      const book = 'MB Harry — 自动记忆';
+      let data = { entries: {} };
+      try { const existing = await store.getWorld(book); if (existing && existing.entries) data = existing; } catch (_) {}
+      let entries = core.applyMemories(data.entries || {}, [
+        { topic: '饮料', content: '玩家喜欢咖啡' },
+        { topic: '怕的东西', content: '玩家怕黑' }
+      ], {}).entries;
+      await store.putWorld(book, { entries });
+      return true;
+    })()`);
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    await waitFor("document.querySelectorAll('#memoryList .memory-group').length >= 2", 8000);
+
+    const probe = await evaluate(`(() => {
+      const groups = Array.from(document.querySelectorAll('#memoryList .memory-group'));
+      const first = groups[0];
+      const toggle = first.querySelector('.memory-group-toggle');
+      const body = first.querySelector('.memory-list');
+      return {
+        groupCount: groups.length,
+        labels: groups.map((g) => g.querySelector('.memory-group-toggle').textContent.trim()),
+        firstOpen: !body.hidden,
+        usage: (document.querySelector('.memory-usage') || {}).textContent || '',
+        hasClearAll: !!document.querySelector('.memory-panel-foot .danger-button'),
+        clearAllText: (document.querySelector('.memory-panel-foot .danger-button') || {}).textContent || ''
+      };
+    })()`);
+    assert(probe.groupCount >= 2, "没有按主题分组：" + JSON.stringify(probe.labels));
+    assert(probe.firstOpen === true, "第一组默认应当展开");
+    assert(/已用 \d+ \/ 上限 \d+ 条/.test(probe.usage), "没有显示条数用量：" + JSON.stringify(probe.usage));
+    assert(probe.hasClearAll, "没有一键清空按钮");
+    assert(/清空这个角色的全部记忆/.test(probe.clearAllText), "一键清空按钮文案不对：" + probe.clearAllText);
+
+    // 折叠：点一下收起，再点一下展开
+    await evaluate("document.querySelector('.memory-group-toggle').click(); true");
+    await waitFor("document.querySelector('#memoryList .memory-group .memory-list').hidden === true", 5000);
+    await evaluate("document.querySelector('.memory-group-toggle').click(); true");
+    await waitFor("document.querySelector('#memoryList .memory-group .memory-list').hidden === false", 5000);
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+  });
+
+  await check("一键清空该角色全部记忆：清完后面板为空、下一轮请求不再带上", async () => {
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    await waitFor("document.querySelector('.memory-panel-foot .danger-button') !== null", 8000);
+
+    // confirm 在无头环境会挂起，测试里替换成"确定"。
+    await evaluate(`(() => {
+      window.__origConfirm = window.confirm;
+      window.confirm = () => true;
+      return true;
+    })()`);
+    await evaluate("document.querySelector('.memory-panel-foot .danger-button').click(); true");
+    await waitFor("document.querySelector('#memoryList').textContent.indexOf('还没有记忆') >= 0", 10000);
+    await evaluate("window.confirm = window.__origConfirm; true");
+
+    const left = await evaluate("(async () => (await window.STApi.getWorld('MB Harry — 自动记忆')).entries)()");
+    assert(Object.keys(left || {}).length === 0, "清空后记忆书里还有条目：" + JSON.stringify(Object.keys(left || {})));
+
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
+
+    // 下一轮请求的系统提示里不该再有被清掉的内容
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '清空记忆之后再说一句';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const last = sent[sent.length - 1];
+    // 注意：提示词模板里带了示例「[[记住: 喜欢的饮料 | 玩家喜欢咖啡]]」，
+    // 所以不能按"玩家喜欢咖啡"这种子串判断 —— 要按**记忆书段落**判断。
+    const bookStart = last.systemText.indexOf("[Memory Book: MB Harry — 自动记忆");
+    assert(bookStart < 0,
+      "清空后记忆书仍出现在请求里：" + JSON.stringify(last.systemText.slice(Math.max(0, bookStart), bookStart + 120)));
+    assert(last.systemText.indexOf("] 玩家喜欢咖啡") < 0, "清空后旧记忆条目还出现在请求里");
+    assert(last.systemText.indexOf("] 玩家怕黑") < 0, "清空后旧记忆条目还出现在请求里");
+  });
+
+  await check("记忆的「看原话」能跳回来源消息", async () => {
+    // 造一条带来源的记忆：来源指向 fixture 里那段旧对话的第 1 条（"我养了一只猫叫团子"）。
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const store = window.RoleWorld.store;
+      const book = 'MB Harry — 自动记忆';
+      const entries = core.applyMemories({}, [{ topic: '宠物', content: '玩家养了一只猫' }], {
+        source: { file: 'harry-以前的对话.jsonl', messageIndex: 0, at: '2026-09-11T01:00:00.000Z' }
+      }).entries;
+      await store.putWorld(book, { entries });
+      return true;
+    })()`);
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    const link = await waitFor("document.querySelector('.memory-source-link') !== null", 8000);
+    assert(link, "没有「看原话」入口");
+
+    // 直接调跳转函数（比点按钮更好诊断：能看到它到底走到哪一步）。
+    const jump = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      const item = core.listEntries(world.entries)[0];
+      const before = {
+        files: window.TASK21.sessionFiles(),
+        active: window.TASK21.activeChatFileName(),
+        want: item.source.file
+      };
+      const result = await window.TASK21.jumpToMemorySource(item);
+      return {
+        before: before,
+        result: result || null,
+        panelHidden: document.querySelector('#memoryPanel').hidden,
+        active: window.TASK21.activeChatFileName()
+      };
+    })()`);
+    assert(jump.panelHidden === true, "点了「看原话」但面板没关：" + JSON.stringify(jump));
+
+    // 面板应关闭、并切到来源那段对话
+    await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
+    await waitFor("document.querySelector('#dynamicMessages').textContent.indexOf('团子') >= 0", 15000);
+    const marked = await evaluate("document.querySelectorAll('.memory-source-hit').length");
+    assert(marked >= 1, "跳到对话后没有标出来源消息");
+  });
+
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {
     await waitTurnSettled();
     const sent = requests.filter((row) => row.stream === true);
