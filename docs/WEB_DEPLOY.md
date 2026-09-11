@@ -6,13 +6,29 @@
 
 部署目录是 `app/`。发布前运行 `node scripts/prepare-desktop.cjs`，它会把仓库内的 `packs/` 同步到 `app/packs/`；该目录是构建产物，不提交到 Git。
 
-使用腾讯云 CloudBase CLI 时：
+当前环境：`cyan1-d2gpky2z903b86182`（体验版，2027-03-11 到期），站点
+<https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com>。
+
+使用腾讯云 CloudBase CLI 时（`--verify` 上传后逐文件校验、`--safe` 发布前备份且失败自动回滚）：
 
 ```text
-tcb hosting deploy app -e <CloudBase 环境 ID>
+npx --yes --package @cloudbase/cli tcb hosting deploy app ^
+  -e cyan1-d2gpky2z903b86182 ^
+  --verify --safe
 ```
 
+这台机器上已全局安装 `@cloudbase/cli`，也可以直接用 `tcb hosting deploy app -e cyan1-d2gpky2z903b86182 --verify --safe`。
+
 网站根目录必须能直接访问 `index.html`，并保留 `magic-map.html`、`about.html`、`adapter/` 和 `packs/` 的相对路径。
+
+### 发布后怎么核对
+
+1. `tcb hosting list -e cyan1-d2gpky2z903b86182`：远端应比本地多出 6 个 CloudBase 自带的
+   系统文件（`__auth/*`、`cloud-admin/index.html`），其余必须与 `app/` 一一对应；
+2. 逐文件比对线上与本地字节数（带 `Cache-Control: no-cache` 绕开 CDN）；
+3. **注意**：CloudBase 边缘防护会对无头浏览器返回「风险提醒」页（HTTP 404），
+   而 `curl` / PowerShell 带同样的 User-Agent 能正常拿到 200 —— 所以
+   **自动化浏览器验收在这条链路上不可用，最终必须人眼在真实浏览器里点一次**。
 
 ## 数据与模型边界
 
