@@ -839,7 +839,7 @@
 
   /** 「本次请求」面板里的一行：输入占了多少上下文、输出上限是多少（两件事分开写）。 */
   function setPeekBudget(list, core, info) {
-    const budget = core.checkContextBudget({ inputTokens: info.totalTokens, mode: liveState.modelMode });
+    const budget = core.checkContextBudget(Object.assign({ inputTokens: info.totalTokens }, contextBudgetOptions()));
     const share = budget.context > 0 ? Math.round((budget.input / budget.context) * 100) : 0;
     const line = document.createElement("div");
     line.className = "request-peek-dropped";
@@ -1885,13 +1885,28 @@
     return "";
   }
 
+  /** 上下文上限：DeepSeek 官方按 1M；本地/自定义端点按设置里填的值（默认 32768）。 */
+  function contextBudgetOptions() {
+    const settings = liveState.localSettings || {};
+    const mode = liveState.modelMode || "local";
+    const known = window.TASK22_CORE && window.TASK22_CORE.isDeepSeekChatMode(mode);
+    const local = Number(settings.local_context);
+    // 这个设置只对本地 / 自定义端点生效。**不能拿它去套 DeepSeek 官方**：
+    // 官方是 1M 上下文、输出上限 32768，用 32768 当上下文会让"输入 + 输出"必然超限，
+    // 结果是每一次发送都被自己的预检拦下来（这个坑刚踩过一次）。
+    return {
+      mode: mode,
+      contextLimit: !known && Number.isFinite(local) && local >= 2000 ? local : undefined,
+    };
+  }
+
   function estimateNextRequest() {
     const pricing = window.RoleWorldPricing;
     const core = window.TASK22_CORE;
     if (!pricing || !core) return null;
     const mode = liveState.modelMode || "local";
     const output = core.outputLimitFor(mode);
-    const context = core.contextLimitFor(mode);
+    const context = core.contextLimitFor(mode, contextBudgetOptions().contextLimit);
     const draft = ($("#messageInput") && $("#messageInput").value ? $("#messageInput").value : "").trim();
     const draftTokens = draft ? pricing.estimateTokens(draft) : 0;
     // 基线用台账里上一轮的值：接口回了 usage 就是真值，没回就是按字数估的（exact=false）。
@@ -3251,10 +3266,9 @@
       });
       // P2-2：发送前把「输入 + 输出上限」与上下文对一次。超了就直接说该改什么，
       // 而不是等接口回一个 400、再让用户猜是哪里超了。
-      const budget = window.TASK22_CORE.checkContextBudget({
+      const budget = window.TASK22_CORE.checkContextBudget(Object.assign({
         inputTokens: window.RoleWorldPricing.tokensFromMessages(payload.messages),
-        mode: liveState.modelMode,
-      });
+      }, contextBudgetOptions()));
       if (!budget.ok) {
         const overflow = new Error(budget.message);
         overflow.code = "CONTEXT_OVERFLOW";

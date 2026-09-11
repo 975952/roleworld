@@ -929,6 +929,27 @@ async function main() {
     assert.ok(check.message.indexOf("32768") >= 0, "应当写出上限是多少：" + check.message);
   });
 
+  await test("本地端点的上下文可以自己填，猜错了能改", () => {
+    // 本地模型 8k / 32k / 128k 都有，按一个数字硬猜会误拦；所以允许覆盖。
+    assert.equal(Core22.contextLimitFor("local", 131072), 131072);
+    assert.equal(Core22.contextLimitFor("local", 2000), 2000);
+    assert.equal(Core22.contextLimitFor("local", 100), 32768, "太小的值视为没填");
+    assert.equal(Core22.contextLimitFor("local", "abc"), 32768);
+    // 核心函数是"显式传了就用传的"；**要不要传是调用方的事** ——
+    // 界面上只在本地/自定义端点才传（DeepSeek 官方固定 1M，用 32k 去套会让每次发送都被拦）。
+    assert.equal(Core22.contextLimitFor("deepseek-flash", 8000), 8000);
+    const tight = Core22.checkContextBudget({ inputTokens: 9000, mode: "local", contextLimit: 8192 });
+    assert.equal(tight.ok, false, "8k 上下文的本地模型应当被拦下");
+    assert.ok(tight.message.indexOf("本地/自定义端点") >= 0, "本地端点要提示这个值是估的：" + tight.message);
+    const wide = Core22.checkContextBudget({ inputTokens: 9000, mode: "local", contextLimit: 131072 });
+    assert.equal(wide.ok, true, "128k 上下文不该被拦");
+    assert.equal(wide.message, "");
+    // DeepSeek 官方：输入 + 输出上限远小于 1M，不该被拦，也不该出现"本地"那句提示。
+    const cloud = Core22.checkContextBudget({ inputTokens: 40000, mode: "deepseek-flash" });
+    assert.equal(cloud.ok, true, "官方 1M 上下文不该被拦");
+    assert.equal(cloud.context, 1000000);
+  });
+
   await test("脏数据不炸：负数、NaN、字符串一律当 0", () => {
     assert.equal(Core22.checkContextBudget({}).input, 0);
     assert.equal(Core22.checkContextBudget({ inputTokens: -100 }).input, 0);

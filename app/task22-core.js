@@ -74,7 +74,10 @@
     "deepseek-v4-pro": 1000000,
   });
 
-  function contextLimitFor(mode) {
+  function contextLimitFor(mode, override) {
+    // 本地 / 自定义端点的上下文各家不同，允许调用方传一个更准的值覆盖默认假设。
+    const custom = Number(override);
+    if (Number.isFinite(custom) && custom >= 2000) return Math.floor(custom);
     const key = String(mode || CHAT_MODES.LOCAL);
     return MODEL_CONTEXT[key] || MODEL_CONTEXT.local;
   }
@@ -90,7 +93,7 @@
   function checkContextBudget(options) {
     const opts = options || {};
     const mode = opts.mode || CHAT_MODES.LOCAL;
-    const context = contextLimitFor(mode);
+    const context = contextLimitFor(mode, opts.contextLimit);
     const output = Number.isFinite(opts.outputLimit) && opts.outputLimit > 0 ? Math.floor(opts.outputLimit) : outputLimitFor(mode);
     const input = Math.max(0, Math.floor(Number(opts.inputTokens) || 0));
     const total = input + output;
@@ -105,7 +108,10 @@
       message: total <= context
         ? ""
         : `这一轮要发的输入约 ${input} token，加上输出上限 ${output}，超过这个模型的上下文上限 ${context}。`
-          + "可以：① 在「设置 → 模型」把历史预算调小；② 减少角色记忆条数；③ 换上下文更大的模型；或 ④ 新建一段对话。",
+          + "可以：① 在「设置 → 模型」把历史预算调小；② 减少角色记忆条数；③ 换上下文更大的模型；或 ④ 新建一段对话。"
+          + (isDeepSeekChatMode(mode)
+            ? ""
+            : "（本地/自定义端点的上下文是按设置里填的上限估的，填错了可以在那里改。）"),
     };
   }
 

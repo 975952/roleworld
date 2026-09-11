@@ -83,6 +83,13 @@
     pick("memory-max").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.auto_memory_max) > 0 ? settings.auto_memory_max : "";
     });
+    // 本地端点上下文：留空用默认 32768。
+    pick("local-context").forEach((node) => {
+      if (document.activeElement !== node) {
+        const value = Number(settings.local_context);
+        node.value = value >= 2000 && value !== 32768 ? value : "";
+      }
+    });
 
     // 单价提示：把币种、时段、高峰翻倍一次说清（官方英文页用美元报价，容易被误读成"价格不对"）。
     const pricing = global.RoleWorldPricing;
@@ -139,6 +146,12 @@
       const raw = String(memoryMax.value || "").trim();
       // 留空 = 用默认 50；填了就按填的算，下限 5 上限 500。
       patch.auto_memory_max = raw === "" ? 50 : Math.min(500, Math.max(5, Number(raw) || 50));
+    }
+    const localContext = first("local-context");
+    if (localContext) {
+      const raw = String(localContext.value || "").trim();
+      // 留空 = 默认 32768。下限 2000（再小没有可用性），上限 2M（比任何常见模型都大）。
+      patch.local_context = raw === "" ? 32768 : Math.min(2000000, Math.max(2000, Number(raw) || 32768));
     }
     await adapter.saveLocalSettings(patch);
     await refresh();

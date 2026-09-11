@@ -621,6 +621,10 @@ async function main() {
     const body = await evaluate("document.querySelector('#requestPeekBody').textContent");
     assert(/上下文：输入 \d+ token（占 \d+ 的 \d+%） \+ 输出上限 \d+ token/.test(body),
       "面板没有把上下文与输出上限分开写：" + JSON.stringify(body.slice(-260)));
+    // 走 DeepSeek 官方时上下文就是 1000000：设置里那个"本地端点上下文"不能套到它头上，
+    // 否则"输入 + 输出上限(32768)"必然超限，每一次发送都会被预检拦下（踩过一次）。
+    assert(body.indexOf("（占 1000000 的 ") >= 0,
+      "官方模型的上下文应当是 1000000：" + JSON.stringify(body.slice(-260)));
     await evaluate("document.querySelector(\"[data-action='close-request-peek']\").click(); true");
     await waitFor("document.querySelector('#requestPeek').hidden === true", 8000);
   });
