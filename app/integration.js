@@ -647,6 +647,47 @@
     renderArchivedChatSettings();
   }
 
+  /* P2-3：这一轮如果引用了以前的记录，在回复下面标出来，并可点回去看原话。
+   * 判定很保守（见 search-core.findReferencedHits）：必须有一段逐字相同的原话才算，
+   * 找不到就不显示 —— 宁可少标，也不让"它大概是在说这条"这种猜测出现在界面上。 */
+  function buildRefList(refs) {
+    const box = document.createElement("div");
+    box.className = "message-refs";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "message-refs-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.textContent = `▸ 引用了 ${refs.length} 条以前的记录`;
+    const list = document.createElement("div");
+    list.className = "message-refs-list";
+    list.hidden = true;
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      const open = list.hidden;
+      list.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.textContent = `${open ? "▾" : "▸"} 引用了 ${refs.length} 条以前的记录`;
+    });
+    for (const ref of refs) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "message-refs-item";
+      const when = ref.at ? String(ref.at).slice(0, 16).replace("T", " ") : "时间未记录";
+      item.textContent = `[${ref.isUser ? "你" : (ref.name || "角色")} · ${when}] ${ref.text}`;
+      item.title = "点开那段对话并跳到这句原话";
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        jumpToMemorySource({
+          content: ref.text,
+          source: { file: ref.fileName, messageIndex: ref.index },
+        }).catch(() => {});
+      });
+      list.appendChild(item);
+    }
+    box.append(toggle, list);
+    return box;
+  }
+
   /* 消息旁的标记控件：两个很轻的文字按钮。只在有轮次 ID 的助手消息上出现。 */
   function buildFlagControls(turnId) {
     const core = window.ROLEWORLD_METRICS_CORE;
@@ -699,6 +740,8 @@
       body.className = "assistant-body";
       body.innerHTML = renderAssistantBody(String(message.mes));
       stack.appendChild(body);
+      const refs = message.extra && Array.isArray(message.extra.roleworld_refs) ? message.extra.roleworld_refs : [];
+      if (refs.length) stack.appendChild(buildRefList(refs));
       const avatar = document.createElement("div");
       avatar.className = "message-avatar assistant-avatar";
       avatar.setAttribute("aria-label", liveState.charName);
@@ -2755,7 +2798,7 @@
       charName: overrides.charName || liveState.charName,
       signal,
       turnId: overrides.turnId || "",
-      extra: { task22_engine: "A" },
+      extra: Object.assign({ task22_engine: "A" }, overrides.extra || {}),
     });
     syncActiveSession();
     return result;
@@ -3299,10 +3342,25 @@
         liveState.chatModel.bindActive({ avatar: entry.avatar, charName: entry.charName });
         bound = true;
       }
+      // P2-3：这一轮它有没有引用以前的记录（保守判定：要有一段逐字相同的原话）。
+      // 跟轮次一起写进消息里，刷新之后仍然看得到出处。
+      let refs = [];
+      try {
+        if (search) {
+          const candidates = []
+            .concat(searchResult && Array.isArray(searchResult.hits) ? searchResult.hits : [])
+            .concat(requestedResults.reduce((all, row) => all.concat(Array.isArray(row.hits) ? row.hits : []), []));
+          refs = search.findReferencedHits(finalText, candidates);
+        }
+      } catch (_) { refs = []; }
       // 先把「这一轮发出去了」记下来：万一下面结果不确定，重发时才知道要去确认。
       markSaveAttempted(targetSession, turnId);
       try {
-        const saved = await saveLiveChat(text, finalText, undefined, { charName: entry.charName, turnId });
+        const saved = await saveLiveChat(text, finalText, undefined, {
+          charName: entry.charName,
+          turnId,
+          extra: refs.length ? { roleworld_refs: refs } : {},
+        });
         if (saved && saved.duplicate) duplicateTurn = true;
       } catch (saveError) {
         if (bound) liveState.chatModel.unbindActive();

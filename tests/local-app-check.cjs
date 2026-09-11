@@ -956,6 +956,68 @@ async function main() {
     assert(last.systemText.indexOf("不要猜测") >= 0, "翻不到时没有禁止编造");
   });
 
+  await check("引用了以前的记录时会标出来，点开能看原话、点一下能跳回去", async () => {
+    // 让模型这一轮**逐字**引用以前那句（这是判定引用的唯一依据）。
+    await fetch(base + "/__reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "你说过「我养了一只猫叫团子」，我记着呢。" }),
+    });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '还记得我说的猫吗';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+
+    const probe = await evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row'));
+      const last = rows[rows.length - 1];
+      const refs = last.querySelector('.message-refs');
+      if (!refs) return { found: false, text: last.textContent.slice(0, 80) };
+      const toggle = refs.querySelector('.message-refs-toggle');
+      const list = refs.querySelector('.message-refs-list');
+      return {
+        found: true,
+        toggle: toggle.textContent,
+        listHidden: list.hidden,
+        items: Array.from(list.querySelectorAll('.message-refs-item')).map((node) => node.textContent),
+      };
+    })()`);
+    assert(probe.found, "回复引用了原话，但下面没有标出来：" + JSON.stringify(probe));
+    assert(/引用了 1 条以前的记录/.test(probe.toggle), "标注条数不对：" + probe.toggle);
+    assert(probe.listHidden === true, "默认应当是收起的");
+    assert(probe.items.length === 1 && probe.items[0].indexOf("我养了一只猫叫团子") >= 0,
+      "展开后应当能看到那条原话：" + JSON.stringify(probe.items));
+
+    // 没引用就不该出现这个入口（上面那条"我们去过月球吗"的回复没有引用任何记录）。
+    // 注意：这条要在跳转之前查，跳走之后这段对话就不在 DOM 里了。
+    const withoutRefs = await evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row'));
+      const hit = rows.find((row) => row.textContent.indexOf('这个我不知道') >= 0);
+      return hit ? !!hit.querySelector('.message-refs') : null;
+    })()`);
+    assert(withoutRefs === false, "没引用的回复上也挂了引用入口（null 表示那一行已经不在 DOM 里）：" + withoutRefs);
+
+    // 展开 → 点一条 → 跳到那段对话并高亮原话。
+    await evaluate("document.querySelector('#dynamicMessages .message-refs-toggle').click(); true");
+    await waitFor("document.querySelector('#dynamicMessages .message-refs-list').hidden === false", 5000);
+    await evaluate("document.querySelector('#dynamicMessages .message-refs-item').click(); true");
+    await waitFor("window.TASK21.activeChatFileName().indexOf('以前的对话') >= 0", 15000);
+    await waitFor("document.querySelector('#dynamicMessages').textContent.indexOf('团子') >= 0", 15000);
+
+    // 切回最近那段，别影响后面的用例（切不回去后面会跟着在这段旧对话里发消息）。
+    const current = await evaluate(`(() => {
+      const row = window.TASK21.sessionList().find((session) => String(session.fileName).indexOf('最近聊过') >= 0);
+      return row ? row.id : '';
+    })()`);
+    assert(current, "会话表里找不到最近聊过的那段对话");
+    await evaluate(`window.TASK21.selectChat(${JSON.stringify(current)}); true`);
+    await waitFor("window.TASK21.activeChatFileName() === 'harry-最近聊过'", 10000);
+  });
+
   await check("记忆面板按主题分组、能折叠、显示用量", async () => {
     // 先塞两条记忆（不同主题），这样才有多个分组可看。
     await evaluate(`(async () => {

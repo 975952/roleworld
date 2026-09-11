@@ -207,6 +207,61 @@
     return { hits: hits.slice(0, limit), scanned, matched: hits.length, keywords: words, weights };
   }
 
+  /* ---------- 回复里到底引用了哪几条（P2-3） ----------
+   * 只做一件很保守的事：看回复和那条记录之间**有没有一段逐字相同的原话**
+   * （默认至少 5 个字连续相同）。找不到就说没引用 —— 宁可少标，也不猜"它大概是在说这条"。
+   * 之所以按"最长共同片段"而不是"整句包含"来判：模型经常把「我养了一只猫」说成
+   * 「你养了一只猫」——改个代词不该算没引用，但也绝不能松到只凭几个常用字就判定。
+   * 这是给用户看的出处提示，不参与打分，也不影响发给模型的内容。
+   */
+  const REF_MIN_FRAGMENT = 5;
+  const REF_MAX_FRAGMENT = 14;
+
+  /** 两段文字里最长的一段逐字相同的内容（封顶 REF_MAX_FRAGMENT）。 */
+  function longestSharedFragment(a, b, maxLength) {
+    const left = String(a || "");
+    const right = String(b || "");
+    if (!left || !right) return "";
+    const limit = Math.min(Number(maxLength) > 0 ? Math.floor(maxLength) : REF_MAX_FRAGMENT, left.length);
+    for (let len = limit; len >= 1; len -= 1) {
+      for (let i = 0; i + len <= left.length; i += 1) {
+        const piece = left.slice(i, i + len);
+        if (right.indexOf(piece) >= 0) return piece;
+      }
+    }
+    return "";
+  }
+
+  function findReferencedHits(reply, hits, options) {
+    const opts = options || {};
+    const want = Math.max(3, Math.floor(Number(opts.minFragment) || REF_MIN_FRAGMENT));
+    const body = cleanText(reply, 20000).replace(/\s+/g, "");
+    const rows = Array.isArray(hits) ? hits : [];
+    if (!body || !rows.length) return [];
+    const out = [];
+    const seen = new Set();
+    for (const hit of rows) {
+      if (!hit) continue;
+      const key = String(hit.fileName || "") + "#" + String(hit.index);
+      if (seen.has(key)) continue;
+      const original = cleanText(hit.text, 400).replace(/\s+/g, "");
+      const fragment = longestSharedFragment(original, body, opts.maxFragment);
+      if (fragment.length < want) continue;
+      seen.add(key);
+      out.push({
+        fileName: cleanText(hit.fileName, 200),
+        index: Number.isFinite(hit.index) ? hit.index : 0,
+        isUser: hit.is_user === true,
+        name: cleanText(hit.name, 60),
+        at: cleanText(hit.at, 40),
+        text: cleanText(hit.text, 400),
+        fragment: fragment,
+      });
+      if (out.length >= 6) break;
+    }
+    return out;
+  }
+
   /**
    * 把检索结果写成给模型看的一段话。
    * 关键约定：**没有结果就明说没有**，并明确要求"说不知道，不要编"。
@@ -264,6 +319,10 @@
     searchHistory,
     buildHistoryNote,
     honestyRule,
+    REF_MIN_FRAGMENT,
+    REF_MAX_FRAGMENT,
+    longestSharedFragment,
+    findReferencedHits,
     cleanText,
   };
 });

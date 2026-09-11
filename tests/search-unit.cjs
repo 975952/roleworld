@@ -162,6 +162,56 @@ async function main() {
   });
 
   console.log("");
+  console.log("== 回复里引用了哪几条（P2-3）==");
+
+  const hitFor = (text, extra) => Object.assign({
+    fileName: "harry-以前的对话.jsonl", index: 1, is_user: true, name: "我",
+    at: "2026-08-01T10:00:00.000Z", text: text,
+  }, extra || {});
+
+  await test("回复里出现了那条记录的原话，就算引用了", () => {
+    const hits = [hitFor("我养了一只猫叫团子"), hitFor("我一般买三文鱼味的猫粮", { index: 3 })];
+    const refs = Search.findReferencedHits("你说过你养了一只猫叫团子，对吧？", hits);
+    assert.equal(refs.length, 1, "应当只认出真的引用了那条：" + JSON.stringify(refs));
+    assert.equal(refs[0].index, 1);
+    assert.equal(refs[0].fileName, "harry-以前的对话.jsonl");
+    assert.ok(refs[0].fragment.length >= Search.REF_MIN_FRAGMENT, "应当带上命中的原话片段");
+  });
+
+  await test("改了代词但原话还在，仍然算引用（模型常把「我」说成「你」）", () => {
+    const hits = [hitFor("我养了一只猫叫团子")];
+    const refs = Search.findReferencedHits("你养了一只猫叫团子，我记得。", hits);
+    assert.equal(refs.length, 1, "换个代词不该算没引用：" + JSON.stringify(refs));
+    assert.ok(refs[0].fragment.indexOf("养了一只猫叫团子") >= 0, "片段应当是那段原话：" + refs[0].fragment);
+  });
+
+  await test("只是泛泛地说「我记得」不算引用，不硬标", () => {
+    const hits = [hitFor("我养了一只猫叫团子")];
+    assert.deepEqual(Search.findReferencedHits("嗯，我记得你说过。", hits), []);
+    assert.deepEqual(Search.findReferencedHits("", hits), []);
+    assert.deepEqual(Search.findReferencedHits("随便说点什么", []), []);
+    assert.deepEqual(Search.findReferencedHits(null, null), []);
+  });
+
+  await test("短记录（不到 5 个字）不参与判定，免得跟套话撞车", () => {
+    const hits = [hitFor("好的"), hitFor("嗯嗯嗯嗯")];
+    assert.deepEqual(Search.findReferencedHits("好的，那就这样。", hits), [],
+      "太短的记录不该被当成引用");
+  });
+
+  await test("同一条记录只算一次，最多 6 条", () => {
+    const hits = [hitFor("我养了一只猫叫团子"), hitFor("我养了一只猫叫团子", { index: 1 })];
+    const refs = Search.findReferencedHits("你说你养了一只猫叫团子。", hits);
+    assert.equal(refs.length, 1, "同一段同一句不该重复计： " + JSON.stringify(refs));
+  });
+
+  await test("换个说法（没有原话）不会误判为引用", () => {
+    const hits = [hitFor("我养了一只猫叫团子")];
+    assert.deepEqual(Search.findReferencedHits("你之前提过你有一只猫。", hits), [],
+      "改写过的说法不该当成引用 —— 宁可少标，也不猜");
+  });
+
+  console.log("");
   console.log(failures ? `SEARCH_UNIT=${results.length - failures}/${results.length}（有 ${failures} 项不达标）` : `SEARCH_UNIT=${results.length}/${results.length}`);
   process.exit(failures ? 1 : 0);
 }
