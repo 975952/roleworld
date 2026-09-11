@@ -32,6 +32,26 @@ const CHROME = process.env.CHROME_PATH || [
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ].find((candidate) => candidate && fs.existsSync(candidate)) || "";
 const REPLY = "合成回复：你好，我是本地模型。";
+// AI 写角色分两步：先扩写成提示词，再照提示词写卡。这里是两步各自的合成返回。
+const SYNTHETIC_BRIEF = [
+  "名称：沈默",
+  "身份与处境：市立图书馆的夜班管理员，闭馆前十分钟当值。",
+  "性格：冷淡、怕麻烦，但对书很上心；不擅长寒暄。",
+  "说话方式：短句，少用形容词，习惯用「嗯」「行」回应。",
+  "关系：对读者保持距离，只有当对方认真谈书时才放松一点。",
+  "边界：不谈自己的私事，不参与闲话。",
+  "开场情境：闭馆前十分钟，他正在把还书车推回书架。",
+].join("\n");
+const SYNTHETIC_DRAFT = {
+  name: "沈默",
+  description: "市立图书馆的夜班管理员。",
+  personality: "冷淡、怕麻烦。",
+  scenario: "闭馆前十分钟的图书馆。",
+  first_mes: "（他把还书车停住）……要借什么？",
+  mes_example: "{{user}}: 你好\n{{char}}: 嗯。",
+  tags: ["图书管理员", "冷淡"],
+  language: "zh",
+};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -73,9 +93,18 @@ function startServer() {
       for await (const chunk of req) raw += chunk;
       let body = {};
       try { body = JSON.parse(raw); } catch (_) { /* 保持空对象 */ }
+      // AI 写角色分两步：先扩写提示词，再照提示词写卡。两者靠系统提示词区分。
+      const systemText = (Array.isArray(body.messages) ? body.messages : [])
+        .filter((m) => m && m.role === "system").map((m) => String(m.content || "")).join("\n");
+      const isBriefCall = systemText.indexOf("character designer") >= 0;
+      const isCardCall = systemText.indexOf("character card author") >= 0;
       requests.push({
         path: p, stream: body.stream === true, model: body.model,
         auth: req.headers.authorization || "", include_reasoning: body.include_reasoning,
+        isBriefCall: isBriefCall,
+        isCardCall: isCardCall,
+        // 写卡那一步拿到的"角色描述"（如果走了扩写，这里应当是扩写稿）
+        cardInput: isCardCall && body.messages[1] ? String(body.messages[1].content || "") : "",
         // 系统提示里是否带上了那条合成记忆：用来断言"删掉的记忆不再出现"。
         systemHasMemory: Array.isArray(body.messages)
           && body.messages.some((m) => m && m.role === "system" && String(m.content || "").indexOf("玩家叫小林") >= 0),
@@ -88,6 +117,22 @@ function startServer() {
         systemText: (Array.isArray(body.messages) ? body.messages : [])
           .filter((m) => m && m.role === "system").map((m) => String(m.content || "")).join("\n"),
       });
+      if (isBriefCall) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          model: body.model || "synthetic",
+          choices: [{ message: { role: "assistant", content: SYNTHETIC_BRIEF }, finish_reason: "stop" }],
+        }));
+        return;
+      }
+      if (isCardCall) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          model: body.model || "synthetic",
+          choices: [{ message: { role: "assistant", content: JSON.stringify(SYNTHETIC_DRAFT) }, finish_reason: "stop" }],
+        }));
+        return;
+      }
       if (body.stream === true && slowStream) {
         res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
         const send = (delta) => res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta }] }) + "\n\n");
@@ -961,6 +1006,114 @@ async function main() {
     await waitFor("document.querySelector('#dynamicMessages').textContent.indexOf('团子') >= 0", 15000);
     const marked = await evaluate("document.querySelectorAll('.memory-source-hit').length");
     assert(marked >= 1, "跳到对话后没有标出来源消息");
+  });
+
+  await check("AI 写角色：先扩写成提示词，再照提示词写卡", async () => {
+    const before = requests.length;
+    await evaluate("document.querySelector('[data-action=\"character-ai-create\"]').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === false", 8000);
+    assert(await evaluate("document.querySelector('#aiCreateBriefPhase').hidden === true"), "一开始不该显示提示词那一步");
+    assert(await evaluate("document.querySelector('#aiGenerateButton') === null"), "旧的一步生成按钮应当已经移除");
+
+    await evaluate(`(() => {
+      const input = document.querySelector('#aiDescriptionInput');
+      input.value = '一个冷淡的图书管理员，说话很短，不太愿意搭理人';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#aiBriefButton').click();
+      return true;
+    })()`);
+    // 第一步：扩写
+    await waitFor("document.querySelector('#aiCreateBriefPhase').hidden === false", 20000);
+    const briefText = await evaluate("document.querySelector('#aiBriefInput').value");
+    // 用模型自己写的内容来判定，避免撞上系统提示词里的示例（扩写要求里也有「身份与处境」这几个字）。
+    assert(briefText.indexOf("市立图书馆") >= 0, "扩写稿不是模型给的内容：" + JSON.stringify(briefText.slice(0, 80)));
+    assert(briefText.indexOf("说话方式") >= 0, "扩写稿缺少说话方式那一段");
+    const briefCount = await evaluate("document.querySelector('#aiBriefCount').textContent");
+    assert(/长度合适|偏短|偏长/.test(briefCount), "没有给出长度提示：" + briefCount);
+
+    // 用户改一句，验证"改过的稿子"才是写卡的输入
+    await evaluate(`(() => {
+      const area = document.querySelector('#aiBriefInput');
+      area.value = area.value + "\\n补充：他讨厌有人把书折角。";
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#aiBriefNextButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#aiCreateEditPhase').hidden === false", 20000);
+    const filled = await evaluate("JSON.stringify({ name: document.querySelector('#aiEditName').value, first: document.querySelector('#aiEditFirstMes').value })");
+    assert(filled.indexOf("沈默") >= 0, "编辑区没有填上模型给的草稿：" + filled);
+
+    const briefCall = requests.slice(before).find((row) => row.isBriefCall);
+    const cardCall = requests.slice(before).find((row) => row.isCardCall);
+    assert(briefCall, "没有发出扩写请求");
+    assert(cardCall, "没有发出写卡请求");
+    assert(cardCall.cardInput.indexOf("他讨厌有人把书折角") >= 0,
+      "写卡用的不是用户改过的那份提示词：" + JSON.stringify(cardCall.cardInput.slice(-60)));
+    assert(cardCall.cardInput.indexOf("市立图书馆") >= 0, "写卡用的应当是扩写稿而不是原始一句话");
+    console.log("        扩写 " + briefText.length + " 字 → 写卡输入 " + cardCall.cardInput.length + " 字");
+
+    // 关掉对话框，别影响后面的用例
+    await evaluate("document.querySelector('#aiCreateDialog [data-action=\\'close-ai-create\\']').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === true", 8000);
+  });
+
+  await check("AI 写角色：可以跳过扩写，直接用描述生成", async () => {
+    const before = requests.length;
+    await evaluate("document.querySelector('[data-action=\"character-ai-create\"]').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === false", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#aiDescriptionInput');
+      input.value = '一个爱睡懒觉的邮差，住在海边小镇，记性很差';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#aiSkipBriefButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#aiCreateEditPhase').hidden === false", 20000);
+
+    const added = requests.slice(before);
+    assert(!added.some((row) => row.isBriefCall), "跳过了扩写却仍然发了扩写请求");
+    const cardCall = added.find((row) => row.isCardCall);
+    assert(cardCall, "没有发出写卡请求");
+    assert(cardCall.cardInput.indexOf("爱睡懒觉的邮差") >= 0,
+      "跳过扩写时应当直接用原始描述：" + JSON.stringify(cardCall.cardInput.slice(0, 60)));
+
+    await evaluate("document.querySelector('#aiCreateDialog [data-action=\\'close-ai-create\\']').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === true", 8000);
+  });
+
+  await check("AI 写角色：扩写后能返回改描述，也能重新扩写", async () => {
+    await evaluate("document.querySelector('[data-action=\"character-ai-create\"]').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === false", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#aiDescriptionInput');
+      input.value = '一个话很少的灯塔看守人，独自住在礁石岛上，习惯夜里写日记';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#aiBriefButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#aiCreateBriefPhase').hidden === false", 20000);
+
+    // 返回改描述
+    await evaluate("document.querySelector('#aiBriefBackButton').click(); true");
+    await waitFor("document.querySelector('#aiCreateDescriptionPhase').hidden === false", 8000);
+    assert(await evaluate("document.querySelector('#aiDescriptionInput').value.length > 0"), "返回后描述被清空了");
+    assert(await evaluate("document.querySelector('#aiCreateBriefPhase').hidden === true"), "返回后提示词那一步应当收起来");
+    assert(await evaluate("document.querySelector('#aiDescriptionInput').value.indexOf('灯塔看守人') >= 0"),
+      "返回后应当还是原来那句描述");
+
+    // 再进一次并重新扩写
+    await evaluate("document.querySelector('#aiBriefButton').click(); true");
+    await waitFor("document.querySelector('#aiCreateBriefPhase').hidden === false", 20000);
+    const beforeRetry = await evaluate("document.querySelector('#aiBriefInput').value");
+    await evaluate("document.querySelector('#aiBriefRetryButton').click(); true");
+    await waitFor("document.querySelector('#aiBriefInput').value.length > 0", 20000);
+    const afterRetry = await evaluate("document.querySelector('#aiBriefInput').value");
+    assert(afterRetry.length > 0, "重新扩写后没有内容");
+    assert(afterRetry.indexOf("市立图书馆") >= 0, "重新扩写的内容不像扩写稿：" + JSON.stringify(afterRetry.slice(0, 60)));
+    console.log("        首次 " + beforeRetry.length + " 字 → 重新扩写 " + afterRetry.length + " 字");
+
+    await evaluate("document.querySelector('#aiCreateDialog [data-action=\\'close-ai-create\\']').click(); true");
+    await waitFor("document.querySelector('#aiCreateDialog').hidden === true", 8000);
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {

@@ -404,7 +404,22 @@
         <p class="confirm-error" id="aiCreateError" role="alert" hidden></p>
         <div class="modal-actions">
           <button class="plain-button" type="button" data-action="close-ai-create">取消</button>
-          <button class="primary-button" id="aiGenerateButton" type="button">生成角色草稿</button>
+          <button class="plain-button" id="aiSkipBriefButton" type="button">跳过，直接生成</button>
+          <button class="primary-button" id="aiBriefButton" type="button">生成提示词</button>
+        </div>
+      </div>
+
+      <div id="aiCreateBriefPhase" hidden>
+        <p class="modal-helper">这一步会把你的描述扩写成一份设定稿（身份、性格、说话方式、关系、边界、开场情境）。
+          你可以直接改，改完再生成角色卡 —— 卡会照着这份稿子写，比一句话直接生成稳得多。</p>
+        <label class="modal-field"><span>角色提示词</span><textarea id="aiBriefInput" rows="14" spellcheck="false"></textarea></label>
+        <p class="modal-helper" id="aiBriefCount"></p>
+        <p class="confirm-error" id="aiBriefError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="plain-button" id="aiBriefBackButton" type="button">返回改描述</button>
+          <button class="plain-button" id="aiBriefRetryButton" type="button">重新扩写</button>
+          <button class="plain-button" type="button" data-action="close-ai-create">取消</button>
+          <button class="primary-button" id="aiBriefNextButton" type="button">用这份提示词生成角色卡</button>
         </div>
       </div>
 

@@ -239,7 +239,106 @@
     };
   }
 
-  /* ---------- 确定性构造标准 CCv3 ---------- */
+  /* ---------- 第一步：把用户的短描述扩写成一份"够用的提示词" ----------
+   * 为什么要多这一步：用户常常只写一句"一个冷淡的图书管理员"。
+   * 直接拿它去生成整张卡，模型只能自由发挥，出来的卡又薄又飘 —— 人设前后不一致，
+   * 开场白也和描述对不上。先让它把描述补成一份结构化的设定稿，
+   * 第二步再照稿写卡，卡才站得住。
+   *
+   * 长度是有讲究的：太短等于没写，太长会把模型带进细节泥潭、还挤占生成卡片的上下文。
+   * 所以这里给的是"范围"而不是"越多越好"（见 BRIEF_LIMITS）。
+   */
+  const BRIEF_LIMITS = Object.freeze({
+    min: 400,      // 少于这个数说明没真正展开
+    target: 900,   // 目标长度：够详细，又不至于喧宾夺主
+    max: 2000,     // 上限：超过就该压缩
+  });
+
+  const BRIEF_SYSTEM_PROMPT =
+    "You are a character designer. The user gives a short idea for a character. " +
+    "Turn it into a CONCISE design brief that another writer can use to write a full character card.\n" +
+    "Write it as plain text with these labeled sections, in this order, and nothing else:\n" +
+    "名称：one line.\n" +
+    "身份与处境：who they are, where they are, what is going on right now.\n" +
+    "性格：traits and contradictions. Give at least one flaw.\n" +
+    "说话方式：how they talk — tone, sentence length, verbal habits, what they avoid saying.\n" +
+    "关系：how they treat the user at first, and what would change that.\n" +
+    "边界：topics or behaviors that stay out of character for them.\n" +
+    "开场情境：the concrete moment the conversation starts in.\n\n" +
+    "Rules:\n" +
+    "- Keep the user's intent. Do NOT invent a different character, world, or genre.\n" +
+    "- Be specific rather than flowery: concrete habits and examples beat adjectives.\n" +
+    "- Do not write example dialogue lines or the opening line itself — that is the next step.\n" +
+    "- Do not output JSON, markdown fences, or commentary.\n" +
+    "Length: about " + BRIEF_LIMITS.target + " characters (" + BRIEF_LIMITS.min + "-" + BRIEF_LIMITS.max + ").";
+
+  const BRIEF_LANGUAGE_INSTRUCTIONS = Object.freeze({
+    zh: "Write the brief in Simplified Chinese.",
+    en: "Write the brief in English.",
+    auto: "Write the brief in the same language as the user's description.",
+  });
+
+  /**
+   * 第一步的请求体。
+   * 比写卡那一步更宽松的采样（要有一点发挥），但仍然关掉思考：思维链会吃光额度。
+   */
+  function buildBriefGeneratePayload(opts) {
+    const description = String((opts && opts.description) || "").trim();
+    if (description.length < 4) throw new Error("角色描述太短了，至少写几个字");
+    if (description.length > 4000) throw new Error("角色描述不能超过 4000 字符");
+    const requested = (opts && opts.language) || "auto";
+    const language = requested === "en" || requested === "zh" ? requested : "auto";
+    const oai = (opts && opts.settings && opts.settings.oai_settings) || {};
+    const customIncludeBody = (oai.custom_include_body !== undefined && oai.custom_include_body !== null)
+      ? oai.custom_include_body
+      : "chat_template_kwargs:\n  enable_thinking: false";
+    return {
+      messages: [
+        {
+          role: "system",
+          content: BRIEF_SYSTEM_PROMPT + "\n" + (BRIEF_LANGUAGE_INSTRUCTIONS[language] || BRIEF_LANGUAGE_INSTRUCTIONS.auto),
+        },
+        { role: "user", content: description },
+      ],
+      model: "local",
+      chat_completion_source: "custom",
+      custom_url: oai.custom_url || "",
+      custom_include_body: customIncludeBody,
+      stream: false,
+      temperature: 0.7,
+      top_p: 0.9,
+      max_tokens: 2048,
+      include_reasoning: false,
+    };
+  }
+
+  /**
+   * 把模型返回的扩写结果整理成可用的提示词。
+   * 太长的截断、太短的标注出来（由界面提示用户"可以补充一句再试"），
+   * 但**不因为长度不合适就丢弃模型的内容**。
+   */
+  function normalizeBrief(rawText) {
+    let text = String(rawText === undefined || rawText === null ? "" : rawText)
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+      .trim();
+    // 容错：模型可能仍裹了一层围栏或引号。
+    text = text.replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
+    const truncated = text.length > BRIEF_LIMITS.max;
+    if (truncated) text = text.slice(0, BRIEF_LIMITS.max).trim();
+    return {
+      text: text,
+      length: text.length,
+      tooShort: text.length > 0 && text.length < BRIEF_LIMITS.min,
+      truncated: truncated,
+      empty: text.length === 0,
+    };
+  }
+
+  /** 第二步的输入：扩写稿本身就是"角色描述"，长度上限放宽到 4000。 */
+  function briefAsDescription(brief) {
+    return String(brief || "").trim().slice(0, 4000);
+  }
+
   function buildCCv3(draft) {
     const d = normalizeDraft(draft);
     return {
@@ -473,6 +572,10 @@
     normalizeDraft,
     validateDraft,
     buildDraftGeneratePayload,
+    BRIEF_LIMITS,
+    buildBriefGeneratePayload,
+    normalizeBrief,
+    briefAsDescription,
     buildCCv3,
     importTypeForFileName,
     validateFileName,

@@ -801,6 +801,77 @@ async function main() {
     assert.equal(plan.truncated, true);
   });
 
+  console.log("== AI 写角色：描述 → 提示词 → 角色卡 ==");
+
+  await test("第一步的请求：关掉思考、给足额度、温度比写卡高", () => {
+    const description = "一个冷淡的图书管理员，说话很短，不太愿意搭理人";
+    const brief = CharCore.buildBriefGeneratePayload({ description, settings: {}, language: "zh" });
+    const card = CharCore.buildDraftGeneratePayload({ description, settings: {}, language: "zh" });
+    assert.equal(brief.include_reasoning, false, "扩写也要关掉思考，否则思维链会吃光额度");
+    assert.equal(brief.stream, false, "扩写是一次性返回的");
+    assert.ok(brief.max_tokens >= 1024, "扩写额度太小会被截断：" + brief.max_tokens);
+    assert.ok(brief.temperature > card.temperature, "扩写要一点发挥空间，温度应当高于写卡");
+    assert.equal(brief.messages.length, 2, "应当是系统提示 + 用户描述两条");
+    assert.equal(brief.messages[1].content, description, "用户描述要原样送过去");
+  });
+
+  await test("提示词里写清了要哪几段，以及长度范围", () => {
+    const system = CharCore.buildBriefGeneratePayload({ description: "一个冷淡的图书管理员", settings: {} }).messages[0].content;
+    for (const section of ["名称", "身份与处境", "性格", "说话方式", "关系", "边界", "开场情境"]) {
+      assert.ok(system.indexOf(section) >= 0, "缺少这一段的要求：" + section);
+    }
+    const limits = CharCore.BRIEF_LIMITS;
+    assert.ok(system.indexOf(String(limits.target)) >= 0, "没有写目标长度");
+    assert.ok(system.indexOf(String(limits.min)) >= 0 && system.indexOf(String(limits.max)) >= 0, "没有写长度范围");
+    assert.ok(/Do not write example dialogue/i.test(system), "应当明确不要在扩写阶段写台词/开场白");
+  });
+
+  await test("描述太短或太长都明确拒绝，并说清原因", () => {
+    assert.throws(() => CharCore.buildBriefGeneratePayload({ description: "abc" }), /太短/);
+    assert.throws(() => CharCore.buildBriefGeneratePayload({ description: "字".repeat(5000) }), /4000/);
+  });
+
+  await test("扩写结果整理：太短/太长/空各自被标出来，但内容不丢", () => {
+    const long = CharCore.normalizeBrief("字".repeat(3000));
+    assert.equal(long.length, CharCore.BRIEF_LIMITS.max, "超长应当截到上限");
+    assert.equal(long.truncated, true);
+    assert.equal(long.empty, false);
+    const short = CharCore.normalizeBrief("太短了");
+    assert.equal(short.tooShort, true);
+    assert.equal(short.text, "太短了", "短也应当保留内容，不丢");
+    const empty = CharCore.normalizeBrief("   ");
+    assert.equal(empty.empty, true);
+    assert.equal(empty.text, "");
+  });
+
+  await test("扩写结果裹了围栏也能剥掉", () => {
+    const fenced = CharCore.normalizeBrief("```\n名称：小明\n身份与处境：测试\n```");
+    assert.equal(fenced.text.indexOf("```"), -1, "围栏没剥干净：" + JSON.stringify(fenced.text));
+    assert.ok(fenced.text.indexOf("名称：小明") >= 0, "内容被剥掉了");
+  });
+
+  await test("扩写稿作为写卡输入时截到 4000（写卡接口的上限）", () => {
+    assert.equal(CharCore.briefAsDescription("字".repeat(5000)).length, 4000);
+    assert.equal(CharCore.briefAsDescription("短稿"), "短稿");
+    assert.equal(CharCore.briefAsDescription(null), "");
+  });
+
+  await test("两步串起来能跑通：扩写稿喂给写卡请求", () => {
+    const description = "一个冷淡的图书管理员，说话很短";
+    const briefPayload = CharCore.buildBriefGeneratePayload({ description, settings: {} });
+    assert.equal(briefPayload.messages[1].content, description);
+    // 模拟模型返回的扩写稿
+    const brief = CharCore.normalizeBrief("名称：沈默\n身份与处境：市立图书馆夜班管理员\n性格：冷淡、怕麻烦\n说话方式：短句，少用形容词\n关系：对读者保持距离\n边界：不谈私事\n开场情境：闭馆前十分钟");
+    assert.equal(brief.empty, false);
+    const cardPayload = CharCore.buildDraftGeneratePayload({
+      description: CharCore.briefAsDescription(brief.text),
+      settings: {},
+      language: "zh",
+    });
+    assert.equal(cardPayload.messages[1].content, brief.text, "写卡那一步拿到的应当是扩写稿");
+    assert.ok(cardPayload.messages[1].content.indexOf("开场情境") >= 0, "扩写稿的段落应当带过去");
+  });
+
   console.log("== 价格估算 ==");
 
   const Pricing = require(path.join(__dirname, "..", "app", "adapter", "pricing.js"));

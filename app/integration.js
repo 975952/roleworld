@@ -110,6 +110,11 @@
     aiDraft: null,
     aiBusy: false,
     draftFlow: null,
+    // AI 创建角色：扩写出来的角色提示词，以及这次会话已经用掉的模型调用次数。
+    // 写卡本身由 draftFlow 限制（最多 2 次），这里是**包括扩写在内**的总预算，
+    // 免得"扩写失败→重试→写卡→修复"一路点下去把额度烧光。
+    aiBrief: "",
+    aiCalls: 0,
     // 2026-09-10：模型配置统一由「设置 → 模型」决定（provider / endpoint / model / thinking）
     modelMode: "local",
     modelName: "",
@@ -1640,25 +1645,37 @@
   function setAiPhase(phase) {
     liveState.aiPhase = phase;
     const desc = document.querySelector("#aiCreateDescriptionPhase");
+    const brief = document.querySelector("#aiCreateBriefPhase");
     const edit = document.querySelector("#aiCreateEditPhase");
     if (desc) desc.hidden = phase !== "description";
+    if (brief) brief.hidden = phase !== "brief";
     if (edit) edit.hidden = phase !== "edit";
     const title = document.querySelector("#aiCreateTitle");
-    if (title) title.textContent = phase === "edit" ? "编辑角色草稿" : "创建角色";
+    if (title) {
+      title.textContent = phase === "edit" ? "编辑角色草稿" : (phase === "brief" ? "角色提示词" : "创建角色");
+    }
   }
 
   function setAiBusy(busy, buttonId) {
     liveState.aiBusy = !!busy;
+    const labels = {
+      "#aiSkipBriefButton": "跳过，直接生成",
+      "#aiBriefButton": "生成提示词",
+      "#aiBriefRetryButton": "重新扩写",
+      "#aiBriefNextButton": "用这份提示词生成角色卡",
+    };
     const btn = buttonId && document.querySelector(buttonId);
     if (btn) {
       btn.disabled = !!busy;
-      btn.textContent = busy ? "生成中…" : (buttonId === "#aiGenerateButton" ? "生成角色草稿" : "重新生成");
+      btn.textContent = busy ? "生成中…" : (labels[buttonId] || "重新生成");
     }
     setAiError("");
   }
 
   function setAiError(message) {
-    const error = document.querySelector(`#${liveState.aiPhase === "edit" ? "aiEditError" : "aiCreateError"}`);
+    const phase = liveState.aiPhase;
+    const id = phase === "edit" ? "aiEditError" : (phase === "brief" ? "aiBriefError" : "aiCreateError");
+    const error = document.querySelector("#" + id);
     if (error) {
       error.textContent = message || "";
       error.hidden = !message;
@@ -1671,12 +1688,16 @@
     liveState.aiDialogOpen = true;
     liveState.aiDescription = "";
     liveState.aiDraft = null;
+    liveState.aiBrief = "";
+    liveState.aiCalls = 0;
     liveState.draftFlow = window.TASK29_CHARACTER_CORE.createDraftFlow();
     setAiPhase("description");
-    setAiBusy(false, "#aiGenerateButton");
+    setAiBusy(false, "#aiBriefButton");
     setAiError("");
     const input = document.querySelector("#aiDescriptionInput");
     if (input) { input.value = ""; }
+    const briefInput = document.querySelector("#aiBriefInput");
+    if (briefInput) { briefInput.value = ""; }
     // Task-29G：打开对话框时语言下拉复位为“自动判断”。
     const lang = document.querySelector("#aiLanguageSelect");
     if (lang) lang.value = "auto";
@@ -1711,6 +1732,19 @@
     count.textContent = `${len} / 4000 字符${len < 20 ? "（至少 20 字）" : ""}`;
   }
 
+  function renderAiBriefCount() {
+    const input = document.querySelector("#aiBriefInput");
+    const count = document.querySelector("#aiBriefCount");
+    if (!input || !count) return;
+    const limits = window.TASK29_CHARACTER_CORE.BRIEF_LIMITS;
+    const len = input.value.trim().length;
+    const note = len === 0 ? "（空的：请写点内容，或返回改成直接生成）"
+      : len < limits.min ? `（偏短，建议 ${limits.min} 字以上；太短的话卡会变薄）`
+        : len > limits.max ? `（偏长，超过 ${limits.max} 字会被截断）`
+          : "（长度合适）";
+    count.textContent = `${len} / ${limits.max} 字符${note}`;
+  }
+
   function validateAiDescription() {
     const text = (document.querySelector("#aiDescriptionInput")?.value || "").trim();
     if (text.length < 20) { setAiError("角色描述至少需要 20 个字符。"); return null; }
@@ -1719,54 +1753,120 @@
     return text;
   }
 
-  // 调用模型生成草稿。只送当前角色描述；复用现有 custom_url / custom_include_body。
-  // 所有模型调用都经 draftFlow.beginGeneration 计数，全局最多两次（一次修复）。
-  async function generateAiDraft() {
+  /* ---------- 第一步：扩写成角色提示词 ---------- */
+  const AI_CALL_BUDGET = 5;
+
+  async function generateAiBrief() {
     const description = validateAiDescription();
-    if (description === null || liveState.aiBusy) return;
-    if (!liveState.aiDialogOpen) return;
+    if (description === null || liveState.aiBusy || !liveState.aiDialogOpen) return;
+    if (liveState.aiCalls >= AI_CALL_BUDGET) {
+      setAiError(`这次创建已经用了 ${AI_CALL_BUDGET} 次模型调用，先停下。可以返回改成直接生成，或关掉重开。`);
+      return;
+    }
+    setAiBusy(true, "#aiBriefButton");
+    liveState.aiCalls += 1;
+    try {
+      const payload = window.TASK29_CHARACTER_CORE.buildBriefGeneratePayload({
+        description,
+        settings: liveState.settings,
+        language: (document.querySelector("#aiLanguageSelect")?.value) || "auto",
+      });
+      const response = await window.STApi.generate(payload, undefined);
+      const parsed = window.TASK22_CORE.parseGenerateResponse(response);
+      const brief = window.TASK29_CHARACTER_CORE.normalizeBrief(parsed.content);
+      if (brief.empty) {
+        setAiBusy(false, "#aiBriefButton");
+        setAiError("模型没有给出提示词，请重试一次，或跳过这一步直接生成。");
+        return;
+      }
+      liveState.aiBrief = brief.text;
+      const area = document.querySelector("#aiBriefInput");
+      if (area) { area.value = brief.text; }
+      setAiPhase("brief");
+      setAiBusy(false, "#aiBriefButton");
+      renderAiBriefCount();
+      if (brief.tooShort) setAiError("扩写结果偏短，建议补几句再生成；也可以直接继续。");
+      else if (brief.truncated) setAiError("扩写结果偏长，已截断；可以直接改短一点再生成。");
+    } catch (err) {
+      setAiBusy(false, "#aiBriefButton");
+      if (isAuthRequired(err)) { showAuthGate(); return; }
+      setAiError(err && err.message ? `扩写失败：${err.message}` : "扩写失败，请重试。");
+    }
+  }
+
+  /** 把界面上（可能是用户改过的）提示词读出来，作为写卡的输入。 */
+  function currentBriefForCard() {
+    const typed = (document.querySelector("#aiBriefInput")?.value || "").trim();
+    const brief = typed || liveState.aiBrief;
+    liveState.aiBrief = brief;
+    return brief;
+  }
+
+  // 调用模型生成草稿。只送当前角色描述；复用现有 custom_url / custom_include_body。
+  /* ---------- 第二步：用（可能是扩写出来的）提示词生成角色卡 ----------
+   * source 说明这次写卡的输入来自哪里：
+   *   "brief"       —— 用户在提示词那一步确认过的稿子（推荐路径）
+   *   "description" —— 用户选择跳过扩写，直接用原始描述
+   */
+  async function generateAiDraft(source, options) {
+    const fromBrief = source === "brief";
+    const description = fromBrief ? currentBriefForCard() : validateAiDescription();
+    if (description === null) return;
+    if (!description) {
+      setAiError(fromBrief ? "提示词是空的：请写点内容，或返回改成直接生成。" : "角色描述至少需要 20 个字符。");
+      return;
+    }
+    if (liveState.aiBusy || !liveState.aiDialogOpen) return;
     if (liveState.draftFlow.getPhase() !== window.TASK29_CHARACTER_CORE.DRAFT_PHASES.IDLE
       && !liveState.draftFlow.retryAllowed()) {
       setAiError("已达到最大生成次数（2 次），请直接编辑或保存草稿。");
       return;
     }
-    setAiBusy(true, "#aiGenerateButton");
+    if (liveState.aiCalls >= AI_CALL_BUDGET) {
+      setAiError(`这次创建已经用了 ${AI_CALL_BUDGET} 次模型调用，先停下。可以关掉对话框重开，或手动填写。`);
+      return;
+    }
+    const buttonId = (options && options.buttonId) || "#aiBriefNextButton";
+    setAiBusy(true, buttonId);
     const callModel = async () => {
       liveState.draftFlow.beginGeneration();
-      const payload = window.TASK29_CHARACTER_CORE.buildDraftGeneratePayload({ description, settings: liveState.settings, language: (document.querySelector("#aiLanguageSelect")?.value) || "auto" });
+      liveState.aiCalls += 1;
+      const payload = window.TASK29_CHARACTER_CORE.buildDraftGeneratePayload({
+        description: window.TASK29_CHARACTER_CORE.briefAsDescription(description),
+        settings: liveState.settings,
+        language: (document.querySelector("#aiLanguageSelect")?.value) || "auto",
+      });
       const response = await window.STApi.generate(payload, undefined);
       const parsed = window.TASK22_CORE.parseGenerateResponse(response);
       if (!parsed.content || !parsed.content.trim()) throw Object.assign(new Error("empty response"), { code: "DRAFT_EMPTY" });
       // 不保存模型原始回复；直接解析/归一化为草稿。
       return liveState.draftFlow.receiveGenerated(parsed.content);
     };
-    try {
-      const draft = await callModel();
+    const applyDraft = (draft) => {
       liveState.aiDraft = draft;
       setAiPhase("edit");
       fillAiEditFields(draft);
-      setAiBusy(false, "#aiGenerateButton");
+      setAiBusy(false, buttonId);
+    };
+    try {
+      applyDraft(await callModel());
     } catch (err) {
       if (isAuthRequired(err)) { showAuthGate(); return; }
       const retriable = err && (err.code === "DRAFT_PARSE_ERROR" || err.code === "DRAFT_DANGEROUS_KEY"
         || err.code === "DRAFT_INVALID");
-      if (retriable && liveState.draftFlow.retryAllowed()) {
+      if (retriable && liveState.draftFlow.retryAllowed() && liveState.aiCalls < AI_CALL_BUDGET) {
         // 一次修复：再调用一次模型（GENERATING → GENERATING）。
         try {
-          const draft = await callModel();
-          liveState.aiDraft = draft;
-          setAiPhase("edit");
-          fillAiEditFields(draft);
-          setAiBusy(false, "#aiGenerateButton");
+          applyDraft(await callModel());
           return;
         } catch (retryErr) {
           if (isAuthRequired(retryErr)) { showAuthGate(); return; }
         }
-        setAiBusy(false, "#aiGenerateButton");
-        setAiError("模型两次都没有给出可用的角色卡。可以把描述写得更具体些再试，或直接手动填写。");
+        setAiBusy(false, buttonId);
+        setAiError("模型两次都没有给出可用的角色卡。可以把提示词写得更具体些再试，或直接手动填写。");
         return;
       }
-      setAiBusy(false, "#aiGenerateButton");
+      setAiBusy(false, buttonId);
       setAiError((err && err.code === "DRAFT_EMPTY") ? "模型没有返回内容，请重试。"
         : (err && err.code === "DRAFT_PARSE_ERROR") ? `模型返回的内容不是合法角色卡（${err.message}），请重试或手动填写。`
         : (err && err.code === "DRAFT_INVALID") ? `草稿不完整：${(err.validationErrors || []).join("；")}`
@@ -1779,8 +1879,8 @@
     if (!liveState.aiDialogOpen || liveState.aiBusy) return;
     // 回到生成阶段重新调用（受 max 2 次限制）。
     if (!liveState.draftFlow.retryAllowed()) { setAiError("已达到最大生成次数（2 次），请直接编辑或保存草稿。"); return; }
-    setAiPhase("description");
-    setAiBusy(false, "#aiGenerateButton");
+    setAiPhase(liveState.aiBrief ? "brief" : "description");
+    setAiBusy(false, liveState.aiBrief ? "#aiBriefNextButton" : "#aiBriefButton");
     setAiError("");
   }
 
@@ -3334,8 +3434,23 @@
       else if (action && action.dataset.action === "import-file") openFileImport();
     });
     // Task-29A：AI 创建角色对话框与文件导入。
-    const aiGenerateButton = document.querySelector("#aiGenerateButton");
-    if (aiGenerateButton) aiGenerateButton.addEventListener("click", generateAiDraft);
+    const aiBriefButton = document.querySelector("#aiBriefButton");
+    if (aiBriefButton) aiBriefButton.addEventListener("click", () => { generateAiBrief().catch(() => {}); });
+    // 「跳过，直接生成」：沿用原来的路径，用原始描述直接写卡。
+    const aiSkipBriefButton = document.querySelector("#aiSkipBriefButton");
+    if (aiSkipBriefButton) aiSkipBriefButton.addEventListener("click", () => {
+      generateAiDraft("description", { buttonId: "#aiSkipBriefButton" }).catch(() => {});
+    });
+    const aiBriefNextButton = document.querySelector("#aiBriefNextButton");
+    if (aiBriefNextButton) aiBriefNextButton.addEventListener("click", () => {
+      generateAiDraft("brief", { buttonId: "#aiBriefNextButton" }).catch(() => {});
+    });
+    const aiBriefRetryButton = document.querySelector("#aiBriefRetryButton");
+    if (aiBriefRetryButton) aiBriefRetryButton.addEventListener("click", () => { generateAiBrief().catch(() => {}); });
+    const aiBriefBackButton = document.querySelector("#aiBriefBackButton");
+    if (aiBriefBackButton) aiBriefBackButton.addEventListener("click", backToDescription);
+    const aiBriefInput = document.querySelector("#aiBriefInput");
+    if (aiBriefInput) aiBriefInput.addEventListener("input", renderAiBriefCount);
     const aiRegenerateButton = document.querySelector("#aiRegenerateButton");
     if (aiRegenerateButton) aiRegenerateButton.addEventListener("click", regenerateAiDraft);
     const aiBackButton = document.querySelector("#aiBackButton");
