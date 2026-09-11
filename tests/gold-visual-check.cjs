@@ -88,6 +88,23 @@ const MEASURE = `(() => {
     })(),
     fontFamily: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).fontFamily : ""; })(),
     displayName: (() => { const n = document.getElementById("userDisplayName"); return n ? n.textContent.trim() : ""; })(),
+    // 强调色的色相：用来钉住"樱不要偏红"（红=0/360，粉≈325）。
+    focusHue: (() => {
+      const hex = String(css.getPropertyValue("--focus") || "").trim().replace("#", "");
+      if (!/^[0-9a-f]{6}$/i.test(hex)) return -1;
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const d = max - min;
+      if (!d) return 0;
+      let h = 0;
+      if (max === r) h = 60 * (((g - b) / d) % 6);
+      else if (max === g) h = 60 * ((b - r) / d + 2);
+      else h = 60 * ((r - g) / d + 4);
+      return Math.round((h + 360) % 360);
+    })(),
     accountText: (() => { const n = document.getElementById("mapAccount"); return n ? n.textContent.trim() : ""; })(),
     buttonRadius: (() => {
       const n = document.querySelector(".primary-button") || document.querySelector(".map-button-primary");
@@ -225,7 +242,9 @@ async function main() {
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
   check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
-  check("樱（暗）：粉很浅", sakuraDark.focus === "#ffc2da", sakuraDark.focus);
+  check("樱（暗）：粉很浅", sakuraDark.focus === "#f7c9e4", sakuraDark.focus);
+  // 红=0/360°。335° 往上就开始发红，所以钉在"品红—粉"这一段。
+  check("樱（暗）：粉不偏红（色相在 318–330°）", sakuraDark.focusHue >= 318 && sakuraDark.focusHue <= 330, `${sakuraDark.focusHue}°`);
   {
     // 中性底色也会有 r>b>g 的微小差（--main-text 本身偏暖白），
     // 所以这里比的是"红绿差"：粉底会明显拉开，中性底色不会。
@@ -236,6 +255,10 @@ async function main() {
   check("樱（暗）：主按钮是很浅的粉（不是实粉）", rgbLuma(sakuraDark.buttonBg) >= 225 && /gradient/.test(sakuraDark.buttonBg), `${rgbLuma(sakuraDark.buttonBg)} / ${sakuraDark.buttonBg.slice(0, 48)}`);
   check("樱（暗）：顶栏是渐变不是平涂", /gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68));
   check("樱（暗）：光带比其他风格更小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 130, `${sakuraDark.ambientHeight}px`);
+
+  const sakuraLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura", theme: "light" }), [1280, 900]);
+  check("樱（亮）：粉也不偏红（色相在 318–330°）", sakuraLight.focusHue >= 318 && sakuraLight.focusHue <= 330, `${sakuraLight.focusHue}°`);
+  check("樱（亮）：主按钮是很浅的粉", rgbLuma(sakuraLight.buttonBg) >= 225, `${rgbLuma(sakuraLight.buttonBg)} / ${sakuraLight.buttonBg.slice(0, 48)}`);
 
   const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
   const fd = rgbParts(forestDark.shellBgColor);
