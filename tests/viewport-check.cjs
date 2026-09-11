@@ -271,6 +271,51 @@ async function main() {
       await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
     });
 
+    await check(`${viewport.label}：发送前预估那一行不挤坏输入区`, async () => {
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = '预估一下这句大概会发多少内容出去';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      await new Promise((r) => setTimeout(r, 500));
+      const info = await evaluate(`(() => {
+        const node = document.querySelector('#chatEstimateLine');
+        const cost = document.querySelector('#chatCostLine');
+        const send = document.querySelector('#sendButton');
+        const r = node.getBoundingClientRect();
+        const c = cost.getBoundingClientRect();
+        const s = send.getBoundingClientRect();
+        const overlap = (a, b) => !(a.right <= b.left + 0.5 || b.right <= a.left + 0.5
+          || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5);
+        return {
+          hidden: node.hidden,
+          display: getComputedStyle(node).display,
+          text: node.textContent,
+          sendWidth: Math.round(s.width),
+          overlapsCost: node.hidden ? false : overlap(r, c),
+          overlapsSend: node.hidden ? false : overlap(r, s),
+          inViewport: node.hidden ? true : (r.left >= -1 && r.right <= window.innerWidth + 1),
+        };
+      })()`);
+      if (viewport.width <= 560) {
+        // 窄屏上它让位（发送键和输入框优先），但不能把发送键挤小。
+        assert(info.display === "none" || info.hidden, "窄屏上预估行应当让位：" + JSON.stringify(info));
+      } else {
+        assert(info.hidden === false, "宽屏上应当显示预估行：" + JSON.stringify(info));
+        assert(/这次约|输出上限/.test(info.text), "预估行内容不对：" + info.text);
+      }
+      assert(info.overlapsCost === false && info.overlapsSend === false && info.inViewport,
+        "预估行压到了别的控件：" + JSON.stringify(info));
+      assert(info.sendWidth >= 28, "预估行把发送键挤小了：" + JSON.stringify(info));
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+    });
+
     await check(`${viewport.label}：「关系档案」表单能开、能滚、按钮点得到`, async () => {
       await evaluate("window.TASK21.openCompanionDialog(); true");
       await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
