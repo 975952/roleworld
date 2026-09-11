@@ -62,6 +62,53 @@
     return DEEPSEEK_CHAT_MODES.indexOf(mode) >= 0 || DEEPSEEK_LEGACY_MODES.indexOf(mode) >= 0;
   }
 
+  /* ---------- 上下文上限 与 输出上限：分开算，别混在一起 ----------
+   * 以前界面上只有一个笼统的"这次请求多大"，用户看不出两件不同的事：
+   *   ① 上下文（模型的硬上限）：输入 + 输出不能超过它；
+   *   ② 输出上限（我们请求里写的 max_tokens）：决定它这一轮最多能说多少。
+   * 两者混在一起就会出现"明明只发了几千字，为什么提示超限"这种看不懂的提示。
+   */
+  const MODEL_CONTEXT = Object.freeze({
+    local: 32768,
+    "deepseek-flash": 1000000,
+    "deepseek-v4-pro": 1000000,
+  });
+
+  function contextLimitFor(mode) {
+    const key = String(mode || CHAT_MODES.LOCAL);
+    return MODEL_CONTEXT[key] || MODEL_CONTEXT.local;
+  }
+
+  function outputLimitFor(mode) {
+    return isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING.max_tokens : SAMPLING.max_tokens;
+  }
+
+  /**
+   * 发送前的预算检查：输入 + 输出上限有没有超过上下文。
+   * 返回可操作的说明（该调小什么、该删什么），而不是发完只弹一句"请重试"。
+   */
+  function checkContextBudget(options) {
+    const opts = options || {};
+    const mode = opts.mode || CHAT_MODES.LOCAL;
+    const context = contextLimitFor(mode);
+    const output = Number.isFinite(opts.outputLimit) && opts.outputLimit > 0 ? Math.floor(opts.outputLimit) : outputLimitFor(mode);
+    const input = Math.max(0, Math.floor(Number(opts.inputTokens) || 0));
+    const total = input + output;
+    const ratio = context > 0 ? input / context : 0;
+    return {
+      ok: total <= context,
+      context: context,
+      output: output,
+      input: input,
+      total: total,
+      ratio: ratio,
+      message: total <= context
+        ? ""
+        : `这一轮要发的输入约 ${input} token，加上输出上限 ${output}，超过这个模型的上下文上限 ${context}。`
+          + "可以：① 在「设置 → 模型」把历史预算调小；② 减少角色记忆条数；③ 换上下文更大的模型；或 ④ 新建一段对话。",
+    };
+  }
+
   /* 卡内 character_book 中这些 id 恒注入（Task-20 合同）。 */
   const CARD_CONSTANT_IDS = ["timeline-point", "knowledge-cutoff"];
 
@@ -1282,6 +1329,10 @@
     DEEPSEEK_LEGACY_MODES,
     DEEPSEEK_CHAT_SAMPLING,
     isDeepSeekChatMode,
+    MODEL_CONTEXT,
+    contextLimitFor,
+    outputLimitFor,
+    checkContextBudget,
     CARD_CONSTANT_IDS,
     REPLY_FORMAT_INSTRUCTION,
     cardField,

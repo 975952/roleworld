@@ -794,8 +794,26 @@
     button.hidden = !(has && visible !== false);
   }
 
-  function renderRequestPeek() {
-    const body = document.querySelector("#requestPeekBody");
+  /** 「本次请求」面板里的一行：输入占了多少上下文、输出上限是多少（两件事分开写）。 */
+  function setPeekBudget(list, core, info) {
+    const budget = core.checkContextBudget({ inputTokens: info.totalTokens, mode: liveState.modelMode });
+    const share = budget.context > 0 ? Math.round((budget.input / budget.context) * 100) : 0;
+    const line = document.createElement("div");
+    line.className = "request-peek-dropped";
+    line.textContent = `上下文：输入 ${budget.input} token（占 ${budget.context} 的 ${share}%）`
+      + ` + 输出上限 ${budget.output} token = ${budget.total}`
+      + (budget.ok ? "，在模型上限之内。" : "，已超过模型上限。");
+    list.appendChild(line);
+    if (!budget.ok) {
+      const advice = document.createElement("div");
+      advice.className = "request-peek-dropped";
+      advice.textContent = budget.message;
+      list.appendChild(advice);
+    }
+    return true;
+  }
+
+  function renderRequestPeek() {    const body = document.querySelector("#requestPeekBody");
     if (!body) return;
     body.textContent = "";
     const payload = liveState.lastPayload;
@@ -897,6 +915,15 @@
     total.className = "request-peek-total";
     total.textContent = `合计 ${info.totalChars} 字 · ${fmtTokens(info.totalTokens)} tokens · 共 ${info.messageCount} 条消息`;
     list.appendChild(total);
+
+    // P2-2：上下文上限与输出上限是两件事，分开写清楚 ——
+    // "这次发出去多少"和"它最多能回多少"混在一起看，用户没法判断还能聊多久。
+    try {
+      const core = window.TASK22_CORE;
+      if (core && typeof core.contextLimitFor === "function" && !setPeekBudget(list, core, info)) {
+        /* 拿不到就少一行，不影响面板其余内容 */
+      }
+    } catch (_) { /* 同上 */ }
 
     // 模型主动要求的检索：这一轮带上的是它上一轮点名要翻的内容。
     if (Array.isArray(info.requested) && info.requested.length) {
@@ -1765,7 +1792,10 @@
     totals.output += usage.output || 0;
     totals.cost += cost;
     totals.turns += 1;
-    totals.last = { input: usage.input, output: usage.output, cost, exact: usage.exact === true };
+    totals.last = {
+      input: usage.input, output: usage.output, cost, exact: usage.exact === true,
+      cacheHit: Math.max(0, Number(usage.cacheHit) || 0),
+    };
     liveState.cost = totals;
     renderCostLine();
     if (session.avatar && session.fileName) {
@@ -1792,6 +1822,92 @@
       ? ` · 单价 ¥${prices.input}/¥${prices.output} 每百万 tokens（${prices.period}时段）`
       : "";
     node.textContent = `本对话 ${totals.turns} 轮 · 输入 ${pricing.formatTokens(totals.input)} / 输出 ${pricing.formatTokens(totals.output)} tokens · 累计 ${approx}${pricing.formatCost(totals.cost)}${unit}`;
+  }
+
+  /* ---------- P2-1 发送前预估 / P2-2 输出上限与上下文分开 ----------
+   * 以前只能在发完之后从「本次请求」回看花了多少。这里在**发送前**就说清：
+   *   这次大概要发多少输入、按当前单价大概多少钱、输出上限是多少、上下文还剩多少。
+   * 估法的口径是"上一轮真实值 + 这一轮草稿"：
+   *   - 上一轮接口回了 usage 就用真值（输入 token 与缓存命中都是真的）；
+   *   - 加上上一轮它说的那句（下一轮会进历史）+ 你现在输入框里的草稿；
+   * 不额外发请求、不落盘、不再拼一遍提示词（拼出来的只会是另一个近似值）。
+   * 没打过字/没有上一轮的时候，只报"输出上限 + 上下文"这两件确定的事。
+   */
+  function lastAssistantText() {
+    const messages = liveState.chatMessages || [];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message && message.is_user !== true && typeof message.mes === "string" && message.mes) return message.mes;
+    }
+    return "";
+  }
+
+  function estimateNextRequest() {
+    const pricing = window.RoleWorldPricing;
+    const core = window.TASK22_CORE;
+    if (!pricing || !core) return null;
+    const mode = liveState.modelMode || "local";
+    const output = core.outputLimitFor(mode);
+    const context = core.contextLimitFor(mode);
+    const draft = ($("#messageInput") && $("#messageInput").value ? $("#messageInput").value : "").trim();
+    const draftTokens = draft ? pricing.estimateTokens(draft) : 0;
+    // 基线用台账里上一轮的值：接口回了 usage 就是真值，没回就是按字数估的（exact=false）。
+    const last = (liveState.cost && liveState.cost.last) || null;
+    if (!last) {
+      return {
+        known: false, draftTokens: draftTokens, output: output, context: context,
+        input: draftTokens, cacheHit: 0, cost: 0, cachedCost: 0,
+      };
+    }
+    // 下一轮 = 这一轮发出去的 + 它这句回复（会变成历史）+ 你新写的这句。
+    const input = Math.max(0, Number(last.input) || 0)
+      + pricing.estimateTokens(lastAssistantText())
+      + draftTokens;
+    const cacheHit = Math.min(Math.max(0, Number(last.cacheHit) || 0), input);
+    const prices = currentPrices();
+    return {
+      known: true, draftTokens: draftTokens, output: output, context: context,
+      input: input,
+      cacheHit: cacheHit,
+      exact: last.exact === true,
+      cost: pricing.costOf({ input: input, output: 0, cacheHit: 0 }, prices),
+      cachedCost: pricing.costOf({ input: input, output: 0, cacheHit: cacheHit }, prices),
+      period: prices.period,
+    };
+  }
+
+  function renderSendEstimate() {
+    const node = document.querySelector("#chatEstimateLine");
+    if (!node) return;
+    const pricing = window.RoleWorldPricing;
+    const core = window.TASK22_CORE;
+    const estimate = estimateNextRequest();
+    if (!pricing || !core || !estimate) { node.hidden = true; node.textContent = ""; return; }
+    const outputNote = `输出上限 ${pricing.formatTokens(estimate.output)}`;
+    const contextNote = `上下文 ${pricing.formatTokens(estimate.context)}`;
+    if (!estimate.known) {
+      // 还没打过一轮：只能报确定的两件事（输出上限、上下文），不编输入量。
+      node.textContent = `输出上限 ${pricing.formatTokens(estimate.output)} · 上下文 ${pricing.formatTokens(estimate.context)}`;
+      node.title = "还没有上一轮可对照：发出第一轮之后，这里会显示「这次大约要发多少输入、大概多少钱」。";
+      node.hidden = false;
+      return;
+    }
+    const share = estimate.context > 0 ? Math.round((estimate.input / estimate.context) * 100) : 0;
+    node.textContent = `这次约 ${pricing.formatTokens(estimate.input)} 输入 ≈ ${pricing.formatCost(estimate.cost)}`
+      + (estimate.cacheHit > 0 ? `（命中缓存 ≈ ${pricing.formatCost(estimate.cachedCost)}）` : "")
+      + ` · ${outputNote}`;
+    node.title = [
+      "发送前预估（本地算，不额外发请求）：",
+      `· 输入约 ${estimate.input} token（其中 ${estimate.cacheHit} 是上一轮命中缓存的部分）`,
+      `· 按当前单价（${estimate.period || ""}）估算费用：全未命中 ${pricing.formatCost(estimate.cost)}`
+        + (estimate.cacheHit > 0 ? `，命中缓存 ${pricing.formatCost(estimate.cachedCost)}` : ""),
+      `· ${outputNote}、${contextNote}：输入已占上下文约 ${share}%`,
+      `· 输出费用另算（这一轮它会说多少现在还不知道）`,
+      estimate.draftTokens ? `· 其中你刚输入的草稿约 ${estimate.draftTokens} token` : "· 输入框是空的，发出去之前还会加上你写的内容",
+      estimate.exact === false ? "· 上一轮接口没回用量，基线是按字数估的，只能看量级" : "· 基线是上一轮接口回的真实用量",
+      "上一轮的真实用量见下方「本对话 N 轮」与「本次请求」面板。",
+    ].join("\n");
+    node.hidden = false;
   }
 
   /* ---------- Task-29A：角色注册表与单角色绑定 ---------- */
@@ -2597,6 +2713,7 @@
     if (stop) { stop.hidden = true; stop.disabled = true; }
     setChatControlsDisabled(blocked, { allowSelection: true });
     renderCharacterPicker();
+    renderSendEstimate();
   }
 
   function setLivePhase(phase) {
@@ -2683,6 +2800,17 @@
     }
   }
 
+  /** 输入时刷新「发送前预估」（防抖：打字过程中不必每个字符都算一遍）。 */
+  function bindSendEstimate() {
+    const input = $("#messageInput");
+    if (!input) return;
+    let timer = 0;
+    input.addEventListener("input", () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { timer = 0; renderSendEstimate(); }, 250);
+    });
+  }
+
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) return;
     if (event.key === "Escape" && liveState.generationPhase === "generating") {
@@ -2690,7 +2818,6 @@
       stopLive();
     }
   });
-
   /* ---------- 角色对话流式生成（2026-09-09） ----------
    * 与通用 AI 同一套策略：不依赖 content-type（ST 代理不复制响应头），
    * 按内容判断 SSE；整段一次性到达时打字机兜底；无正文时非流式重试一次。 */
@@ -3079,6 +3206,18 @@
         stream: true,
         extraSystem,
       });
+      // P2-2：发送前把「输入 + 输出上限」与上下文对一次。超了就直接说该改什么，
+      // 而不是等接口回一个 400、再让用户猜是哪里超了。
+      const budget = window.TASK22_CORE.checkContextBudget({
+        inputTokens: window.RoleWorldPricing.tokensFromMessages(payload.messages),
+        mode: liveState.modelMode,
+      });
+      if (!budget.ok) {
+        const overflow = new Error(budget.message);
+        overflow.code = "CONTEXT_OVERFLOW";
+        overflow.budget = budget;
+        throw overflow;
+      }
       // 记下这次到底发了什么，供「本次请求」查看（只读，不参与发送流程；
       // 统计失败也只是少一个入口，绝不影响这轮对话）。
       liveState.lastPayload = payload;
@@ -3251,6 +3390,12 @@
       renderLiveMessages(targetSession.messages);
       if (!saveCompleted) restoreInput(originalInput);
       if (isAuthRequired(err)) { showAuthGate(); return; }
+      if (err && err.code === "CONTEXT_OVERFLOW") {
+        // 明确说该改什么，并把完整说明留在对话页的状态行上（toast 放不下这么多字）。
+        setChatListStatus(err.message, true);
+        showToast("这一轮超过了上下文上限，先看看上面的说明");
+        return;
+      }
       if (err && err.code === "TURN_ALREADY_SAVED") {
         showToast("这一条上次其实已经保存过了，没有重复写入");
         return;
@@ -3836,7 +3981,8 @@
     }
     // 伴侣模式：关系档案的开关、保存、以及"边写边看这一轮会多带多少"。
     renderCompanionRules();
-    bindChatRecap();    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
+    bindChatRecap();
+    bindSendEstimate();    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
       node.addEventListener("click", () => { openCompanionDialog().catch(() => {}); });
     });
     document.querySelectorAll("[data-action='close-companion']").forEach((node) => {

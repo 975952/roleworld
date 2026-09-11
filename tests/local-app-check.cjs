@@ -160,6 +160,19 @@ function startServer() {
         for (const piece of pieces) {
           res.write("data: " + JSON.stringify({ model: body.model || "synthetic", choices: [{ delta: { content: piece } }] }) + "\n\n");
         }
+        // 真实接口最后会单独回一段用量（含缓存命中数）。以前这里没回，
+        // 于是"发送前预估"永远拿不到真实基线 —— 那也是没测出来的原因之一。
+        const promptTokens = (Array.isArray(body.messages) ? body.messages : [])
+          .reduce((sum, message) => sum + Math.ceil(String((message && message.content) || "").length * 0.6), 0) + 4;
+        res.write("data: " + JSON.stringify({
+          model: body.model || "synthetic",
+          choices: [],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: 12,
+            prompt_cache_hit_tokens: Math.floor(promptTokens * 0.6),
+          },
+        }) + "\n\n");
         res.write("data: [DONE]\n\n");
         res.end();
         return;
@@ -550,6 +563,64 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert(requests.length === before, "打开面板竟然发出了新的请求");
 
+    await evaluate("document.querySelector(\"[data-action='close-request-peek']\").click(); true");
+    await waitFor("document.querySelector('#requestPeek').hidden === true", 8000);
+  });
+
+  await check("发送前预估：输入 token / 费用 / 输出上限，发之前就看得见", async () => {
+    const before = requests.filter((row) => row.stream === true).length;
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '预估一下这句';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    // 输入有 250ms 防抖，等它自己更新。
+    const shortTitle = await waitFor(`(() => {
+      const node = document.querySelector('#chatEstimateLine');
+      if (!node || node.hidden) return '';
+      return node.title && node.title.indexOf('输入约') >= 0 ? node.title : '';
+    })()`, 8000);
+    const shortTokens = Number((shortTitle.match(/输入约 (\d+) token/) || [])[1] || 0);
+    assert(shortTokens > 0, "预估里没有输入 token：" + shortTitle);
+    const line = await evaluate("document.querySelector('#chatEstimateLine').textContent");
+    assert(/这次约 [\d.]+k? 输入 ≈ ¥/.test(line), "预估行写法不对：" + line);
+    assert(line.indexOf("输出上限") >= 0, "预估行没有把输出上限分开写：" + line);
+    assert(/命中缓存 ≈ ¥/.test(line), "预估行没有给缓存命中的口径：" + line);
+    assert(shortTitle.indexOf("上下文") >= 0, "悬停说明里没有上下文那一项");
+
+    // 草稿写得越长，预估越高 —— 说明它真的看了输入框里的字。
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = ${JSON.stringify("这一句用来把草稿撑长，看看预估会不会跟着涨。".repeat(12))};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    const longTitle = await waitFor(`(() => {
+      const node = document.querySelector('#chatEstimateLine');
+      const match = node && node.title ? node.title.match(/输入约 (\\d+) token/) : null;
+      return match && Number(match[1]) > ${shortTokens} ? node.title : '';
+    })()`, 8000);
+    const longTokens = Number((longTitle.match(/输入约 (\d+) token/) || [])[1] || 0);
+    assert(longTokens > shortTokens, "草稿变长但预估没变：" + shortTokens + " → " + longTokens);
+    assert(requests.filter((row) => row.stream === true).length === before,
+      "只是预估，不该发出任何请求");
+
+    // 发出去之后，接口回来的真实用量要和预估放得上同一个量级（差得离谱说明估法错了）。
+    await evaluate("document.querySelector('#sendButton').click(); true");
+    await waitTurnSettled();
+    const after = await evaluate(`(async () => {
+      const node = document.querySelector('#chatEstimateLine');
+      return { title: node.title, text: node.textContent };
+    })()`);
+    assert(/输入约 \d+ token/.test(after.title), "发完一轮之后预估应当以真实用量继续对照：" + after.title);
+
+    // 面板里把「上下文」和「输出上限」分开写清楚。
+    await evaluate("document.querySelector('#requestPeekButton').click(); true");
+    await waitFor("document.querySelector('#requestPeek').hidden === false", 8000);
+    const body = await evaluate("document.querySelector('#requestPeekBody').textContent");
+    assert(/上下文：输入 \d+ token（占 \d+ 的 \d+%） \+ 输出上限 \d+ token/.test(body),
+      "面板没有把上下文与输出上限分开写：" + JSON.stringify(body.slice(-260)));
     await evaluate("document.querySelector(\"[data-action='close-request-peek']\").click(); true");
     await waitFor("document.querySelector('#requestPeek').hidden === true", 8000);
   });

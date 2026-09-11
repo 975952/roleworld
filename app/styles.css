@@ -244,6 +244,10 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+/* 发送前预估：输入 token / 费用 / 输出上限。窄屏上先让位给发送键。 */
+.composer-estimate { overflow: hidden; flex: 0 1 auto; min-width: 0; color: var(--secondary-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-estimate[hidden] { display: none; }
+@media (max-width: 560px) { .composer-estimate { display: none; } }
 .send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
 .send-button:hover { background: #fff; transform: translateY(-1px); }
 .send-button:disabled { opacity: .38; cursor: wait; transform: none; }

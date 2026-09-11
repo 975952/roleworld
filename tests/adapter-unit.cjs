@@ -801,6 +801,44 @@ async function main() {
     assert.equal(plan.truncated, true);
   });
 
+  console.log("== 上下文上限 与 输出上限（分开算）==");
+
+  await test("上下文与输出是两件事，各有各的值", () => {
+    assert.equal(Core22.contextLimitFor("local"), 32768);
+    assert.equal(Core22.contextLimitFor("deepseek-flash"), 1000000);
+    assert.equal(Core22.contextLimitFor("deepseek-v4-pro"), 1000000);
+    assert.equal(Core22.contextLimitFor("没见过的模型"), 32768, "不知道的模型按最小上下文保守估计");
+    assert.equal(Core22.outputLimitFor("local"), 2048);
+    assert.equal(Core22.outputLimitFor("deepseek-flash"), 32768);
+  });
+
+  await test("没超限就放行，并且算得出输入占了多少上下文", () => {
+    const check = Core22.checkContextBudget({ inputTokens: 5000, mode: "deepseek-flash" });
+    assert.equal(check.ok, true);
+    assert.equal(check.context, 1000000);
+    assert.equal(check.output, 32768);
+    assert.equal(check.total, 37768);
+    assert.equal(check.message, "", "放行时不该有提示语");
+    assert.ok(check.ratio > 0 && check.ratio < 0.01);
+  });
+
+  await test("超限时给出可操作的说明，而不是一句「请重试」", () => {
+    const check = Core22.checkContextBudget({ inputTokens: 40000, mode: "local" });
+    assert.equal(check.ok, false, "输入 40000 + 输出 2048 已经超过 32768");
+    assert.equal(check.total, 42048);
+    assert.ok(check.message.indexOf("历史预算") >= 0, "应当告诉用户去哪儿调小：" + check.message);
+    assert.ok(check.message.indexOf("32768") >= 0, "应当写出上限是多少：" + check.message);
+  });
+
+  await test("脏数据不炸：负数、NaN、字符串一律当 0", () => {
+    assert.equal(Core22.checkContextBudget({}).input, 0);
+    assert.equal(Core22.checkContextBudget({ inputTokens: -100 }).input, 0);
+    assert.equal(Core22.checkContextBudget({ inputTokens: "abc" }).input, 0);
+    assert.equal(Core22.checkContextBudget({ inputTokens: 10.7 }).input, 10);
+    assert.equal(Core22.checkContextBudget({ inputTokens: 0, outputLimit: 0 }).output, Core22.outputLimitFor("local"),
+      "输出上限填 0 视为没填");
+  });
+
   console.log("== AI 写角色：描述 → 提示词 → 角色卡 ==");
 
   await test("第一步的请求：关掉思考、给足额度、温度比写卡高", () => {
