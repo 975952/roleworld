@@ -89,7 +89,7 @@ const MEASURE = `(() => {
     sendButtonBg: (() => { const n = document.getElementById("sendButton"); return n ? getComputedStyle(n).backgroundImage : ""; })(),
     sendButtonRadius: (() => { const n = document.getElementById("sendButton"); return n ? getComputedStyle(n).borderRadius : ""; })(),
     sendButtonW: (() => { const n = document.getElementById("sendButton"); return n ? Math.round(n.getBoundingClientRect().width) : -1; })(),
-    sendArrow: (() => !!document.querySelector(".send-button b"))(),
+    sendArrow: (() => !!document.querySelector(".send-button svg"))(),
     pillBg: (() => {
       const n = document.querySelector(".plain-button") || document.querySelector(".new-conversation-button")
         || document.querySelector(".map-app .cast-chip") || document.querySelector(".map-app .map-node");
@@ -323,11 +323,11 @@ async function main() {
   check("返校金：金箔纤维纹理在", /repeating-linear-gradient/.test(goldDark.shellBg || ""), (goldDark.shellBg || "").slice(0, 68));
   check("返校金：金色仍是最纯的那个", goldDark.focus === "#f5c518", goldDark.focus);
 
-  console.log("── 发送按钮形状（键帽做长、箭头不似签子）──");
+  console.log("── 发送按钮形状（圆形 + 线宽箭头）──");
   {
     const m = await open(CHAT, GOLD_DARK, [1280, 900]);
-    check("发送按钮是胶囊形（键帽做长）", m.sendButtonW > 40 && /px/.test(m.sendButtonRadius) && parseFloat(m.sendButtonRadius) >= 900, `${m.sendButtonW}px / radius ${m.sendButtonRadius}`);
-    check("发送箭头是 CSS 实心箭头（不是 ↑ 字符）", m.sendArrow === true, `b 元素存在=${m.sendArrow}`);
+    check("发送按钮是圆形", m.sendButtonW >= 32 && m.sendButtonW <= 36 && m.sendButtonRadius === "50%", `${m.sendButtonW}px / radius ${m.sendButtonRadius}`);
+    check("发送箭头是 SVG 线宽箭头（不是 ↑ 字符）", m.sendArrow === true, `svg 存在=${m.sendArrow}`);
   }
 
   console.log("── 主区顶部缝隙（最多 0.几毫米）──");

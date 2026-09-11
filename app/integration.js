@@ -1521,7 +1521,8 @@
         send.setAttribute("aria-label", generating ? "停止生成" : saving ? "正在保存" : "发送");
         send.innerHTML = generating
           ? '<span class="stop-glyph" aria-hidden="true"></span>'
-          : saving ? '<span aria-hidden="true">…</span>' : '<b aria-hidden="true"></b>';
+          : saving ? '<span aria-hidden="true">…</span>'
+            : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
       }
     } else if (!liveState.pending && !liveState.switching) {
       disableComposer(liveState.templateBusy ? "正在准备对话…" : liveState.templateError ? "准备失败，请重试" : "正在准备对话…");
