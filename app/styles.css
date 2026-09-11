@@ -830,8 +830,10 @@ html[data-theme="light"] .season-letter { background: linear-gradient(168deg, #f
 .season-letter-hint { color: var(--quiet-text); font-size: 10px; }
 .season-sweep { position: fixed; top: 0; right: 0; left: 0; z-index: 91; height: 2px; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(230,197,121,.95), transparent); background-repeat: no-repeat; background-size: 40% 100%; animation: seasonSweep 1.6s ease-out forwards; }
 @keyframes seasonSweep { 0% { background-position: -40% 0; opacity: 0; } 20% { opacity: 1; } 100% { background-position: 140% 0; opacity: 0; } }
-html.season-ambient-on::after { content: ""; position: fixed; inset: 0; z-index: 30; pointer-events: none; opacity: .5; mix-blend-mode: screen; background-image: radial-gradient(1.6px 1.6px at 8% 22%, rgba(232,197,121,.85), transparent 62%), radial-gradient(1.4px 1.4px at 27% 68%, rgba(232,197,121,.7), transparent 62%), radial-gradient(1.8px 1.8px at 46% 34%, rgba(240,214,150,.75), transparent 62%), radial-gradient(1.3px 1.3px at 63% 76%, rgba(232,197,121,.6), transparent 62%), radial-gradient(1.7px 1.7px at 81% 28%, rgba(240,214,150,.7), transparent 62%), radial-gradient(1.4px 1.4px at 93% 62%, rgba(232,197,121,.6), transparent 62%), linear-gradient(180deg, rgba(232,197,121,.09), transparent 34%); animation: seasonAmbientDrift 48s ease-in-out infinite alternate; }
-html[data-theme="light"].season-ambient-on::after { mix-blend-mode: multiply; opacity: .3; }
+/* 这里原来还有一层 html.season-ambient-on::after —— inset:0 的整屏金色光点
+   ＋一层竖向暖光，等于给全站盖了一张膜（"整个界面蒙上一层"最早就是它）。
+   现在氛围由 tokens.css 的顶部光带负责（只在顶栏高度、往下很快消失），
+   这一层删掉，免得跟新实现叠成两层。 */
 @keyframes seasonAmbientDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-1.2%, 1.4%, 0); } }
 @media (max-width: 560px) {
   .season-letter { padding: 26px 20px 22px; max-height: 84vh; }

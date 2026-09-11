@@ -76,11 +76,15 @@ const MEASURE = `(() => {
       return Math.round(node.getBoundingClientRect().top - main.getBoundingClientRect().top);
     })(),
     ambientHeight: parseFloat(getComputedStyle(root, "::after").height) || 0,
+    // 用 content 判断"这条光带到底生成了没有"：
+    // 选择器不匹配时 height 会退回 html 自身的高度（900px），会误判成"有光带"。
+    ambientContent: getComputedStyle(root, "::after").content,
     ambientBg: getComputedStyle(root, "::after").backgroundImage,
     headerBg: bgImage(".topbar") || bgImage(".map-header"),
     stageBg: bgImage(".main-stage") || bgImage(".map-app .stage-main"),
     shellBg: bgImage("#appShell") || bgImage(".map-app"),
     shellBgColor: (() => { const n = document.querySelector("#appShell") || document.querySelector(".map-app"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
+    sidebarBg: (() => { const n = document.querySelector(".archive-sidebar"); return n ? getComputedStyle(n).backgroundColor : ""; })(),
     pillBg: (() => {
       const n = document.querySelector(".plain-button") || document.querySelector(".new-conversation-button")
         || document.querySelector(".map-app .cast-chip") || document.querySelector(".map-app .map-node");
@@ -246,13 +250,20 @@ async function main() {
   const CHAT = `${BASE}/app/index.html?onboarding=off&surprise=off`;
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
-  check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
+  check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0a0a0b" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
   check("樱（暗）：粉很浅", sakuraDark.focus === "#f7e5ef", sakuraDark.focus);
   // 红=0/360°。335° 往上就开始发红，所以钉在"品红—粉"这一段。
   check("樱（暗）：粉不偏红（色相在 318–330°）", sakuraDark.focusHue >= 318 && sakuraDark.focusHue <= 330, `${sakuraDark.focusHue}°`);
   {
     const [r, g, b] = sakuraDark.focusRgb;
     check("樱（暗）：粉的偏离量收到 2/5（红绿差 ≤20）", r >= 0 && r - g <= 20 && b >= g, `R${r} G${g} B${b}（红绿差 ${r - g}）`);
+  }
+  {
+    // "整个界面都泛着粉色"的根因是大面上色：侧栏被 --focus 调过色、主区有光晕。
+    const [sr, sg, sb] = rgbParts(sakuraDark.sidebarBg);
+    check("樱（暗）：侧栏是中性灰，不泛粉", sr < 0 || (sr - sg <= 6 && Math.abs(sb - sg) <= 6), `${sakuraDark.sidebarBg}`);
+    check("樱（暗）：主区平涂，没有粉色光晕", !/gradient/.test(sakuraDark.stageBg), sakuraDark.stageBg.slice(0, 50) || "none");
+    check("樱（暗）：开了氛围也不出现整屏宽的粉带", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);
   }
   {
     // 中性底色也会有 r>b>g 的微小差（--main-text 本身偏暖白），
@@ -262,8 +273,8 @@ async function main() {
     check("樱（暗）：普通按钮不再上粉（粉的面积变小）", tint <= 6, `${sakuraDark.pillBg}（红绿差 ${tint}）`);
   }
   check("樱（暗）：主按钮是很浅的粉（不是实粉）", rgbLuma(sakuraDark.buttonBg) >= 225 && /gradient/.test(sakuraDark.buttonBg), `${rgbLuma(sakuraDark.buttonBg)} / ${sakuraDark.buttonBg.slice(0, 48)}`);
-  check("樱（暗）：顶栏是渐变不是平涂", /gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68));
-  check("樱（暗）：光带比其他风格更小", sakuraDark.ambientHeight > 0 && sakuraDark.ambientHeight <= 130, `${sakuraDark.ambientHeight}px`);
+  check("樱（暗）：顶栏是中性，不带粉光", !/gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68) || "none");
+  check("樱（暗）：整屏光带被取消", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);
 
   const sakuraLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura", theme: "light" }), [1280, 900]);
   check("樱（亮）：粉也不偏红（色相在 318–330°）", sakuraLight.focusHue >= 318 && sakuraLight.focusHue <= 330, `${sakuraLight.focusHue}°`);

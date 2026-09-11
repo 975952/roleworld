@@ -209,56 +209,55 @@
 }
 
 /* ---------------------------------------------------------------------
-   风格四：樱（很浅的粉，而且粉的面积很小）
-   用户要求（2026-09-11）：先"粉色更浅、药片更粉"，再"把樱再弄淡一点"，
-   再"粉色太浓了，区域要变小，而且要变很浅"，再"这个粉色太偏红了"，
-   再"还要变浅到现在的 2/5"。
-   最终做法：
-     * 粉只出现在**很小的几处**（选中项、主按钮、焦点环），大块不上粉底；
-     * 色相固定在品红—粉一段（约 325°，不是发红的 336°）；
-     * **把"粉的偏离量"整体压到原来的 2/5**：
-       暗色 #f7c9e4（红绿差 46、蓝绿差 27）→ #f7e5ef（18 / 11）；
-       亮色 #db7fb4（92 / 53）→ #dbb6cb（37 / 21）；
-       按钮渐变、选中底色（10% → 4%）、光带透明度（.26 → .10）、
-       accent-soft（.08 → .03）都按同一比例收。
+   风格四：樱（中性灰底 + 一点点粉）
+   用户要求（2026-09-11）一路收下来：更浅 → 区域变小 → 不偏红 → 2/5 →
+   "现在太粉了，一看整个界面都泛着粉色，看着恶心"。
+   最后这句是根因：粉不只出现在按钮上，还铺在**大面**上 ——
+   侧栏被 --focus 调过色、主区有两团 --focus 光晕、顶部还有一整条粉光带，
+   加上面板灰本身就带紫粉（#141116 / #f9e7f0 这类）。
+   所以这一版：
+     * 所有面板色（导航/卡片/悬停/选中/分隔线）改成**纯中性灰**，不带粉；
+     * 侧栏、主区、剧情模式舞台一律平涂，不加任何 --focus 光晕；
+     * 顶部光带直接取消（那条是整屏宽的粉）；
+     * 粉只留在**极小的几处**：主按钮、选中项 4% 底、焦点环、勾选框。
    --------------------------------------------------------------------- */
 :root[data-style="sakura"] {
-  --canvas: #0c0a0c;
-  --navigation: #141116;
-  --raised: #1c181d;
-  --hover: #251f25;
-  --selected: #2f2730;
-  --hairline: #332b33;
-  --strong-line: #473c46;
-  --main-text: #faf4f8;
-  --secondary-text: #e6d7e0;
-  --muted-text: #b39cac;
-  --quiet-text: #8d7788;
+  --canvas: #0a0a0b;
+  --navigation: #111112;
+  --raised: #19191a;
+  --hover: #212122;
+  --selected: #2a2a2b;
+  --hairline: #2d2d2e;
+  --strong-line: #414142;
+  --main-text: #f8f6f7;
+  --secondary-text: #dcd8db;
+  --muted-text: #a6a1a6;
+  --quiet-text: #827d82;
   --focus: #f7e5ef;
-  /* 按钮：很浅的藕粉底 + 深梅色字（粉的偏离量同样收到 2/5）。 */
+  /* 按钮：很浅的藕粉底 + 深梅色字（粉的偏离量只有原来 2/5）。 */
   --focus-grad: linear-gradient(160deg, #fff7fc, #f9eaf3);
-  --topbar-bg: rgba(12,10,12,.94);
+  --topbar-bg: rgba(10,10,11,.94);
   --button-text: #4a1d33;
-  --overlay: rgba(12,10,12,.93);
+  --overlay: rgba(10,10,11,.93);
   --accent-soft: rgba(247,229,239,.03);
 }
 :root[data-style="sakura"][data-theme="light"] {
-  --canvas: #fffafd;
-  --navigation: #fdf1f7;
+  --canvas: #fcfbfc;
+  --navigation: #f4f2f4;
   --raised: #ffffff;
-  --hover: #f9e7f0;
-  --selected: #f3dae7;
-  --hairline: #f2dbe7;
-  --strong-line: #debccd;
-  --main-text: #26141f;
-  --secondary-text: #4d3243;
-  --muted-text: #805f72;
-  --quiet-text: #9d8291;
+  --hover: #edebed;
+  --selected: #e4e1e4;
+  --hairline: #e4e1e4;
+  --strong-line: #c9c4c9;
+  --main-text: #1e1a1e;
+  --secondary-text: #443f44;
+  --muted-text: #6f686f;
+  --quiet-text: #948d94;
   --focus: #dbb6cb;
   --focus-grad: linear-gradient(160deg, #fff1f9, #f7e2ee);
-  --topbar-bg: rgba(255,250,253,.94);
+  --topbar-bg: rgba(252,251,252,.94);
   --button-text: #5c2140;
-  --overlay: rgba(255,250,253,.94);
+  --overlay: rgba(252,251,252,.94);
   --accent-soft: rgba(219,182,203,.028);
 }
 
@@ -311,13 +310,14 @@
 /* ---------------------------------------------------------------------
    顶部光带：亮色一律做成"渐变"，不给整个界面蒙一层。
    规则（2026-09-10 用户）：光带要小、要淡，只在顶栏高度附近，往下很快消失。
-   颜色取当前风格的 --focus，所以金/樱各自是金色/粉色。
-   深林明确要求"绿色不做渐变"，所以不在这里；
-   羊皮纸是"整张纸"的质感，也不走这条路（见 glass.css 的 paper 段）。
+   颜色取当前风格的 --focus，所以金色风格顶部是一道淡金。
+   深林明确要求"绿色不做渐变"，樱要求"整个界面不能泛粉"，
+   所以这两个都不在这里；羊皮纸是"整张纸"，也不走这条路。
    --------------------------------------------------------------------- */
-html.season-ambient-on::after,
-html[data-style="gold"]::after,
-html[data-style="sakura"]::after {
+/* 氛围开关只在"中性/金色"这几套上出现；樱、深林、羊皮纸一律不加整屏宽的光带 ——
+   否则用户开了秋季氛围再切到樱，整条顶带就变成粉色，又是"整个界面泛粉"。 */
+html.season-ambient-on:not([data-style="sakura"]):not([data-style="forest"]):not([data-style="paper"])::after,
+html[data-style="gold"]::after {
   content: "";
   position: fixed;
   inset: 0 0 auto 0;
@@ -331,9 +331,8 @@ html[data-style="sakura"]::after {
     transparent 100%);
   animation: season-drift 26s var(--motion-ease) infinite alternate;
 }
-html[data-theme="light"].season-ambient-on::after,
-html[data-theme="light"][data-style="gold"]::after,
-html[data-theme="light"][data-style="sakura"]::after { opacity: .45; }
+html[data-theme="light"].season-ambient-on:not([data-style="sakura"]):not([data-style="forest"]):not([data-style="paper"])::after,
+html[data-theme="light"][data-style="gold"]::after { opacity: .45; }
 
 @keyframes season-drift {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }

@@ -463,38 +463,31 @@
 .character-manage-sidebar input { margin: 0; accent-color: var(--focus); cursor: pointer; }
 
 /* =====================================================================
-   带颜色的风格（返校金 / 樱）：亮色只以渐变落在具体表面上
+   带颜色的风格（返校金）：亮色只以渐变落在具体表面上
    ---------------------------------------------------------------------
    要求（2026-09-10 / 09-11）：
      * 亮色不能整个界面蒙一层，要做成渐变；
      * 光要更淡、范围更小（顶部那条光带见 tokens.css，180px）；
-     * 樱 和 返校金 用同一套做法，粉色更浅、药片更粉（见下面 sakura 段）；
-     * **深林明确不做渐变**，所以它不在这份名单里 —— 实心平涂；
-     * 羊皮纸是"整张纸"，另走一路（见下面 paper 段）。
+     * **深林**"绿色不做渐变"、**樱**"整个界面不能泛粉"、**羊皮纸**是"整张纸"，
+       这三个都不在这份名单里（分别见下面的平涂段 / 樱段 / paper 段）。
    ===================================================================== */
 html[data-style="gold"] .topbar,
-html[data-style="sakura"] .topbar,
-html[data-style="gold"] .map-header,
-html[data-style="sakura"] .map-header {
+html[data-style="gold"] .map-header {
   background: linear-gradient(180deg, color-mix(in srgb, var(--focus) 5%, transparent), transparent 100%);
 }
 html[data-style="gold"] .main-stage,
-html[data-style="sakura"] .main-stage,
-html[data-style="gold"] .map-app .stage-main,
-html[data-style="sakura"] .map-app .stage-main {
+html[data-style="gold"] .map-app .stage-main {
   background:
     radial-gradient(ellipse at 88% 100%, color-mix(in srgb, var(--focus) 7%, transparent), transparent 58%),
     radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--focus) 4%, transparent), transparent 46%),
     var(--canvas);
 }
-html[data-style="gold"] .archive-sidebar,
-html[data-style="sakura"] .archive-sidebar {
+html[data-style="gold"] .archive-sidebar {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--focus) 4%, transparent), transparent 40%),
     var(--navigation);
 }
-html[data-style="gold"] .map-app .setup-band,
-html[data-style="sakura"] .map-app .setup-band {
+html[data-style="gold"] .map-app .setup-band {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--focus) 3%, transparent), transparent 60%),
     var(--canvas);
@@ -561,36 +554,48 @@ html[data-theme="light"][data-style="gold"] .map-app {
 }
 
 /* =====================================================================
-   风格「深林」：实心平涂，一处渐变都不加
+   风格「深林 / 樱」：平涂，一处渐变都不加
    ---------------------------------------------------------------------
-   用户要求（2026-09-11）："绿色不做渐变，做得更浅"。
-   所以这里要把 glass.css 上半部分给所有风格加的渐变（.main-stage 的
-   radial、.archive-sidebar 的 color-mix、.composer-box 的 linear）全部
-   按回实心；按钮也是实心绿（tokens.css 里 --focus-grad 就是纯色）。
+   深林："绿色不做渐变，做得更浅"。
+   樱："现在太粉了，一看整个界面都泛着粉色" —— 泛粉的根因不在按钮，
+   而在侧栏被 --focus 调过色、主区有两团 --focus 光晕：大面上色，
+   面积一大就整片泛粉。所以樱在这一段里跟深林一样按回实心，
+   粉只留在下面的小面积（主按钮 / 选中项 / 焦点环）。
    ===================================================================== */
 html[data-style="forest"] .main-stage,
+html[data-style="sakura"] .main-stage,
 html[data-style="forest"] .map-app .stage-main,
-html[data-style="forest"] .map-app .setup-band {
+html[data-style="sakura"] .map-app .stage-main,
+html[data-style="forest"] .map-app .setup-band,
+html[data-style="sakura"] .map-app .setup-band {
   background: var(--canvas);
 }
-html[data-style="forest"] .archive-sidebar { background: var(--navigation); }
+html[data-style="forest"] .archive-sidebar,
+html[data-style="sakura"] .archive-sidebar { background: var(--navigation); }
 html[data-style="forest"] .topbar,
-html[data-style="forest"] .map-header { background: transparent; }
+html[data-style="sakura"] .topbar,
+html[data-style="forest"] .map-header,
+html[data-style="sakura"] .map-header { background: transparent; }
 html[data-style="forest"] .composer-box,
+html[data-style="sakura"] .composer-box,
 html[data-style="forest"] .memory-modal,
+html[data-style="sakura"] .memory-modal,
 html[data-style="forest"] .confirm-dialog,
-html[data-style="forest"] .map-app .stage-composer {
+html[data-style="sakura"] .confirm-dialog,
+html[data-style="forest"] .map-app .stage-composer,
+html[data-style="sakura"] .map-app .stage-composer {
   background: var(--raised);
 }
 html[data-style="forest"] .map-app .scene-line.is-dice { background: var(--accent-soft); }
 
 /* =====================================================================
-   风格「樱」：粉的面积要小，而且要很浅
+   风格「樱」：粉只剩极小几处
    ---------------------------------------------------------------------
-   用户要求（2026-09-11）："粉色太浓了，区域要变小，而且要变很浅"，随后"还要变浅到现在的 2/5"。
-   所以这里把上一版"所有药片都上粉底"整段删掉 —— 普通按钮、剧情模式的按钮、
-   角色药片全部回到中性底色；粉只留在**选中的那一块**（小面积）与主按钮上，
-   选中底色从 10% 收到 **4%**，顶部光带从 .26 收到 **.10**。
+   用户："现在太粉了，一看整个界面都泛着粉色，看着恶心。"
+   大面已经在上面按回中性平涂；这里只保留：
+     * 主按钮（浅藕粉底）
+     * 选中的那一块（4% 粉底）
+   顶部那条整屏宽的粉光带已在 tokens.css 里取消。
    ===================================================================== */
 html[data-style="sakura"] .settings-nav-item.is-active,
 html[data-style="sakura"] .history-item.is-active,
@@ -611,9 +616,6 @@ html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
   filter: brightness(.98);
 }
-/* 顶部那条光带也按同一比例收淡（.26 → .10）。 */
-html[data-style="sakura"]::after { height: min(120px, 16vh); opacity: .1; }
-html[data-theme="light"][data-style="sakura"]::after { height: min(120px, 16vh); opacity: .08; }
 
 /* =====================================================================
    风格「羊皮纸」：不是换配色，是换一套界面
