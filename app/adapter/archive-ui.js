@@ -56,7 +56,7 @@
       const zip = Zip.write(entries);
       download(zip, "roleworld-" + stamp() + ".zip");
       setStatus("已导出 " + (dump.data.characters || []).length + " 个角色、" +
-        (dump.data.chats || []).length + " 段对话。", false);
+        (dump.data.chats || []).length + " 段对话。存档里不含 API Key，换机器后需要重新填一次。", false);
     } catch (error) {
       setStatus("导出失败：" + (error && error.message ? error.message : error), true);
     }

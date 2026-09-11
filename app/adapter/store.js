@@ -418,10 +418,18 @@
   /* ---------------------------- 存档导出/导入 ---------------------------- */
 
   const EXPORT_STORES = ["characters", "chats", "worlds", "kv"];
+  // kv 里有一个键不能导出：接口密钥。存档是"可以随便发给别人"的东西，
+  // 带上密钥等于把凭据送出去。换机器时重填一次即可。
+  const EXPORT_KV_SKIP = ["secrets"];
 
   async function exportAll() {
     const dump = { format: "roleworld-archive", version: 1, exported_at: new Date().toISOString(), data: {} };
-    for (const name of EXPORT_STORES) dump.data[name] = await getAll(name);
+    for (const name of EXPORT_STORES) {
+      const rows = await getAll(name);
+      dump.data[name] = name === "kv"
+        ? rows.filter((row) => row && EXPORT_KV_SKIP.indexOf(String(row.k)) < 0)
+        : rows;
+    }
     // 头像/原始卡片文件单独走二进制，JSON 里只留索引。
     const blobKeys = await (await ready()).keys("blobs");
     dump.blobs = [];
@@ -434,6 +442,7 @@
         base64: await blobToBase64(blob),
       });
     }
+    dump.excluded = EXPORT_KV_SKIP.slice();
     return dump;
   }
 
