@@ -278,9 +278,11 @@ async function main() {
   }
   check("樱（暗）：主按钮是明确的粉（不是接近白）", rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1] >= 40, `${sakuraDark.buttonBg.slice(0, 52)}`);
   {
-    // "有些按钮变粉"：动作按钮（发送）变粉，普通按钮保持中性。
+    // "发送按钮太粉了，逆天"：它应该是比主按钮更浅的粉，而不是同款实粉。
     const [r, g] = rgbParts(sakuraDark.sendButtonBg);
-    check("樱（暗）：发送按钮也是粉的", g >= 0 ? r - g >= 40 : /gradient/.test(sakuraDark.sendButtonBg), `${sakuraDark.sendButtonBg.slice(0, 52)}`);
+    const sendTint = g < 0 ? -1 : r - g;
+    const primaryTint = rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1];
+    check("樱（暗）：发送按钮是比主按钮浅的粉（15–35，且更淡）", sendTint >= 15 && sendTint <= 35 && sendTint < primaryTint, `${sakuraDark.sendButtonBg.slice(0, 52)}（红绿差 ${sendTint}）`);
   }
   check("樱（暗）：顶栏是中性，不带粉光", !/gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68) || "none");
   check("樱（暗）：整屏光带被取消", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);

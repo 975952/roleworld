@@ -607,7 +607,6 @@ html[data-style="sakura"] .scene-presence.is-on {
   background: color-mix(in srgb, var(--focus) 4%, var(--raised));
 }
 html[data-style="sakura"] .primary-button,
-html[data-style="sakura"] .send-button,
 html[data-style="sakura"] .new-conversation-button,
 html[data-style="sakura"] #seasonLetterEnter,
 html[data-style="sakura"] .map-app .map-button-primary {
@@ -615,12 +614,22 @@ html[data-style="sakura"] .map-app .map-button-primary {
   background: var(--focus-grad);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--wash) 18%, transparent);
 }
+/* 发送按钮太粉了（"逆天"）：它是圆形小按钮，整天杵在输入框边，
+   粉得那么实很吵。单独给它一个很浅的粉，别跟主按钮抢戏。 */
+html[data-style="sakura"] .send-button {
+  color: var(--button-text);
+  background: linear-gradient(160deg, #ffe3f0, #ffd2e4);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--wash) 12%, transparent);
+}
 html[data-style="sakura"] .primary-button:hover,
-html[data-style="sakura"] .send-button:hover,
 html[data-style="sakura"] .new-conversation-button:hover,
 html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
   filter: brightness(1.05);
+}
+html[data-style="sakura"] .send-button:hover {
+  background: linear-gradient(160deg, #ffe3f0, #ffd2e4);
+  filter: brightness(.98);
 }
 
 /* =====================================================================
