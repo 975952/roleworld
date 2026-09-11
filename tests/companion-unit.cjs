@@ -198,6 +198,71 @@ async function main() {
   });
 
   console.log("");
+  console.log("== 上次说到 ==");
+
+  await test("隔了天才出现，而且取的是你说的那句话", () => {
+    const messages = [
+      { name: "我", is_user: true, mes: "我想养一只猫", send_date: new Date(2026, 8, 8, 20, 0, 0).toISOString() },
+      { name: "小默", is_user: false, mes: "那就养吧。", send_date: new Date(2026, 8, 8, 20, 0, 5).toISOString() },
+      { name: "我", is_user: true, mes: "猫粮换了牌子，它不太爱吃新的", send_date: new Date(2026, 8, 8, 20, 3, 0).toISOString() },
+      { name: "小默", is_user: false, mes: "旧的掺一半试试。", send_date: new Date(2026, 8, 8, 20, 3, 5).toISOString() },
+    ];
+    const info = Companion.chatRecap(messages, { now: NOW });
+    assert.ok(info, "隔了三天应当给出「上次说到」");
+    assert.equal(info.days, 3);
+    assert.equal(info.fromUser, true, "应当取用户那句话");
+    assert.equal(info.snippet, "猫粮换了牌子，它不太爱吃新的");
+    assert.equal(info.gap.text, "上次聊天是 3 天前");
+  });
+
+  await test("刚聊过就不打扰（同一天不显示）", () => {
+    const messages = [
+      { is_user: true, mes: "在吗", send_date: new Date(2026, 8, 11, 20, 0, 0).toISOString() },
+      { is_user: false, mes: "在。", send_date: new Date(2026, 8, 11, 20, 0, 5).toISOString() },
+    ];
+    assert.equal(Companion.chatRecap(messages, { now: NOW }), null);
+  });
+
+  await test("新对话（只有一条）不显示", () => {
+    const one = [{ is_user: false, mes: "你好。", send_date: new Date(2026, 8, 1).toISOString() }];
+    assert.equal(Companion.chatRecap(one, { now: NOW }), null);
+    assert.equal(Companion.chatRecap([], { now: NOW }), null);
+    assert.equal(Companion.chatRecap(null, { now: NOW }), null);
+  });
+
+  await test("没有时间戳就不猜，宁可不显示", () => {
+    const messages = [
+      { is_user: true, mes: "上次说的那件事" },
+      { is_user: false, mes: "嗯。" },
+    ];
+    assert.equal(Companion.chatRecap(messages, { now: NOW }), null);
+  });
+
+  await test("长句子截断并压成一行，不带换行进去", () => {
+    const long = "第一行\n第二行 " + "啊".repeat(80);
+    const messages = [
+      { is_user: true, mes: "前面那句", send_date: new Date(2026, 8, 1).toISOString() },
+      { is_user: true, mes: long, send_date: new Date(2026, 8, 1).toISOString() },
+      { is_user: false, mes: "好。", send_date: new Date(2026, 8, 1).toISOString() },
+    ];
+    const info = Companion.chatRecap(messages, { now: NOW });
+    assert.ok(info.snippet.length <= Companion.RECAP_SNIPPET_MAX + 1, "没截断：" + info.snippet.length);
+    assert.ok(info.snippet.endsWith("…"), "截断了就该有省略号");
+    assert.equal(info.snippet.indexOf("\n"), -1, "换行没压掉");
+  });
+
+  await test("没有用户消息时退回最后一条，并标明不是用户说的", () => {
+    const messages = [
+      { is_user: false, mes: "（他把书合上）", send_date: new Date(2026, 8, 9).toISOString() },
+      { is_user: false, mes: "（灯灭了）", send_date: new Date(2026, 8, 9, 1, 0, 0).toISOString() },
+    ];
+    const info = Companion.chatRecap(messages, { now: NOW });
+    assert.ok(info);
+    assert.equal(info.fromUser, false);
+    assert.equal(info.snippet, "（灯灭了）");
+  });
+
+  console.log("");
   console.log("== 内疚话术自检 ==");
 
   await test("认得出内疚与索取的话", () => {

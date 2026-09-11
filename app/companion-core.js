@@ -274,8 +274,7 @@
   }
 
   /** 自检：这段文字里有没有"用内疚留人"的话术。返回命中的片段，不改写原文。 */
-  function lintGuilt(text) {
-    const src = String(text === undefined || text === null ? "" : text);
+  function lintGuilt(text) {    const src = String(text === undefined || text === null ? "" : text);
     const hits = [];
     for (const pattern of GUILT_PATTERNS) {
       const m = pattern.exec(src);
@@ -292,6 +291,41 @@
       for (const hit of lintGuilt(text)) hits.push({ index: index, phrase: hit.phrase });
     });
     return hits;
+  }
+
+  /* ---------- 「上次说到」 ---------- */
+
+  const RECAP_SNIPPET_MAX = 34;
+
+  /** 压成一行、超长截断。空白折叠掉，免得把换行带进那一行小字里。 */
+  function recapSnippet(text, limit) {
+    const max = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : RECAP_SNIPPET_MAX;
+    const clean = String(text === undefined || text === null ? "" : text).replace(/\s+/g, " ").trim();
+    if (clean.length <= max) return clean;
+    return clean.slice(0, max) + "…";
+  }
+
+  /**
+   * 「上次说到」：从**真实的对话记录**里取一句话，给"隔了日子回来"的人看。
+   * 纯本地、不调模型、不做摘要、不编内容；不该显示就返回 null
+   * （刚聊过、只有一条消息、没有时间戳、内容为空）。
+   */
+  function chatRecap(messages, options) {
+    const opts = options || {};
+    const now = opts.now === undefined || opts.now === null ? new Date() : opts.now;
+    const minDays = Number.isFinite(opts.minDays) ? opts.minDays : 1;
+    const rows = (Array.isArray(messages) ? messages : [])
+      .filter((message) => message && typeof message.mes === "string" && message.mes.trim());
+    if (rows.length < 2) return null;
+    const last = rows[rows.length - 1];
+    const gap = gapInfo(last.send_date, now);
+    if (!gap.known || gap.days < minDays) return null;
+    // 优先取"你说过的那句"：那是话题，比角色自己的台词更像"上次说到哪"。
+    const lastUser = rows.filter((message) => message.is_user === true).slice(-1)[0];
+    const source = lastUser || last;
+    const snippet = recapSnippet(source.mes, opts.limit);
+    if (!snippet) return null;
+    return { snippet: snippet, gap: gap, days: gap.days, fromUser: !!lastUser, at: cleanText(last.send_date, 40) };
   }
 
   /** 写档案时顺手记下"这次是几号改的"，以及下次聊天时间要用的时间戳。 */
@@ -332,6 +366,9 @@
     buildCompanionBlock,
     lintGuilt,
     lintGuiltIn,
+    RECAP_SNIPPET_MAX,
+    recapSnippet,
+    chatRecap,
     touch,
     markChat,
   };

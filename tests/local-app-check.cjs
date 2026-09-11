@@ -250,6 +250,15 @@ async function main() {
                    rw_source: { file: "harry-task26a-合成.jsonl", messageIndex: 4, at: "2026-09-11T02:00:00.000Z", origin: "model" } } } }
         ],
         chats: [
+          // 最近聊过的一段：启动时会打开它（按最后消息时间取最新的那段）。
+          // 时间按运行时刻算，这样"今天聊过"永远成立，用例不会因为隔天而飘。
+          { avatar: "Harry Potter (EN).png", file_name: "harry-最近聊过", messages: [
+            { chat_metadata: {}, user_name: "我", character_name: "Harry Potter" },
+            { name: "我", is_user: true, mes: "今天好热", send_date: "${new Date(Date.now() - 70 * 60000).toISOString()}" },
+            { name: "Harry Potter", is_user: false, mes: "那就别出门了。", send_date: "${new Date(Date.now() - 69 * 60000).toISOString()}" }
+          ] },
+          // 一段很久以前的对话：存储键带 .jsonl（老数据 / 导入进来的形状），
+          // 既是历史检索的来源，也是「上次说到」和"旧对话打不开"那个缺陷的现场。
           { avatar: "Harry Potter (EN).png", file_name: "harry-以前的对话.jsonl", messages: [
             { chat_metadata: {}, user_name: "我", character_name: "Harry Potter" },
             { name: "我", is_user: true, mes: "我养了一只猫叫团子", send_date: "2026-08-01T10:00:00.000Z" },
@@ -1009,9 +1018,22 @@ async function main() {
   });
 
   await check("伴侣模式默认关闭：请求里一个字符都不多带，面板也说得明白", async () => {
+    // 后面这一组都在"今天聊过"的那段对话里发消息，先把它切过来并确认切过去了：
+    // 那段 2026-08-01 的旧对话是「上次说到」的现场，别在这里搅动它。
+    const current = await evaluate(`(() => {
+      const row = window.TASK21.sessionList().find((session) => String(session.fileName).indexOf('最近聊过') >= 0);
+      return row ? row.id : '';
+    })()`);
+    assert(current, "会话表里找不到最近聊过的那段对话");
+    await evaluate(`window.TASK21.selectChat(${JSON.stringify(current)}); true`);
+    await waitFor("window.TASK21.activeChatFileName() === 'harry-最近聊过'", 10000);
+
     const sent = requests.filter((row) => row.stream === true);
     const last = sent[sent.length - 1];
     assert(last.systemText.indexOf("[陪伴模式]") < 0, "没打开伴侣模式却带上了陪伴段落");
+    // 这一段就是"今天"聊的，所以「上次说到」不该出现。
+    assert(await evaluate("document.querySelector('#chatRecapBar').hidden === true"),
+      "今天刚聊过还提示「上次说到」");
     const stored = await evaluate("(async () => JSON.stringify(await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)))()");
     assert(stored === "null", "还没写过关系档案，kv 里不该有东西：" + stored);
   });
@@ -1184,6 +1206,78 @@ async function main() {
       "自检把模型的话改掉了");
     await evaluate("document.querySelector('#companionDialog [data-action=\\'close-companion\\']').click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+  });
+
+  await check("隔了很久回来：旧对话能打开，并且会提示「上次说到」", async () => {
+    // 这段 fixture 对话是 2026-08-01 的（一个多月前），而且存储键带 .jsonl ——
+    // 老数据/导入进来的对话就是这个形状。以前会话表把后缀去掉，一打开就报"不可用"。
+    const target = await evaluate(`(() => {
+      const row = window.TASK21.sessionList().find((session) => String(session.fileName).indexOf('以前的对话') >= 0);
+      return row ? row.id : '';
+    })()`);
+    assert(target, "会话表里找不到那段旧对话：" + JSON.stringify(await evaluate("window.TASK21.sessionList()")));
+    await evaluate(`window.TASK21.selectChat(${JSON.stringify(target)}); true`);
+    // 打得开：以前那句话要真的显示出来（打不开时这里会超时）。
+    await waitFor("document.querySelector('#dynamicMessages').textContent.indexOf('团子') >= 0", 15000);
+    assert((await evaluate("window.TASK21.activeChatFileName()")).indexOf("以前的对话") >= 0,
+      "没有切到那段旧对话");
+
+    // 隔了日子回来才提示「上次说到」。
+    await waitFor("document.querySelector('#chatRecapBar').hidden === false", 8000);
+    const text = await evaluate("document.querySelector('#chatRecapText').textContent");
+    assert(text.indexOf("上次说到") === 0, "文案不对：" + text);
+    // 取的是**用户说过的最后一句**（原话，不是摘要），并带上间隔。
+    assert(text.indexOf("我一般买三文鱼味的猫粮") >= 0, "没有取到上次那句原话：" + text);
+    assert(/（上次聊天是 \d+ 天前）/.test(text), "没有写清隔了多久：" + text);
+
+    await evaluate("document.querySelector('#chatRecapUse').click(); true");
+    const filled = await evaluate("document.querySelector('#messageInput').value");
+    assert(filled.indexOf("三文鱼味的猫粮") >= 0, "「以此开头」没把上次那句填进去：" + filled);
+
+    await evaluate("document.querySelector('#chatRecapDismiss').click(); true");
+    await waitFor("document.querySelector('#chatRecapBar').hidden === true", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+  });
+
+  await check("接着聊旧对话：写回同一份记录，不会另存成第二份", async () => {
+    // 存储键带 .jsonl 的对话（老数据 / 导入进来的）如果保存时用另一个键，
+    // 结果就是"看得见旧记录、新消息却写到了别处" —— 那才是真的丢数据。
+    const chatsBefore = await evaluate(`(async () => (await window.STApi.listChats('Harry Potter (EN).png'))
+      .map((chat) => ({ name: chat.file_name, items: chat.chat_items })))()`);
+    assert(await evaluate("window.TASK21.activeChatFileName()") === "harry-以前的对话",
+      "上一条用例应当已经打开那段旧对话");
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '那就接着上次的说';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+
+    const chatsAfter = await evaluate(`(async () => (await window.STApi.listChats('Harry Potter (EN).png'))
+      .map((chat) => ({ name: chat.file_name, items: chat.chat_items })))()`);
+    assert(chatsAfter.length === chatsBefore.length,
+      "聊完多出了一份对话（说明另存了）：" + JSON.stringify({ before: chatsBefore, after: chatsAfter }));
+    const oldBefore = chatsBefore.find((chat) => chat.name.indexOf("以前的对话") >= 0);
+    const oldAfter = chatsAfter.find((chat) => chat.name.indexOf("以前的对话") >= 0);
+    assert(oldAfter && oldAfter.items === oldBefore.items + 2,
+      "新的一轮没有写回原来那份记录：" + JSON.stringify({ before: oldBefore, after: oldAfter }));
+    const stored = await evaluate(`(async () => {
+      const lines = await window.STApi.getChat('Harry Potter (EN).png', 'harry-以前的对话.jsonl');
+      const user = lines.filter((line) => line && line.is_user).slice(-1)[0] || {};
+      return { count: lines.length, last: String(user.mes || '') };
+    })()`);
+    assert(stored.last.indexOf("那就接着上次的说") >= 0,
+      "存进去的内容不对：" + JSON.stringify(stored));
+    // 存回同一份之后，「上次说到」也不该再出现（今天刚聊过）。
+    assert(await evaluate("document.querySelector('#chatRecapBar').hidden === true"),
+      "刚聊完还提示「上次说到」");
   });
 
   await check("伴侣段落跟着卡片语言走：英文卡拿英文段落，中文卡拿中文段落", async () => {

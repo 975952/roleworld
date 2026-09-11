@@ -233,6 +233,12 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 
 .composer-shell { position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; padding: 20px 12px 16px; pointer-events: none; background: linear-gradient(180deg, transparent, var(--canvas) 38%); }
 .composer-box { width: min(880px, 100%); margin: 0 auto; padding: 10px 10px 8px 14px; pointer-events: auto; border: 1px solid var(--strong-line); border-radius: var(--input-radius); background: var(--raised); box-shadow: 0 10px 32px rgba(0,0,0,.26); transition: border-color var(--hover-motion) ease, box-shadow var(--panel-motion) var(--motion-ease), transform var(--panel-motion) var(--motion-ease); }
+/* 「上次说到」：隔了日子回来时的一行提示。窄屏上允许换行，不能撑出横向滚动。 */
+.recap-bar { display: flex; align-items: center; gap: 8px; width: min(880px, 100%); margin: 0 auto 8px; padding: 6px 8px 6px 11px; pointer-events: auto; color: var(--secondary-text); font-size: 11px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
+.recap-bar[hidden] { display: none; }
+.recap-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recap-dismiss { flex: 0 0 auto; padding: 0 7px; }
+@media (max-width: 560px) { .recap-text { white-space: normal; } }
 .composer-box:focus-within { border-color: #505560; box-shadow: 0 12px 38px rgba(0,0,0,.34); transform: translateY(-1px); }
 .composer-box textarea { width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }

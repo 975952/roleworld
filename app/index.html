@@ -182,6 +182,12 @@
         </div>
 
         <div class="composer-shell">
+          <!-- 隔了日子回来时的「上次说到」：只从真实消息里取，不调模型、不编内容。 -->
+          <div class="recap-bar" id="chatRecapBar" hidden>
+            <span class="recap-text" id="chatRecapText"></span>
+            <button class="plain-button" id="chatRecapUse" type="button">以此开头</button>
+            <button class="plain-button recap-dismiss" id="chatRecapDismiss" type="button" aria-label="收起">×</button>
+          </div>
           <div class="composer-box">
             <!-- Task-29A：空白新聊天首条消息前的角色选择器（Codex 风格），绑定后隐藏。 -->
             <div class="character-picker" id="characterPicker" hidden>

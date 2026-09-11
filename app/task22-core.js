@@ -777,6 +777,10 @@
   function normalizeChatSummary(summary) {
     const fileName = chatFileId(summary);
     if (!fileName) return null;
+    // 存储键（带不带 .jsonl 都有可能）：会话表里的名字按约定不带后缀，
+    // 但老数据、导入进来的对话、记忆来源里记的都是**原始文件名**。
+    // 以前这里只留了去掉后缀的名字，结果这类对话一打开就报"不可用"（真踩过）。
+    const rawName = String((summary && (summary.file_name || summary.file_id)) || "").trim();
     const metadata = summary && summary.chat_metadata && typeof summary.chat_metadata === "object"
       ? summary.chat_metadata : {};
     const rawTime = summary && (summary.last_mes || summary.updated_at || summary.updatedAt);
@@ -785,6 +789,7 @@
     return {
       id: fileName,
       fileName,
+      storageFileName: rawName || fileName,
       title: chatSummaryTitle(summary, updatedAt),
       updatedAt,
       serverSaved: true,
@@ -943,6 +948,8 @@
         pendingAvatar: null,
         pendingCharName: "",
       };
+      // 新会话的存储键就是它的文件名（本应用自己写的对话一律不带 .jsonl）。
+      session.storageFileName = session.fileName;
       // Keep earlier local drafts visible as "未保存" instead of silently dropping them.
       // They remain client-only until their own first successful turn is saved.
       sessions = [session, ...sessions];
@@ -958,9 +965,24 @@
     }
 
     async function hydrateSession(session, requestOptions = {}) {
-      let lines;
-      try { lines = await api.getChat(session.avatar, session.fileName, requestOptions); } catch (error) { throw error; }
-      if (!Array.isArray(lines) || lines.length === 0) {
+      // 存储键可能是带后缀的（老数据 / 导入的对话），也可能不带（本应用自己写的）。
+      // 两个都试一遍，试到哪个就把哪个记下来，之后保存、归档、删除都用同一个键 ——
+      // 否则会出现"打得开但另存成第二份"这种更糟的情况。
+      const primary = session.storageFileName || session.fileName;
+      const candidates = [primary];
+      if (/\.jsonl$/i.test(primary)) candidates.push(primary.replace(/\.jsonl$/i, ""));
+      else candidates.push(primary + ".jsonl");
+      let lines = null;
+      for (const candidate of candidates) {
+        let loaded;
+        try { loaded = await api.getChat(session.avatar, candidate, requestOptions); } catch (error) { loaded = null; }
+        if (Array.isArray(loaded) && loaded.length) {
+          session.storageFileName = candidate;
+          lines = loaded;
+          break;
+        }
+      }
+      if (!lines) {
         const error = new Error("chat missing");
         error.code = "CHAT_MISSING";
         throw error;
@@ -1061,6 +1083,7 @@
       let next = newChatFileName();
       while (knownServerFiles.has(next)) next = newChatFileName();
       session.fileName = next;
+      session.storageFileName = next;
       session.id = `local-${randomToken()}`;
     }
 
@@ -1155,7 +1178,7 @@
         // 新建聊天的首轮保存把角色绑定固定进首行头；已有头部文件不重写绑定键。
         bind: { avatar: active.avatar, charName: active.charName || (saveOptions.charName || charName) },
       });
-      await api.saveChat(active.avatar, active.fileName, payload, true, { signal: saveOptions.signal });
+      await api.saveChat(active.avatar, active.storageFileName || active.fileName, payload, true, { signal: saveOptions.signal });
       await rememberTurnReceipt(active, saveOptions.turnId);
       active.lines = payload;
       active.messages = messagesFromChat(payload);
@@ -1188,7 +1211,7 @@
       }
       const archivedAt = archived ? new Date().toISOString() : "";
       const payload = buildArchivePayload(target.lines, archived, archivedAt);
-      await api.saveChat(target.avatar, target.fileName, payload, true);
+      await api.saveChat(target.avatar, target.storageFileName || target.fileName, payload, true);
       target.lines = payload;
       target.archived = !!archived;
       target.archivedAt = archivedAt;

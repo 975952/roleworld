@@ -747,8 +747,39 @@
     renderChatList();
     renderArchivedChatSettings();
     renderLiveMessages(liveState.chatMessages);
+    renderChatRecap();
     renderCharacterPicker();
     loadCostFor(session);
+  }
+
+  /* ---------- 「上次说到」 ----------
+   * 隔了一天以上再回来，很多人要往下翻半天才知道上次聊到哪。
+   * 这一条完全在本机算：取**真实说过的那句话**，不调模型、不做摘要、不编内容；
+   * 没有记录就不显示，而不是硬凑一句"我们上次聊得很开心"。
+   * 收起只在本次会话内有效（刷新后会再出现一次）—— 为此单独存一份偏好不值得。
+   */
+  const RECAP_DISMISSED_NOTE = "收起只在这次打开期间有效（刷新后会再出现一次）。";
+  // 收起过的对话（会记住多个：收起 A 之后再去 B，回到 A 时仍然安静）。
+  const recapDismissed = new Set();
+
+  /** 算出"上次说到什么"。返回 null 表示不该显示（刚聊过 / 没内容 / 已收起）。 */
+  function chatRecapInfo() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    if (!core || !liveState.activeSession) return null;
+    const file = liveState.activeSession.fileName || liveState.activeSession.id || "";
+    if (!file || recapDismissed.has(file)) return null;
+    const info = core.chatRecap(liveState.chatMessages, { now: new Date() });
+    return info ? Object.assign({ file: file }, info) : null;
+  }
+
+  function renderChatRecap() {
+    const bar = document.querySelector("#chatRecapBar");
+    const text = document.querySelector("#chatRecapText");
+    if (!bar || !text) return;
+    const info = chatRecapInfo();
+    if (!info) { bar.hidden = true; return; }
+    text.textContent = `上次说到：${info.snippet}（${info.gap.text}）`;
+    bar.hidden = false;
   }
 
   /* ---------- 「本次请求」只读查看 ----------
@@ -2458,7 +2489,8 @@
     disableComposer("正在永久删除对话…");
     try {
       if (!session.avatar) throw new Error("chat not bound");
-      await window.STApi.deleteChat(session.avatar, session.fileName);
+      // 删除要用真正的存储键：老数据/导入的对话是带 .jsonl 存的（见 hydrateSession）。
+      await window.STApi.deleteChat(session.avatar, session.storageFileName || session.fileName);
       liveState.chatModel.remove(session.id);
       syncActiveSession();
       renderArchivedChatSettings();
@@ -2624,6 +2656,31 @@
     if (liveState.generationPhase !== "generating") return;
     liveState.cancelRequested = true;
     if (liveState.controller) liveState.controller.abort();
+  }
+
+  /** 「上次说到」的两个按钮：以此开头 / 收起。都不发消息，也不改对话内容。 */
+  function bindChatRecap() {
+    const use = document.querySelector("#chatRecapUse");
+    if (use) use.addEventListener("click", () => {
+      const info = chatRecapInfo();
+      if (!info) return;
+      const input = $("#messageInput");
+      if (!input) return;
+      // 只填进输入框，让用户自己改；不替他说话、不直接发出去。
+      input.value = `上次说到「${info.snippet}」，接着聊。`;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    });
+    const dismiss = document.querySelector("#chatRecapDismiss");
+    if (dismiss) {
+      dismiss.title = RECAP_DISMISSED_NOTE;
+      dismiss.addEventListener("click", () => {
+        const info = chatRecapInfo();
+        if (info) recapDismissed.add(info.file);
+        const bar = document.querySelector("#chatRecapBar");
+        if (bar) bar.hidden = true;
+      });
+    }
   }
 
   document.addEventListener("keydown", (event) => {
@@ -2983,18 +3040,20 @@
       } catch (_) { companionProfile = null; }
       if (search) {
         extraParts.push(search.honestyRule());
+        // 检索里"跳过当前这段对话"要用真正的存储键：检索结果带的是原始文件名（可能带 .jsonl）。
+        const currentFile = targetSession.storageFileName || targetSession.fileName;
         try {
           // ① 上一轮模型主动要求翻的内容（[[搜索: …]]）：结果在这一轮交给它。
           const pending = await readPendingSearches(entry);
           if (pending.length) {
-            const run = await runPendingSearches(entry, pending, targetSession.fileName);
+            const run = await runPendingSearches(entry, pending, currentFile);
             if (run.note) extraParts.push(run.note);
             requestedResults = run.results;
             await savePendingSearches(entry, []);
           }
           // ② 本轮自动翻一次：玩家这句话里有没有提到以前聊过的事。
           searchResult = search.searchHistory(await loadSearchHistory(entry), text, {
-            skipFileName: targetSession.fileName,
+            skipFileName: currentFile,
             limit: 6,
           });
           extraParts.push(search.buildHistoryNote(searchResult));
@@ -3638,6 +3697,13 @@
     // 诊断用：当前打开的对话文件名、会话表（含归档）、手动刷新会话表。
     activeChatFileName: () => (liveState.activeSession && liveState.activeSession.fileName) || "",
     sessionFiles: () => (liveState.chatModel ? liveState.chatModel.getSessions().map((s) => s.fileName) : []),
+    // 会话表的 id / 文件名 / 标题：切换对话要用 id（文件名不带 .jsonl、也不是 id）。
+    sessionList: () => (liveState.chatModel
+      ? liveState.chatModel.getSessions().map((s) => ({
+        id: s.id, fileName: s.fileName, title: s.title || "", archived: s.archived === true,
+        saved: s.serverSaved === true,
+      }))
+      : []),
     refreshSessions: () => (liveState.chatModel ? liveState.chatModel.refresh() : Promise.resolve()),
     flagTurnFromMessage,
     addMemoryEntry,
@@ -3770,7 +3836,7 @@
     }
     // 伴侣模式：关系档案的开关、保存、以及"边写边看这一轮会多带多少"。
     renderCompanionRules();
-    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
+    bindChatRecap();    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
       node.addEventListener("click", () => { openCompanionDialog().catch(() => {}); });
     });
     document.querySelectorAll("[data-action='close-companion']").forEach((node) => {
