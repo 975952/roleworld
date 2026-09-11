@@ -279,20 +279,20 @@ async function main() {
     const tint = g < 0 ? 0 : r - g;
     check("樱（暗）：普通按钮不再上粉（粉的面积变小）", tint <= 6, `${sakuraDark.pillBg}（红绿差 ${tint}）`);
   }
-  check("樱（暗）：主按钮是明确的粉（不是接近白）", rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1] >= 40, `${sakuraDark.buttonBg.slice(0, 52)}`);
+  check("樱（暗）：主按钮是明确的粉（1/2 浅后仍能看出粉）", rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1] >= 30 && rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1] <= 55, `${sakuraDark.buttonBg.slice(0, 52)}`);
   {
     // "发送按钮太粉了，逆天"：它应该是比主按钮更浅的粉，而不是同款实粉。
     const [r, g] = rgbParts(sakuraDark.sendButtonBg);
     const sendTint = g < 0 ? -1 : r - g;
     const primaryTint = rgbParts(sakuraDark.buttonBg)[0] - rgbParts(sakuraDark.buttonBg)[1];
-    check("樱（暗）：发送按钮是比主按钮浅的粉（15–35，且更淡）", sendTint >= 15 && sendTint <= 35 && sendTint < primaryTint, `${sakuraDark.sendButtonBg.slice(0, 52)}（红绿差 ${sendTint}）`);
+    check("樱（暗）：发送按钮是比主按钮浅的粉（8–22，且更淡）", sendTint >= 8 && sendTint <= 22 && sendTint < primaryTint, `${sakuraDark.sendButtonBg.slice(0, 52)}（红绿差 ${sendTint}）`);
   }
   check("樱（暗）：顶栏是中性，不带粉光", !/gradient/.test(sakuraDark.headerBg), sakuraDark.headerBg.slice(0, 68) || "none");
   check("樱（暗）：整屏光带被取消", sakuraDark.ambientContent === "none", `content=${sakuraDark.ambientContent}`);
 
   const sakuraLight = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura", theme: "light" }), [1280, 900]);
   check("樱（亮）：粉也不偏红（色相在 318–330°）", sakuraLight.focusHue >= 318 && sakuraLight.focusHue <= 330, `${sakuraLight.focusHue}°`);
-  check("樱（亮）：主按钮也是明确的粉", rgbParts(sakuraLight.buttonBg)[0] - rgbParts(sakuraLight.buttonBg)[1] >= 40, `${sakuraLight.buttonBg.slice(0, 52)}`);
+  check("樱（亮）：主按钮也是明确的粉", rgbParts(sakuraLight.buttonBg)[0] - rgbParts(sakuraLight.buttonBg)[1] >= 30 && rgbParts(sakuraLight.buttonBg)[0] - rgbParts(sakuraLight.buttonBg)[1] <= 60, `${sakuraLight.buttonBg.slice(0, 52)}`);
 
   const forestDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "forest" }), [1280, 900]);
   const fd = rgbParts(forestDark.shellBgColor);

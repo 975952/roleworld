@@ -240,8 +240,8 @@
   /* 大面积底色用的"洗色"：默认不启用（等于强调色），
      只有需要给"按钮阴影/大面积淡染"一个更实的颜色时才覆盖它。 */
   --wash: #ff8cc4;
-  /* 动作按钮：明确的樱粉（不是接近白）—— 用户要求"有些按钮变粉"。 */
-  --focus-grad: linear-gradient(160deg, #ffb3d6, #ff8cc4);
+  /* 动作按钮：明确的樱粉（用户要求"再改成现在 1/2 浅"）。 */
+  --focus-grad: linear-gradient(160deg, #ffd9ea, #ffc6e2);
   --topbar-bg: rgba(10,10,11,.94);
   --button-text: #4a1027;
   --overlay: rgba(10,10,11,.93);
@@ -261,7 +261,7 @@
   --quiet-text: #948d94;
   --focus: #dbb6cb;
   --wash: #f06aab;
-  --focus-grad: linear-gradient(160deg, #ff9ecb, #f06aab);
+  --focus-grad: linear-gradient(160deg, #ffcfe6, #f0adcd);
   --topbar-bg: rgba(252,251,252,.94);
   --button-text: #3a0f2c;
   --overlay: rgba(252,251,252,.94);
