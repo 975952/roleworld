@@ -599,8 +599,8 @@ html[data-style="sakura"] .cast-chip,
 html[data-style="sakura"] .map-node,
 html[data-style="sakura"] .scene-presence {
   border-color: transparent;
-  background: color-mix(in srgb, var(--focus) 28%, var(--raised));
-  color: color-mix(in srgb, var(--focus) 45%, var(--main-text));
+  background: color-mix(in srgb, var(--focus) 22%, var(--raised));
+  color: color-mix(in srgb, var(--focus) 38%, var(--main-text));
 }
 html[data-style="sakura"] .plain-button:hover,
 html[data-style="sakura"] .new-conversation-button:hover,
@@ -609,18 +609,21 @@ html[data-style="sakura"] .map-app button:not(.map-button-primary):hover,
 html[data-style="sakura"] .cast-chip:hover,
 html[data-style="sakura"] .map-node:hover,
 html[data-style="sakura"] .scene-presence:hover {
-  background: color-mix(in srgb, var(--focus) 40%, var(--raised));
+  background: color-mix(in srgb, var(--focus) 32%, var(--raised));
 }
 html[data-style="sakura"] .cast-chip.is-on,
 html[data-style="sakura"] .map-node.is-active,
 html[data-style="sakura"] .scene-presence.is-on {
-  color: color-mix(in srgb, var(--focus) 55%, var(--main-text));
-  background: color-mix(in srgb, var(--focus) 44%, var(--raised));
+  color: color-mix(in srgb, var(--focus) 48%, var(--main-text));
+  background: color-mix(in srgb, var(--focus) 36%, var(--raised));
 }
 html[data-style="sakura"] .settings-nav-item.is-active,
 html[data-style="sakura"] .history-item.is-active {
-  background: color-mix(in srgb, var(--focus) 30%, var(--raised));
+  background: color-mix(in srgb, var(--focus) 24%, var(--raised));
 }
+/* 整片的光带也再淡一档：樱是六个风格里最该"轻"的一个。 */
+html[data-style="sakura"]::after { opacity: .38; }
+html[data-theme="light"][data-style="sakura"]::after { opacity: .3; }
 html[data-style="sakura"] .season-letter-seal,
 html[data-style="sakura"] .settings-count {
   color: var(--focus);

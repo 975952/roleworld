@@ -210,49 +210,49 @@
 
 /* ---------------------------------------------------------------------
    风格四：樱（浅粉 + 粉色药片）
-   用户要求（2026-09-11）："粉色要做得更浅，而且药片更粉色；现在的颜色都太暗了，
-   色彩要鲜艳但亮度不高"。
-   做法：底色仍是中性近黑（不染粉），粉色本身提亮、提纯（#ffa6cd 一类），
-   按钮/药片那类小块用更实的粉（见 glass.css 的 sakura 段），
-   这样"整体不刺眼、粉色块很粉"。
+   用户要求（2026-09-11）："粉色要做得更浅，而且药片更粉色"，
+   随后又补一句"把樱再弄淡一点"。
+   做法：底色中性近黑（不染粉），粉本身提亮提纯（#ffb6d6 一类），
+   药片那类小块用一点实粉（glass.css 的 sakura 段，比例已从 28% 收到 22%），
+   整片面积保持干净、不刺眼。
    --------------------------------------------------------------------- */
 :root[data-style="sakura"] {
   --canvas: #0c0a0c;
   --navigation: #141116;
-  --raised: #1b171c;
-  --hover: #241e24;
-  --selected: #2e262e;
-  --hairline: #322a32;
-  --strong-line: #463b45;
+  --raised: #1c181d;
+  --hover: #251f25;
+  --selected: #2f2730;
+  --hairline: #332b33;
+  --strong-line: #473c46;
   --main-text: #faf4f8;
   --secondary-text: #e6d7e0;
   --muted-text: #b39cac;
   --quiet-text: #8d7788;
-  --focus: #ffa6cd;
-  --focus-grad: linear-gradient(160deg, #ffc9e0, #ff8ec1);
+  --focus: #ffb6d6;
+  --focus-grad: linear-gradient(160deg, #ffd2e5, #ffa0cb);
   --topbar-bg: rgba(12,10,12,.94);
   --button-text: #2c0f20;
   --overlay: rgba(12,10,12,.93);
-  --accent-soft: rgba(255,166,205,.16);
+  --accent-soft: rgba(255,182,214,.12);
 }
 :root[data-style="sakura"][data-theme="light"] {
-  --canvas: #fff8fc;
-  --navigation: #fbedf4;
+  --canvas: #fffafd;
+  --navigation: #fdf1f7;
   --raised: #ffffff;
-  --hover: #f7e1ec;
-  --selected: #f0cfdf;
-  --hairline: #f0d3e1;
-  --strong-line: #dcb3c7;
+  --hover: #f9e7f0;
+  --selected: #f3dae7;
+  --hairline: #f2dbe7;
+  --strong-line: #debccd;
   --main-text: #26141f;
   --secondary-text: #4d3243;
   --muted-text: #805f72;
   --quiet-text: #9d8291;
-  --focus: #e2559a;
-  --focus-grad: linear-gradient(160deg, #ff8fc4, #e2559a);
-  --topbar-bg: rgba(255,248,252,.94);
+  --focus: #e268a2;
+  --focus-grad: linear-gradient(160deg, #ff9fce, #e268a2);
+  --topbar-bg: rgba(255,250,253,.94);
   --button-text: #ffffff;
-  --overlay: rgba(255,248,252,.94);
-  --accent-soft: rgba(226,85,154,.14);
+  --overlay: rgba(255,250,253,.94);
+  --accent-soft: rgba(226,104,162,.10);
 }
 
 /* ---------------------------------------------------------------------

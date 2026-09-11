@@ -142,7 +142,7 @@ roleworld/
 |---|---|
 | `node tests/adapter-unit.cjs` | **50/50** —— 数据层、请求翻译、SSE、ZIP、价格、记忆归属、草稿解析、称呼、BOM 检查 |
 | `node tests/local-app-check.cjs` | **22/22** —— 无头 Chrome 跑真实页面（合成 fixture + 假模型端点，不联网） |
-| `node tests/gold-visual-check.cjs` | **62/62** —— 六个风格的外观回归 + 称呼 + 第一封信（需先起本地服务） |
+| `node tests/gold-visual-check.cjs` | **64/64** —— 六个风格的外观回归 + 称呼 + 主区顶部缝隙 + 第一封信（需先起本地服务） |
 | `node tests/desktop-smoke.cjs` | 1/1 —— 启动真 exe，验证数据真的落盘 |
 | CI（`.github/workflows/ci.yml`） | 每次 push 在 Windows 上跑前两项 |
 | Release（`.github/workflows/release.yml`） | 推 `v*` 标签 → 自动构建 NSIS 安装包并挂到 Release |
@@ -346,3 +346,21 @@ roleworld 完全不依赖服务器。
 
 > 羊皮纸的对比度已用自动化量过：侧栏文字在纸底上 8.4（暗）/ 11.6（亮），都在可读线以上。
 > 仍然只能靠肉眼的是：金箔纹理与纸纹在真实显示器上的观感浓淡。
+
+---
+
+## 十二、主区顶部缝隙 + 樱再淡一档（2026-09-11，未发布）
+
+用户："就把樱再弄淡一点，然后聊天界面右边的主区上面有一个比较大的缝隙，需要减小，
+上面最多留出 0.几毫米的小缝隙。"
+
+| 项目 | 改动 |
+|---|---|
+| **主区顶部缝隙** | 根因是 `styles.css` 里 `.main-stage { margin-top: 8px }`（100% 缩放下约 2.1mm）。改成 **2px**（≈0.5mm）。窄屏那条本来就是 0，不受影响。自动化实测：宽屏 2px、窄屏 0px |
+| **樱再淡一档** | 粉再提浅一档（暗 `#ffa6cd` → `#ffb6d6`，亮 `#e2559a` → `#e268a2`）；药片从 28% 收到 **22% 粉底 / 38% 粉字**（悬停 32%，选中 36%/48%）；`--accent-soft` .16 → .12（亮 .14 → .10）；顶部光带单独收到 .38（亮 .3），是六个风格里最轻的一个 |
+
+改动文件：`app/styles.css`（主区 margin-top）、`app/tokens.css`（樱色板）、`app/glass.css`（樱药片与光带）、
+`tests/gold-visual-check.cjs`（新增"主区顶部只剩发丝缝 ≤2px"两项，并把首条内容距主区顶的距离打进结果里：
+宽屏 122px = 60px 顶栏 + 32px 内容上留白 + 30px 日期分隔；窄屏 76px）。
+
+测试：`adapter-unit` **50/50**、`local-app-check` **22/22**、`gold-visual-check` **64/64**。

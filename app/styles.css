@@ -191,7 +191,10 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .user-menu-row > span:nth-child(2) { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .user-menu-separator { height: 1px; margin: 6px 4px; background: var(--hairline); }
 
-.main-stage, .settings-surface { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; margin-top: 8px; overflow: hidden; border-top-left-radius: 16px; background: var(--canvas); }
+/* 主区顶部只留发丝缝（用户要求"最多 0.几毫米"）。
+   以前这里是 8px，配上面包屑一样的圆角，看起来像主区被顶下来一截；
+   JS 量过：8px 在 100% 缩放下正好 2.1mm，现在改成 2px（≈0.5mm）。 */
+.main-stage, .settings-surface { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; margin-top: 2px; overflow: hidden; border-top-left-radius: 16px; background: var(--canvas); }
 .main-stage { position: relative; display: grid; grid-template-rows: 60px minmax(0, 1fr); transition: opacity var(--hover-motion) ease; }
 .topbar, .settings-topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 60px; padding: 0 16px; border-bottom: 1px solid var(--hairline); background: var(--topbar-bg); }
 .topbar-title, .topbar-actions, .settings-topbar-leading { display: flex; align-items: center; gap: 10px; min-width: 0; }

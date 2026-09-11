@@ -60,6 +60,21 @@ const MEASURE = `(() => {
     vh: window.innerHeight,
     shellLeft: rect ? Math.round(rect.left) : -1,
     shellRight: rect ? Math.round(rect.right) : -1,
+    shellTop: rect ? Math.round(rect.top) : -1,
+    // 主区顶部到壳子顶部的缝隙（用户要求最多 0.几毫米）＋它内部到第一条内容的距离。
+    mainTopGap: (() => {
+      const shell = document.getElementById("appShell") || document.querySelector(".map-app");
+      const main = document.querySelector(".main-stage") || document.querySelector(".stage-main");
+      if (!shell || !main) return -1;
+      return Math.round(main.getBoundingClientRect().top - shell.getBoundingClientRect().top);
+    })(),
+    firstContentGap: (() => {
+      const main = document.querySelector(".main-stage");
+      if (!main) return -1;
+      const node = main.querySelector(".message-row, .chat-content > *, .initial-message");
+      if (!node) return -1;
+      return Math.round(node.getBoundingClientRect().top - main.getBoundingClientRect().top);
+    })(),
     ambientHeight: parseFloat(getComputedStyle(root, "::after").height) || 0,
     ambientBg: getComputedStyle(root, "::after").backgroundImage,
     headerBg: bgImage(".topbar") || bgImage(".map-header"),
@@ -210,7 +225,7 @@ async function main() {
 
   const sakuraDark = await open(CHAT, Object.assign({}, GOLD_DARK, { style: "sakura" }), [1280, 900]);
   check("樱（暗）：底色是中性近黑，不是粉紫染底", sakuraDark.canvas === "#0c0a0c" && rgbLuma(sakuraDark.bodyBg) <= 24, `${sakuraDark.canvas} / ${sakuraDark.bodyBg}`);
-  check("樱（暗）：粉色更浅更纯", sakuraDark.focus === "#ffa6cd", sakuraDark.focus);
+  check("樱（暗）：粉色更浅更淡", sakuraDark.focus === "#ffb6d6", sakuraDark.focus);
   {
     const [r, g, b] = rgbParts(sakuraDark.pillBg);
     check("樱（暗）：药片（小按钮）更粉", g >= 0 && r > g && b > g, sakuraDark.pillBg);
@@ -247,6 +262,13 @@ async function main() {
   check("返校金：暖金底（接管原来那版羊皮纸的质感）", goldDark.canvas === "#14110a" && rgbLuma(goldDark.shellBgColor) <= 40, `${goldDark.canvas} / ${goldDark.shellBgColor}`);
   check("返校金：金箔纤维纹理在", /repeating-linear-gradient/.test(goldDark.shellBg || ""), (goldDark.shellBg || "").slice(0, 68));
   check("返校金：金色仍是最纯的那个", goldDark.focus === "#f5c518", goldDark.focus);
+
+  console.log("── 主区顶部缝隙（最多 0.几毫米）──");
+  for (const [label, viewport] of [["宽屏", [1280, 900]], ["窄屏", [360, 740]]]) {
+    const m = await open(CHAT, GOLD_DARK, viewport);
+    // 0.9mm ≈ 3.4px；这里要求 ≤2px（100% 缩放下约 0.5mm）。
+    check(`${label}：主区顶部只剩发丝缝（≤2px）`, m.mainTopGap >= 0 && m.mainTopGap <= 2, `${m.mainTopGap}px（首条内容距主区顶 ${m.firstContentGap}px）`);
+  }
 
   console.log("── 称呼（第一次引导填的那个名字）──");
   {
