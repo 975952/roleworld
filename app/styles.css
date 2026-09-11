@@ -492,7 +492,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 
 /* Task-36A: mobile shell.  Desktop keeps the existing three-column layout;
  * every mobile-only surface is opt-in below the 760px breakpoint. */
-.mobile-topbar-action, .mobile-drawer-backdrop, .mobile-bottom-nav { display: none; }
+.mobile-drawer-backdrop, .mobile-bottom-nav { display: none; }
 
 @media (max-width: 760px) {
   :root {
@@ -556,8 +556,8 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   }
   .app-shell.settings-open .archive-sidebar { visibility: hidden; opacity: 0; pointer-events: none; }
   .app-shell .panel-resizer, .app-shell .inspector-column { display: none !important; }
-  .navigation-button, .sidebar-inner-toggle, .mobile-topbar-action { display: inline-grid; }
-  .navigation-button, .mobile-topbar-action { width: 44px; height: 44px; }
+  .navigation-button, .sidebar-inner-toggle { display: inline-grid; }
+  .navigation-button { width: 44px; height: 44px; }
   .sidebar-inner-toggle, .new-conversation-button, .settings-back-button { min-height: 44px; }
   .topbar, .settings-topbar {
     min-height: var(--mobile-topbar-height);
@@ -566,8 +566,6 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   }
   .topbar-title, .topbar-actions { gap: 6px; }
   .topbar h1, .settings-topbar h1 { min-width: 0; font-size: 14px; }
-  .mobile-topbar-action { color: var(--muted-text); font-size: 18px; }
-  .mobile-topbar-action:hover { transform: none; }
 
   .mobile-drawer-backdrop {
     position: fixed;

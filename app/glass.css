@@ -638,27 +638,33 @@ html[data-style="sakura"] .send-button:hover {
    用户要求（2026-09-11）："可以改变界面样式，要就是羊皮纸"。
    所以这里做的不是加一层黄，而是：
      1. 衬线体 + 近乎直角（在 tokens.css 里设 --font-family / 半径）；
-     2. 纸纹：两层棕色纤维 + 纸浆不匀 + 一圈边缘泛黄；
+     2. 纸纹：分形噪点（纤维团 + 纸浆颗粒）+ 不规则云斑 + 一圈边缘泛黄，
+        全程不用 repeating 渐变，避免任何可见网格；
      3. 去掉全部玻璃拟态：输入框、弹窗、侧栏都用实心纸面，没有模糊；
      4. 按钮是"墨印"：实心墨色 --focus-grad（纯色）+ 纸色文字。
    ===================================================================== */
 html[data-style="paper"] .app-shell,
 html[data-style="paper"] .map-app {
   background-color: var(--canvas);
+  /* 纸面 = 细噪点 + 纤维团 + 几块大云斑 + 四周压深。
+     全是无固定周期的层，叠多少层都不会出现网格或摩尔纹。 */
   background-image:
-    repeating-linear-gradient(112deg, rgb(96 74 40 / 6%) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(24deg, rgb(96 74 40 / 4.5%) 0 1px, transparent 1px 6px),
-    radial-gradient(ellipse at 16% 6%, rgb(255 250 232 / 70%), transparent 56%),
-    radial-gradient(ellipse at 84% 92%, rgb(150 116 62 / 18%), transparent 60%),
-    radial-gradient(ellipse at 50% 50%, transparent 44%, rgb(104 78 40 / 20%) 100%);
+    var(--paper-grain),
+    var(--paper-fiber),
+    radial-gradient(ellipse 62% 46% at 14% 10%, rgb(255 252 240 / 50%), transparent 72%),
+    radial-gradient(ellipse 48% 38% at 81% 15%, rgb(203 178 128 / 40%), transparent 74%),
+    radial-gradient(ellipse 66% 50% at 31% 76%, rgb(224 203 158 / 36%), transparent 76%),
+    radial-gradient(ellipse 42% 32% at 90% 85%, rgb(188 159 105 / 32%), transparent 74%),
+    radial-gradient(ellipse 54% 42% at 56% 46%, rgb(255 250 232 / 28%), transparent 78%),
+    radial-gradient(ellipse 132% 110% at 50% 50%, transparent 56%, rgb(110 82 40 / 26%) 100%);
   background-attachment: fixed;
 }
 html[data-style="paper"] .main-stage,
 html[data-style="paper"] .map-app .stage-main {
   background-color: transparent;
-  background-image:
-    repeating-linear-gradient(112deg, rgb(96 74 40 / 5%) 0 1px, transparent 1px 4px),
-    radial-gradient(ellipse at 50% 50%, transparent 48%, rgb(104 78 40 / 16%) 100%);
+  /* 主区不再叠第二层纹理：两层纹理各有各的周期，错开会互相干涉出摩尔纹，
+     那是"网格感"的第二个来源。只留一点极淡的上缘受光，让纸有厚度。 */
+  background-image: linear-gradient(180deg, rgb(255 252 240 / 18%), transparent 18%);
 }
 /* 纸面是实心的：去掉玻璃模糊与半透明，纸才像纸。 */
 html[data-style="paper"] .composer-box,
@@ -708,9 +714,5 @@ html[data-style="paper"] .map-app .map-button-primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
-/* 羊皮纸的纸面是半透明白之上的实心纸：正文区再压一层很淡的横纹，
-   像信纸的行格，但几乎看不见，只在滚动时有点纸的质感。 */
-html[data-style="paper"] .message-list,
-html[data-style="paper"] .dynamic-messages {
-  background-image: repeating-linear-gradient(180deg, rgb(96 74 40 / 5%) 0 1px, transparent 1px 34px);
-}
+/* 正文区原来在这里压了一层 34px 的横格（想学信纸行格），但它和纸面纹理叠在
+   一起就是"格子纸"——2026-09-11 按用户反馈去掉。纸的质感交给整页的噪点。 */

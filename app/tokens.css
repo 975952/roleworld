@@ -87,6 +87,13 @@
   --base-radius: 3px;
   --input-radius: 4px;
   --card-radius: 4px;
+  /* 纸纹素材（2026-09-11 返工）。原来用两层 112°/24° 的 repeating-linear-gradient
+     画"纤维"，但两条 1px 斜线按 4px / 6px 的固定周期交叉，在屏幕上会叠成规则的
+     十字网格——用户原话"网格状太丑了"。真纸的纤维没有周期，所以改成两档分形噪点：
+     一层横向压扁的粗噪点当纤维团，一层细噪点当纸浆颗粒，都不产生可见网格。
+     用 data URI 而不是图片文件，静态站和桌面端都不用多带资源。 */
+  --paper-fiber: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02 0.055' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)' opacity='0.18'/%3E%3C/svg%3E");
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.09'/%3E%3C/svg%3E");
   /* 暗色主题下的"灯下的纸" */
   --canvas: #ded0ad;
   --navigation: #d3c29b;
