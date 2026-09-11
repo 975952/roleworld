@@ -47,3 +47,6 @@ Thumbs.db
 .git-commit-msg.txt
 *.cmsg.txt
 .cmsg.txt
+# 写提交信息用的临时文件（写完就删，别跟着提交进去）
+tmp-commit-*.txt
+*.cmsg
