@@ -560,15 +560,20 @@ async function main() {
     }
   });
 
-  await test("版本号三处一致：package.json / tauri.conf.json / app/version.json", () => {
-    // app/version.json 是给网页版判断"线上是不是发了新版"用的（见 app/pwa.js）。
-    // 它由 node scripts/set-version.cjs 一起改；这里盯着别漏。
+  await test("版本号四处一致：package.json / tauri.conf.json / Cargo.toml / app/version.json", () => {
+    // app/version.json 是给网页版判断"线上是不是发了新版"用的（见 app/pwa.js）；
+    // Cargo.toml 决定 **Windows「应用和功能」里显示的版本** —— 它以前漏了，
+    // 于是装出来的 0.1.15 在系统里显示成 0.1.0。四处都由 scripts/set-version.cjs 一起改。
     const root = path.join(__dirname, "..");
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     const tauri = JSON.parse(fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"));
     const web = JSON.parse(fs.readFileSync(path.join(root, "app", "version.json"), "utf8"));
+    const cargo = fs.readFileSync(path.join(root, "src-tauri", "Cargo.toml"), "utf8");
+    const cargoVersion = (cargo.match(/^version\s*=\s*"([^"]+)"/m) || [])[1] || "";
     assert.equal(web.version, pkg.version, "app/version.json 与 package.json 版本号不一致");
     assert.equal(tauri.version, pkg.version, "tauri.conf.json 与 package.json 版本号不一致");
+    assert.equal(cargoVersion, pkg.version, "Cargo.toml 与 package.json 版本号不一致（系统里会显示错版本）");
+    assert.ok(/^\d+\.\d+\.\d+$/.test(pkg.version), "版本号格式不对：" + pkg.version);
   });
 
   await test("PWA 清单与离线壳都在位，且清单里的图标真的存在", () => {
