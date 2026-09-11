@@ -449,6 +449,105 @@ async function main() {
 
   console.log("== 仓库卫生 ==");
 
+  await test("关于页的状态 JSON 能解析，且版本号与 package.json 一致", () => {
+    // 关于页兼作"机器可读的状态页"：版本号、测试口径、数据边界、已知限制。
+    // 手写 JSON 最容易漂的就是版本号，所以这里直接对一次。
+    const html = fs.readFileSync(path.join(__dirname, "..", "app", "about.html"), "utf8");
+    const match = html.match(/<script type="application\/json" id="roleworld-status">([\s\S]*?)<\/script>/);
+    assert.ok(match, "about.html 里找不到 roleworld-status 那段 JSON");
+    let status = null;
+    try {
+      status = JSON.parse(match[1]);
+    } catch (error) {
+      throw new Error("状态 JSON 解析失败：" + (error && error.message));
+    }
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+    assert.equal(status.version, pkg.version, "关于页的版本号和 package.json 不一致");
+    assert.ok(Array.isArray(status.runs && status.runs.suites) && status.runs.suites.length >= 6,
+      "状态里应当列出测试套件");
+    for (const row of status.runs.suites) {
+      assert.ok(row.name && Number(row.checks) > 0, "套件条目缺名称或项数：" + JSON.stringify(row));
+    }
+    assert.ok(Array.isArray(status.privacy && status.privacy.leavesDevice) && status.privacy.leavesDevice.length,
+      "状态里应当写明「哪些内容会离开设备」");
+    assert.ok(Array.isArray(status.knownLimitations) && status.knownLimitations.length >= 3,
+      "状态里应当列出已知限制");
+  });
+
+  await test("关于页说清楚「本地保存不等于不上云」，并写明密钥的去向", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "app", "about.html"), "utf8");
+    // 以前的写法是"密钥不会上传到任何服务器"，那是错的：它会作为鉴权头发给用户配置的端点。
+    assert.ok(html.indexOf("不等于") >= 0, "应当明确写出本地保存不等于不上云");
+    assert.ok(html.indexOf("鉴权头") >= 0, "应当写明 API Key 会作为鉴权头发给配置的端点");
+    assert.ok(html.indexOf("不会上传到任何服务器") < 0,
+      "不要再写「密钥不会上传到任何服务器」——它指的是别处，容易被读成「绝对不会离开设备」");
+  });
+
+  await test("没有任何「主动唤起用户」的机制（P3-2）", () => {
+    // 底线：不做冷落惩罚、不做连续打卡、不在用户没打开应用的时候唤起他。
+    // 这条用例直接扫代码，而不是相信"我们没写"。
+    const appDir = path.join(__dirname, "..", "app");
+    const files = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) { walk(path.join(dir, entry.name)); continue; }
+        if (!/\.(js|html|css)$/.test(entry.name)) continue;
+        files.push(path.join(dir, entry.name));
+      }
+    };
+    walk(appDir);
+
+    const offenders = [];
+    // 短定时器是界面防抖/回收（例如 10 秒后回收一个下载 URL），不算调度。
+    // 真正要拦的是"几分钟起步、用来定时唤起用户"的那种。
+    const LONG_TIMER_MS = 300000;
+    const longTimerRe = /setTimeout\s*\([^,]+,\s*(\d+)/g;
+    const intervalRe = /setInterval\s*\([^,]+,\s*(\d+)/g;
+    for (const file of files) {
+      const rel = path.relative(path.join(__dirname, ".."), file);
+      const text = fs.readFileSync(file, "utf8");
+      // 1) 系统通知 / 推送 / 后台唤醒：一个都不该有。
+      for (const api of ["new Notification", "Notification.requestPermission", "pushManager", "serviceWorker.register", "PeriodicSync"]) {
+        if (text.indexOf(api) >= 0) offenders.push(rel + " 用了 " + api);
+      }
+      // 2) 长定时器（≥ 5 分钟）当调度用；短定时器是界面防抖，不算。
+      let match;
+      longTimerRe.lastIndex = 0;
+      while ((match = longTimerRe.exec(text))) {
+        if (Number(match[1]) >= LONG_TIMER_MS) offenders.push(rel + " 里有一个 " + match[1] + "ms 的 setTimeout");
+      }
+      intervalRe.lastIndex = 0;
+      while ((match = intervalRe.exec(text))) {
+        if (Number(match[1]) >= 60000) offenders.push(rel + " 里有一个 " + match[1] + "ms 的 setInterval");
+      }
+    }
+    assert.deepEqual(offenders, [], "发现了疑似主动提醒/后台调度：" + offenders.join("；"));
+
+    // 3) 召回类词汇不该出现在任何界面文案里。
+    //    例外：about.html 是"说明页"，它恰好要用这些词来说明"我们不做这些事"，
+    //    所以只看真正会出现在界面上的那些文件。
+    const bait = ["连续打卡", "签到", "好感度", "亲密度", "你多久没来", "一直在等你", "想我了吗", "已经 N 天没"];
+    const baitHits = [];
+    for (const file of files) {
+      const rel = path.relative(path.join(__dirname, ".."), file);
+      if (rel.endsWith(path.join("app", "about.html"))) continue;
+      const text = fs.readFileSync(file, "utf8");
+      for (const word of bait) if (text.indexOf(word) >= 0) baitHits.push(rel + " 出现「" + word + "」");
+    }
+    assert.deepEqual(baitHits, [], "界面文案里有召回/打卡类话术：" + baitHits.join("；"));
+
+    // 4) 内疚话术那几句只允许出现在"禁止它们"的地方（companion-core 的硬规矩与自检）。
+    const guilt = ["你都不理我", "我等了你很久", "没有你我该怎么办"];
+    for (const file of files) {
+      const rel = path.relative(path.join(__dirname, ".."), file);
+      if (rel.endsWith(path.join("app", "companion-core.js"))) continue;
+      const text = fs.readFileSync(file, "utf8");
+      for (const phrase of guilt) {
+        assert.ok(text.indexOf(phrase) < 0, rel + " 里出现了内疚话术「" + phrase + "」");
+      }
+    }
+  });
+
   await test("仓库文本文件不带 UTF-8 BOM", () => {
     // Rust 的 serde_json 不接受 BOM，带上去整个桌面端打包会秒挂。
     // （真发生过：用 PowerShell 的 Set-Content -Encoding UTF8 改版本号。）

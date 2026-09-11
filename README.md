@@ -29,6 +29,28 @@ device. MIT licensed. [Jump to English](#english)
 
 代价也说清楚：没有人替你备份。换电脑前记得用「设置 → 关于 → 导出存档」存一份。
 
+## 数据与隐私：本地保存 ≠ 不上云
+
+这句话必须说明白，免得被"本地优先"四个字误导：
+
+**只有一份请求会离开这台设备** —— 发给**你自己配置的那个模型端点**。它的内容是：
+
+- 角色卡（设定 / 描述 / 性格 / 场景）、该角色的记忆书条目、关系档案（如果你开了伴侣模式）；
+- 最近这段对话、按需检索出来的旧对话片段，以及你这一轮输入的内容。
+
+如果那个端点是云端服务（例如 DeepSeek 官方），上面这些就会到达对方服务器并按对方的条款处理。
+想完全不出去，只能用你电脑上的本地模型（llama.cpp 等）。
+
+**不会离开设备的**：其他角色的对话与记忆、界面偏好（主题 / 缩放 / 密度 / 动效）、
+引导状态与侧栏选择、本机路径。这几条都有自动化用例（`tests/data-integrity.cjs` 的 P0-4）逐条断言。
+
+**API Key** 只保存在本机，发请求时作为鉴权头发给你配置的那个端点，除此之外不发往任何地方；
+**导出的存档里也不含它**（换机器要重新填一次）。
+
+应用没有账号系统、没有统计上报、没有崩溃收集。想看清"这一次到底发了什么"，
+点输入框旁边的「本次请求」；想在按发送**之前**就知道大概花多少、会带多少内容，
+看输入框左下角那一行（发送前预估）。
+
 ## 快速开始
 
 ### 网页版
@@ -135,14 +157,19 @@ packs/<包名>/pack.json               # 包的说明与授权信息
 ## 测试
 
 ```bash
-node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / SSE / ZIP（不需要浏览器）
+npm test                         # 全部 8 个套件（约 4 分钟，全部离线、不碰真实模型）
+node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / ZIP / 记忆 / 上下文预算 / 仓库卫生（不需要浏览器）
 node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的能跑起来
 node tests/desktop-smoke.cjs     # 启动真 exe，验证数据以普通文件落盘（需先 desktop:build）
 ```
 
-`local-app-check.cjs` 会自己起一个静态服务器和一个假的 OpenAI 兼容端点，
-不联网、不用真实模型；需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
-CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
+`npm test` 依次跑：`adapter-unit`、`memory-unit`、`search-unit`、`metrics-unit`、
+`companion-unit`、`local-app-check`、`viewport-check`、`data-integrity`。
+需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
+CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
+
+测试口径与当前数字也写在应用内的「设置 → 关于 → 查看说明」页上
+（那一页带一段机器可读的 `roleworld-status` JSON）。
 
 ## 发布
 
@@ -153,15 +180,20 @@ CI 在 Windows 与 Linux 上跑前两项，见 `.github/workflows/ci.yml`。
 ## 项目状态
 
 已完成：本地适配层、去掉账号系统、页面接入适配层、内容包机制（含哈利·波特内置包）、
-存档导出导入、Windows 桌面端打包、GitHub Actions 自动出包、回归测试
-（14 项端到端 + 29 项单元 + 1 项桌面冒烟）。
+存档导出导入、Windows 桌面端打包、GitHub Actions 自动出包、五阶段功能
+（基础聊天 / 上下文管理 / 长期记忆 / 轻量检索 / 伴侣模式）与整套回归测试。
+
+验收清单见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（逐条对应那张阶段表，写清状态与依据），
+出问题先查 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
 
 计划中：
 
 - [ ] macOS / Linux 构建（Tauri 配置已留好，取消 `release.yml` 里 matrix 的注释即可；
       macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
-- [ ] PWA（manifest + service worker，可装到手机桌面）
+- [ ] PWA（manifest + service worker，可装到手机桌面；会改变缓存与更新行为，等确认后再做）
 - [ ] Android（Capacitor）
+- [ ] 语音输入与朗读（要先定录音是否离开设备）
+- [ ] 跨设备同步（要先定同步范围与冲突规则）
 - [ ] 把 `app.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
 - [ ] 更细的生成参数面板（温度 / 上下文长度 / 预设）
 

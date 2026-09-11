@@ -68,6 +68,47 @@
   </section>
 
   <section>
+    <h2>「本地保存」不等于「不上云」</h2>
+    <p>这句话要说清楚，免得你以为对话完全没有离开这台设备。实际情况是：</p>
+    <ul>
+      <li><strong>只有一份请求会离开设备</strong>：发给<em>你自己配置的那个模型端点</em>。
+        它的内容是——角色卡（设定/描述/性格/场景）、该角色的记忆书条目、最近这段对话、
+        需要的旧对话片段，以及你这一轮输入的内容；</li>
+      <li>如果那个端点是云端服务（例如 DeepSeek 官方），上面这些内容就会到达对方服务器并按对方的条款处理。
+        想完全不出去，只能用你自己电脑上的本地模型（llama.cpp 等）；</li>
+      <li><strong>API Key 只在你的设备上保存</strong>，发请求时作为鉴权头发给你配置的那个端点。
+        除此之外不会发往任何地方，也不在导出的存档里（换机器要重新填一次）；</li>
+      <li>不发送：其他角色的对话与记忆、界面偏好、主题与缩放、引导状态、本机路径。
+        这几条都有自动化用例逐条断言（见下方「最近一次全量测试」）；</li>
+      <li>应用本身没有任何统计、上报、崩溃收集。</li>
+    </ul>
+    <p>「发送前预估」那一行就是让你在按发送之前，先看清这一轮大概会带多少内容出去。</p>
+  </section>
+
+  <section>
+    <h2>版本与状态</h2>
+    <p>当前版本 <code>0.1.14</code>。下面这些数字来自最近一次全量测试，每次改动都会重跑。</p>
+    <pre id="status-json" style="overflow:auto;background:rgba(127,127,127,.12);border-radius:8px;padding:12px;font-size:12px;line-height:1.6;">加载中…</pre>
+    <p class="lead" style="margin-top:10px;">机器可读的那一份在页面源码里的 <code>&lt;script type="application/json" id="roleworld-status"&gt;</code>。</p>
+  </section>
+
+  <section>
+    <h2>已知的限制（不是 bug，但你需要知道）</h2>
+    <ul>
+      <li><strong>历史检索是关键词匹配，不是语义搜索</strong>。你问"我上次说的那个喝的"，
+        它不一定翻得到"咖啡"；翻不到时它会照实说没有更早的记录，而不是编一个；</li>
+      <li><strong>"这是剧情还是你的事实"是启发式判断</strong>。它宁可漏掉一条剧情，
+        也不会拿模型编的剧情去覆盖你说过的事实；</li>
+      <li><strong>伴侣模式那几条硬规矩是写在提示词里的</strong>，能大幅降低但不保证 100% 杜绝
+        内疚话术。所以面板里带一个自检：把最近回复里像内疚话术的原话点出来给你看（只报告，不改写）；</li>
+      <li><strong>没有跨设备同步</strong>。换设备靠导出/导入存档；</li>
+      <li><strong>没有主动提醒</strong>。应用不会在你没打开的时候唤起你，也不做连续打卡、好感度、冷落惩罚
+        —— 这条有自动化用例盯着；</li>
+      <li><strong>还没有 PWA 离线包</strong>。断网时打不开界面（数据仍在本机，联网后照常）。</li>
+    </ul>
+  </section>
+
+  <section>
     <h2>开源许可</h2>
     <p>本项目以 <strong>MIT License</strong> 发布：可以自由使用、修改、分发，包括商业用途，
       只需保留版权声明与许可文本。完整文本见仓库根目录的 <code>LICENSE</code>。</p>
@@ -89,12 +130,16 @@
   <section>
     <h2>你的数据在哪里</h2>
     <ul>
-      <li>角色卡、对话、记忆书：本机数据库（浏览器为 IndexedDB）；</li>
-      <li>API Key：本机数据库明文保存。它不会上传到任何服务器，但任何能打开这台设备的人都能读到它 ——
-        公用电脑上请不要保存密钥；</li>
+      <li>角色卡、对话、记忆书：本机数据库（浏览器为 IndexedDB；桌面端是应用数据目录下的普通文件，
+        可以直接用资源管理器备份）；</li>
+      <li>关系档案（伴侣模式）：同样在本机数据库里单独存一份，<strong>不放进记忆书</strong> ——
+        你亲手写的真实信息和模型自己记的东西分开存，「清空记忆」不会碰它；</li>
+      <li>API Key：本机数据库明文保存，发请求时作为鉴权头发给你配置的那个端点（详见上面「本地保存不等于不上云」）。
+        任何能打开这台设备的人都能读到它 —— 公用电脑上请不要保存密钥；</li>
       <li>界面偏好与当前模型选择：本机 localStorage。</li>
     </ul>
-    <p>换电脑或换浏览器时，用「设置 → 本地数据」里的导出/导入迁移。</p>
+    <p>换电脑或换浏览器时，用「设置 → 本地数据」里的导出/导入迁移。
+      导出的存档里<strong>不含 API Key</strong>，也不含界面偏好。</p>
   </section>
 
   <section>
@@ -106,5 +151,80 @@
 
   <footer>角色世界 · MIT License</footer>
 </main>
+
+<!-- 机器可读的状态：版本、测试口径、数据边界、已知限制。
+     数字在每次全量测试后手工更新（见 docs/NIGHT_LOG_*.md），页面上直接把这一份渲染出来。 -->
+<script type="application/json" id="roleworld-status">
+{
+  "name": "角色世界",
+  "version": "0.1.14",
+  "license": "MIT",
+  "updated": "2026-09-12",
+  "runs": {
+    "command": "npm test",
+    "suites": [
+      { "name": "adapter-unit", "checks": 80, "covers": "数据层 / 模型请求 / 存档 / 草稿解析 / 记忆归属 / 语言约束 / 历史预算 / 上下文与输出上限 / 价格" },
+      { "name": "memory-unit", "checks": 31, "covers": "记忆的来源、去重、改口替换、上限挤出、删除" },
+      { "name": "search-unit", "checks": 21, "covers": "关键词检索、出处、翻不到时的诚实说明、引用判定" },
+      { "name": "metrics-unit", "checks": 13, "covers": "台账：延迟、用量、费用、人工标记" },
+      { "name": "companion-unit", "checks": 27, "covers": "关系档案、时间感、硬规矩、内疚话术自检、上次说到" },
+      { "name": "local-app-check", "checks": 56, "covers": "真实浏览器：发送、保存、记忆、检索、伴侣模式、AI 写角色、设置" },
+      { "name": "viewport-check", "checks": 30, "covers": "1440/1280/768/390/320 五种宽度的布局与可点区域" },
+      { "name": "data-integrity", "checks": 11, "covers": "存档往返、长对话压力、隐私出口自查" }
+    ],
+    "allGreen": true
+  },
+  "privacy": {
+    "leavesDevice": [
+      "发给用户自己配置的模型端点的请求体：角色卡、该角色记忆书条目、最近对话、检索到的旧对话片段、本轮输入",
+      "作为鉴权头的 API Key（只发给该端点）"
+    ],
+    "neverLeavesDevice": [
+      "其他角色的对话与记忆",
+      "界面偏好（主题、缩放、密度、动效）",
+      "引导状态与侧栏选择",
+      "本机路径与设备信息"
+    ],
+    "noTelemetry": true,
+    "exportExcludes": ["API Key", "界面偏好"]
+  },
+  "knownLimitations": [
+    "历史检索是关键词匹配，不是语义搜索；翻不到时会照实说没有记录",
+    "剧情与事实的区分是启发式判断，宁可漏记剧情也不覆盖用户事实",
+    "伴侣模式的硬规矩写在提示词里，能大幅降低但不保证完全杜绝内疚话术（面板内提供自检）",
+    "没有跨设备同步，迁移靠导出/导入存档",
+    "没有主动提醒机制（不做连续打卡、好感度、冷落惩罚）",
+    "尚未提供 PWA 离线包"
+  ]
+}
+</script>
+<script>
+  (function () {
+    var node = document.getElementById("roleworld-status");
+    var out = document.getElementById("status-json");
+    if (!node || !out) return;
+    var data;
+    try { data = JSON.parse(node.textContent); } catch (_) { out.textContent = "状态数据解析失败"; return; }
+    try { window.__ROLEWORLD_STATUS__ = data; } catch (_) {}
+    var lines = [];
+    lines.push(data.name + " v" + data.version + "（" + data.license + "） · 状态更新于 " + data.updated);
+    lines.push("");
+    lines.push("最近一次全量测试：" + data.runs.command);
+    var total = 0;
+    data.runs.suites.forEach(function (row) {
+      total += row.checks;
+      lines.push("  " + (data.runs.allGreen ? "全绿 " : "有问题 ") + row.name + "：" + row.checks + " 项 —— " + row.covers);
+    });
+    lines.push("  合计 " + total + " 项");
+    lines.push("");
+    lines.push("会离开设备：" + data.privacy.leavesDevice.join("；"));
+    lines.push("不会离开设备：" + data.privacy.neverLeavesDevice.join("、"));
+    lines.push("无统计上报：" + (data.privacy.noTelemetry ? "是" : "否") + " · 存档里排除：" + data.privacy.exportExcludes.join("、"));
+    lines.push("");
+    lines.push("已知限制：");
+    data.knownLimitations.forEach(function (item) { lines.push("  · " + item); });
+    out.textContent = lines.join("\n");
+  })();
+</script>
 </body>
 </html>
