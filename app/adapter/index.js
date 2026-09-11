@@ -51,6 +51,12 @@
     tutorial_seen: false,
     // 自动记忆：让模型自己用 [[记住: …]] 记要点（agent 式），默认开。
     auto_memory: true,
+    // 旧对话最多占多少 token。以前写死"只带最近 16 条"——16 是条数不是预算，
+    // 长聊时早期内容会被无声丢掉。改成按 token 预算回填，能带多少带多少。
+    // 默认 60000：DeepSeek 上下文 1M，留足系统提示、记忆书与输出的空间。
+    history_token_budget: 60000,
+    // 无论预算多紧，至少保留最近几条（保证"接着说"不崩）。
+    history_min_messages: 4,
     // 费用估算单价（元 / 百万 token）。留 0 表示用内置的官方价；填了就按你填的算。
     price_input: 0,
     price_output: 0,

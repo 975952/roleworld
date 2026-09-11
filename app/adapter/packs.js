@@ -23,6 +23,9 @@
   const Store = global.RoleWorldStore;
   const Cards = global.RoleWorldCards;
   const INSTALLED_KEY = "packs:installed";
+  // 一次性种子：老存档里装的是旧版内置卡（没有 pack_source 标记），
+  // 靠"已经刷过哪一版"来判断要不要补一次卡内容修正。
+  const SEED_KEY = "packs:seed-version";
   const DISABLED_KEY = "packs:disabled";
   const MANIFEST_URL = "packs/index.json";
 
@@ -82,13 +85,21 @@
         return report;
       }
       const installedMap = await Store.getKV(INSTALLED_KEY, {});
+      // 没有上面这个键（老存档）时按 "" 处理：只要包有版本号，就会补刷一次卡内容。
+      const seeded = await Store.getKV(SEED_KEY, "");
       for (const pack of packs) {
         if (!pack.enabled) continue;
-        if (pack.installedVersion === pack.version) continue;
+        const alreadyInstalled = pack.installedVersion !== null;
+        const needSeed = seeded !== pack.version;
+        if (pack.installedVersion === pack.version && !needSeed) continue;
         try {
-          const counts = await installPack(pack);
+          // 刷新包自带卡内容的时机：
+          //   ① 已经装过这个包（这次是版本升级）；
+          //   ② 或者这份存档还没做过"内容修正种子"（老存档第一次跑新版应用）。
+          const counts = await installPack(pack, { refreshCards: alreadyInstalled || needSeed });
           installedMap[pack.id] = pack.version;
           await Store.setKV(INSTALLED_KEY, installedMap);
+          await Store.setKV(SEED_KEY, pack.version);
           report.installed.push({ id: pack.id, ...counts });
         } catch (error) {
           report.errors.push(pack.id + ": " + (error && error.message ? error.message : error));
@@ -103,25 +114,36 @@
     }
   }
 
-  async function installPack(pack) {
+  async function installPack(pack, options) {
+    const opts = options || {};
     const counts = { characters: 0, worlds: 0, chats: 0 };
     const existingCharacters = new Set((await Store.listCharacters()).map((card) => card.avatar));
     const existingWorlds = new Set((await Store.listWorlds()).map((world) => world.name));
 
     for (const name of pack.files.characters || []) {
       const avatar = fileNameOf(name);
-      if (existingCharacters.has(avatar)) continue;
+      const already = existingCharacters.has(avatar);
+      // 内容包升级时：包自带的卡要**刷新内容**（比如补上语言约束），
+      // 但只换卡本身，绝不碰聊天记录与记忆书；用户自己新建的卡一律不动。
+      if (already && !opts.refreshCards) continue;
       const { card, image } = await loadCard(pack, name, avatar);
+      const previous = already ? await Store.getCharacter(avatar) : null;
       const record = Object.assign({}, card, {
         avatar,
         name: card.name || (card.data && card.data.name) || avatar.replace(/\.\w+$/, ""),
-        date_added: new Date().toISOString(),
+        // 刷新时保留用户侧的痕迹：加入时间、收藏、最后对话时间。
+        date_added: (previous && previous.date_added) || new Date().toISOString(),
+        fav: previous ? !!previous.fav : !!card.fav,
+        date_last_chat: previous ? previous.date_last_chat || null : null,
+        // 标记来源，这样才敢在包升级时刷新它。
+        pack_source: { id: pack.id, version: String(pack.version || "1") },
       });
       record.chat = avatar;
       const picture = image || (Cards && Cards.placeholderAvatar(record.name));
       await Store.putCharacter(record, picture ? { file: picture } : undefined);
       existingCharacters.add(avatar);
       counts.characters += 1;
+      if (already) counts.refreshed = (counts.refreshed || 0) + 1;
     }
 
     for (const name of pack.files.worlds || []) {

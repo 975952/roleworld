@@ -69,6 +69,30 @@
   const REPLY_FORMAT_INSTRUCTION = `Separate narration from dialogue. NARRATION = actions, expressions, environment, and thoughts — plain text, no quotation marks. DIALOGUE = every word the character speaks out loud, ALWAYS wrapped in double quotes ("..."), including short exclamations like "What?" or "No." Never write any spoken word without double quotes. Put speech tags like "he says" or "he mutters" OUTSIDE and after the closing quote. Example: He steps back, frowning. "No. That's not right," he says, shaking his head. "Please stop." Narration and quoted dialogue may alternate in any order.`;
 
   /* ---------- 卡字段读取（兼容 V2 / V3 双形态） ---------- */
+  /** 语言要求那一行。**两处都用它**：系统提示中间一处、最后的格式指令里再强调一次。 */
+  function languageLine(card) {
+    const language = cardLanguageOf(card);
+    if (language === "zh") {
+      return "[Language] 这个角色说简体中文。即使玩家用别的语言说话，也用中文回答；绝不为了配合玩家切换语言。";
+    }
+    if (language === "en") {
+      return "[Language] This character speaks English only. Reply in English even when the player writes in "
+        + "another language (such as Chinese). Never switch languages to match the player.";
+    }
+    return "";
+  }
+
+  /** 角色卡的语言设置：先看 CCv3 的 extensions.task29.language，再看顶层 language。 */
+  function cardLanguageOf(card) {
+    const nested = card && card.data && card.data.extensions && card.data.extensions.task29
+      ? card.data.extensions.task29.language : null;
+    if (nested === "zh" || nested === "en") return nested;
+    const top = card && typeof card.language === "string" ? card.language.trim().toLowerCase() : "";
+    if (top === "zh" || top === "zh-cn" || top === "chinese") return "zh";
+    if (top === "en" || top === "english") return "en";
+    return null;
+  }
+
   function cardField(card, name) {
     if (!card) return "";
     if (card.data && card.data[name] !== undefined && card.data[name] !== null && card.data[name] !== "") return card.data[name];
@@ -136,50 +160,167 @@
     return [
       "[Memory]",
       `你有一个只属于「${characterLabel || "你"}」的长期记忆本，跨会话保留。`,
-      "当玩家透露了值得长期记住的信息（称呼、喜好、约定、重要事件、关系变化），",
-      "在回复的最后单独起行写：[[记住: 一句话要点]]，一行一条，最多 3 条。",
-      "没有值得记的就不要写。不要在正文里解释这个标记——它会被系统读取并从文本里移除。",
+      "这里只记**玩家本人透露的真实信息**，不记剧情。",
+      "该记的：玩家怎么称呼、喜欢/不喜欢什么、怕什么、过敏、住处、工作或学业、",
+      "家人与朋友、和你之间的约定、正在做的事、说过的计划。",
+      "不该记的：故事里发生了什么（谁攻击了谁、去了哪里、用了什么魔法）、",
+      "你自己的动作与台词、场景描写、任务与战斗结果。这些属于剧情，不要写进记忆。",
+      "写法：在回复的最后单独起行写 [[记住: 主题 | 一句话要点]]，一行一条，最多 3 条，",
+      "例如：[[记住: 喜欢的饮料 | 玩家喜欢咖啡]]。",
+      "主题用两三个字概括这件事（称呼 / 喜欢的饮料 / 怕的东西 / 约定的时间），同一件事始终用同一个主题词。",
+      "玩家改变主意时，直接写新的那一条、主题不变 —— 系统会用新的替换旧的，不会两条并存。",
+      "没有值得记的就不要写。不要记剧情，也不要在正文里解释这个标记——它会被系统读取并从文本里移除。",
       "上面 [Memory Book: …] 里是你以前记下的内容，自然地用，不要照抄。",
     ].join("\n");
+  }
+
+  /* 主题归一：模型写的主题（"喜欢的饮料"）和从正文里推出来的主题（"饮料"）
+   * 必须归到同一个键，否则覆盖不了旧条目，"改口"又会变成两条并存。
+   * 所以统一去掉修饰词，只留核心词。 */
+  const TOPIC_NOISE_RE = /(喜欢的|讨厌的|最爱|不爱|最怕|害怕|关于|玩家的|用户的|我的|自己|事情|东西|那些|这些|一个|一种)/g;
+
+  function normalizeTopic(raw) {
+    const text = cleanMemoryText(raw);
+    if (!text) return "";
+    const stripped = text
+      .replace(/[（(].*?[)）]/g, "")
+      .replace(TOPIC_NOISE_RE, "")
+      .replace(/[的了呢吗吧啊哦]+$/g, "")
+      .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    return stripped.slice(0, 12).toLowerCase();
+  }
+
+  function cleanMemoryText(value) {
+    return String(value === undefined || value === null ? "" : value)
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+      .trim();
+  }
+
+  /* 从正文里推主题：模型没按格式写主题时的兜底。
+   * 做法朴素但确定：取第一个"是 / 叫 / 在 / 有"之前的名词片段。
+   * 推不出来就返回空 —— 宁可不覆盖，也不要乱覆盖。 */
+  function inferTopic(content) {
+    const text = cleanMemoryText(content);
+    if (!text) return "";
+    const cut = text.split(/[，。；、！？,;!?\s]|是|叫|在|有|喜欢|不喜欢|讨厌|怕/)[0] || "";
+    return normalizeTopic(cut);
+  }
+
+  /* 从一条记忆正文里读主题：优先用记下来的 topic 元数据，其次按同样规则现推，
+   * 保证"昨天记的"和"今天新写的"能对上。 */
+  function entryTopic(entry) {
+    const stored = entry && entry.rw_source ? normalizeTopic(entry.rw_source.topic) : "";
+    return stored || inferTopic(entry && entry.content);
+  }
+
+  /* 拆一条记忆要点：允许 `主题 | 正文`，也允许老格式（没有主题）。 */
+  function parseMemoryItem(raw) {
+    const text = cleanMemoryText(raw);
+    if (!text) return { topic: "", content: "" };
+    const parts = text.split(/\s*[|｜]\s*/);
+    if (parts.length >= 2 && parts[0] && parts[0].length <= 16) {
+      const topic = normalizeTopic(parts[0]);
+      const content = cleanMemoryText(parts.slice(1).join(" | "));
+      if (topic && content) return { topic, content };
+    }
+    return { topic: inferTopic(text), content: text };
+  }
+
+  /* 模型可以主动再翻一次历史：[[搜索: 关键词]]。
+   * 系统会去以前的对话里找，把结果放进**下一轮**的上下文 —— 所以模型需要先说"我查一下"。
+   * 这样既不用 function calling、也不破坏流式，任何 OpenAI 兼容端点都能用。 */
+  const SEARCH_MARKER_RE = /[\[【]{1,2}\s*搜索\s*[:：]\s*([^\]】\n]+?)\s*[\]】]{1,2}/g;
+  const SEARCH_REQUEST_LIMIT = 2;
+
+  /** 从回复里剥出"想再翻一次"的请求（最多 2 条，去重）。 */
+  function extractSearchRequests(text) {
+    const queries = [];
+    const source = String(text || "");
+    SEARCH_MARKER_RE.lastIndex = 0;
+    let match;
+    while ((match = SEARCH_MARKER_RE.exec(source)) !== null) {
+      const query = String(match[1] || "").trim().replace(/\s+/g, " ").slice(0, 60);
+      if (!query || queries.indexOf(query) >= 0) continue;
+      queries.push(query);
+      if (queries.length >= SEARCH_REQUEST_LIMIT) break;
+    }
+    return queries;
+  }
+
+  /* 告诉模型"你可以再翻一次历史"。放在诚实规则旁边，属于同一层依据。 */
+  function searchInstruction() {
+    return [
+      "[History access]",
+      "上面 [History search] 只覆盖**更早以前的对话**；你们当前这段对话本来就在你眼前，不用去查。",
+      "如果玩家问的是更早以前聊过的事，而 [History search] 里的记录不够用，",
+      "你可以在回复的最后单独起行写 [[搜索: 关键词]] 来再翻一次（一次最多 2 条）。",
+      "系统会在**下一轮**把翻到的原话交给你。所以这一轮先说清楚「我先查一下」，不要凭空猜。",
+      "关键词要具体（人名、地点、事情的名字），不要写整句话。",
+      "如果翻不到，就照实说没有记录 —— 绝不要为了连贯而编一段过去。",
+      "这个标记会被系统读取并从文本里移除，不要在正文里解释它。",
+    ].join("\n");
+  }
+
+  /* 还没写完的记忆标记：流式过程中随时可能停在 `[[记住:` 中间。
+   * 这种半截标记必须当作"还没到的内容"丢掉，否则会当正文渲染、并跟着聊天记录一起存下来。 */
+  const PARTIAL_MEMORY_MARKER_RE = /\n?[ \t]*[\[【]{1,2}\s*记\s*住\s*[:：]?[^\]】\n]*$/;
+  // 搜索标记同样可能被停在半截（[[搜索: 团）。
+  const PARTIAL_SEARCH_MARKER_RE = /\n?[ \t]*[\[【]{1,2}\s*搜\s*索\s*[:：]?[^\]】\n]*$/;
+
+  /** 去掉末尾未闭合的记忆标记（流式渲染与最终保存都要用它）。 */
+  function stripPartialMemoryMarkers(text) {
+    let out = String(text === undefined || text === null ? "" : text);
+    for (let i = 0; i < 3; i += 1) {
+      let next = out.replace(PARTIAL_MEMORY_MARKER_RE, "").replace(PARTIAL_SEARCH_MARKER_RE, "");
+      if (next === out) break;
+      out = next;
+    }
+    return out;
   }
 
   /** 从回复里剥出记忆标记。返回清理后的正文与要点数组。 */
   function extractMemories(text) {
     const memories = [];
-    const source = String(text || "");
+    // 先摘掉半截标记：停在这里时它不该被当成正文，也不该进聊天记录。
+    const source = stripPartialMemoryMarkers(text);
     MEMORY_MARKER_RE.lastIndex = 0;
     let match;
     while ((match = MEMORY_MARKER_RE.exec(source)) !== null) {
-      const value = String(match[1] || "").trim();
-      if (value && memories.indexOf(value) < 0) memories.push(value);
+      const item = parseMemoryItem(match[1]);
+      if (item.content && !memories.some((row) => row.content === item.content)) memories.push(item);
     }
     const cleaned = source
       .replace(MEMORY_MARKER_RE, "")
+      .replace(SEARCH_MARKER_RE, "")
       .replace(/[ \t]+$/gm, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    return { text: cleaned, memories: memories.slice(0, 3) };
+    // memories 是 [{topic, content}] 结构；同时也给出纯文本数组，兼容旧调用方。
+    const list = memories.slice(0, 3);
+    return { text: cleaned, memories: list.map((row) => row.content), topics: list };
   }
 
-  function buildSystemPrompt(card, memoryBooks, promptText, options) {
+  /* 系统提示的"构件清单"：顺序与分隔方式就是 buildSystemPrompt 的唯一依据。
+     describeRequest 靠它把系统提示逐块归因，不再另写一套取字段逻辑。 */
+  function systemPromptParts(card, memoryBooks, promptText, options) {
     const parts = [
-      cardField(card, "system_prompt"),
-      "",
-      "[Character] " + cardField(card, "description"),
-      "[Personality] " + cardField(card, "personality"),
-      "[Scenario] " + cardField(card, "scenario"),
-      "",
-      "[Always-relevant]",
+      { kind: "card-system", label: "角色卡 · 设定", text: cardField(card, "system_prompt") },
+      { kind: "blank", text: "" },
+      { kind: "card-character", label: "角色卡 · 描述", text: "[Character] " + cardField(card, "description") },
+      { kind: "card-personality", label: "角色卡 · 性格", text: "[Personality] " + cardField(card, "personality") },
+      { kind: "card-scenario", label: "角色卡 · 场景", text: "[Scenario] " + cardField(card, "scenario") },
+      { kind: "blank", text: "" },
+      { kind: "section-lore", text: "[Always-relevant]" },
     ];
 
     const bookEntries = cardBookEntries(card);
     const constants = bookEntries.filter((e) => CARD_CONSTANT_IDS.includes(e.id));
-    for (const e of constants) parts.push(e.content);
+    for (const e of constants) parts.push({ kind: "card-lore", label: "角色卡 · 世界设定", text: e.content });
 
     const cardLore = matchedCardLore(card, promptText);
     if (cardLore.length) {
-      parts.push("[Relevant lore]");
-      for (const e of cardLore) parts.push(e.content);
+      parts.push({ kind: "section-matched", text: "[Relevant lore]" });
+      for (const e of cardLore) parts.push({ kind: "card-lore-matched", label: "角色卡 · 相关设定", text: e.content });
     }
 
     for (const book of (memoryBooks || [])) {
@@ -188,28 +329,44 @@
         .filter((e) => matchAny(memoryEntryKeywords(e), promptText));
       const used = mbConstants.concat(mbMatched);
       if (used.length) {
-        parts.push("", `[Memory Book: ${book.name}]`);
-        for (const e of used) parts.push(`[${e.uid}] ${e.content}`);
+        parts.push({ kind: "blank", text: "" });
+        parts.push({ kind: "book-header", text: `[Memory Book: ${book.name}]`, book: book.name });
+        for (const e of used) parts.push({ kind: "memory-book", label: `记忆书 · ${book.name}`, text: `[${e.uid}] ${e.content}` });
       }
     }
 
-    parts.push("[Note] " + cardField(card, "post_history_instructions"));
-    // Task-29G：AI 创建的角色固定说话语言（CCv3 extensions.task29.language）。
-    const cardLanguage = card && card.data && card.data.extensions && card.data.extensions.task29
-      && card.data.extensions.task29.language;
-    if (cardLanguage === "zh") parts.push("[Language] 角色只说简体中文；你的所有回复一律使用中文。");
-    else if (cardLanguage === "en") parts.push("[Language] The character only speaks English; always reply in English.");
-    // 自动记忆：让模型自己记要点（可在设置里关掉）。
+    parts.push({ kind: "card-note", label: "角色卡 · 补充要求", text: "[Note] " + cardField(card, "post_history_instructions") });
+    // 语言约束：先看卡里显式写的（CCv3 extensions.task29.language），
+    // 再退回卡顶层的 language 字段 —— 内置包里就有卡把标记写在顶层，
+    // 只认 extensions 会让那张卡完全没有语言约束（实测：英文卡因为玩家说中文就跟着切成中文）。
+    const cardLanguage = cardLanguageOf(card);
+    const line = languageLine(card);
+    if (line) parts.push({ kind: "card-language", label: "语言要求", text: line });
     if (options && options.autoMemory === true) {
-      parts.push("", memoryInstruction(cardField(card, "name")));
+      parts.push({ kind: "blank", text: "" });
+      parts.push({ kind: "memory-instruction", label: "记忆指令", text: memoryInstruction(cardField(card, "name")) });
     }
-    return parts.join("\n");
+    return parts;
+  }
+
+  function buildSystemPrompt(card, memoryBooks, promptText, options) {
+    return systemPromptParts(card, memoryBooks, promptText, options).map((part) => part.text).join("\n");
   }
 
   /* 带「旁白/台词」输出约定的系统提示：基础组合 + 末尾格式指令（不影响与 Task-20 的逐字节对齐证明）。 */
   function buildSystemPromptWithFormat(card, memoryBooks, promptText, instruction, options) {
-    return buildSystemPrompt(card, memoryBooks, promptText, options) +
-      "\n\n[Reply format] " + (instruction || REPLY_FORMAT_INSTRUCTION);
+    // extraSystem：调用方追加的段落（诚实规则、历史检索结果等）。
+    // 放在回复格式之前，属于"给模型的额外依据"，跟角色卡同一层。
+    const extra = options && options.extraSystem ? String(options.extraSystem).trim() : "";
+    const line = languageLine(card);
+    const body = buildSystemPrompt(card, memoryBooks, promptText, options);
+    // 语言要求**两头都要有**：开头一处（身份级："这是个说英文的角色"）、
+    // 结尾一处（模型对最后一条规则最敏感）。
+    // 只放中间会被后面的格式指令盖过去；只放结尾时，实测仍会出现"旁白英文、台词中文"。
+    return (line ? line + "\n\n" : "") + body +
+      (extra ? "\n\n" + extra : "") +
+      "\n\n[Reply format] " + (instruction || REPLY_FORMAT_INSTRUCTION) +
+      (line ? "\n" + line : "");
   }
 
   /* ---------- 把混合回复切成有序的「旁白 / 台词」片段（双引号=台词，其余=旁白，保持原始顺序） ---------- */
@@ -260,6 +417,68 @@
     return turns;
   }
 
+  /* ---------- 旧对话的 token 预算 ----------
+   * 以前写死"只带最近 16 条"：16 是条数，不是预算。同一条可能是 20 字也可能是 2000 字，
+   * 所以要么浪费空间，要么把早期内容无声丢掉。
+   * 这里改成从最近往前回填：能带多少带多少，带不下的明确报告"丢了几条"。
+   * 纯函数，不依赖价表模块；没装价表时用同一套口径兜底。
+   */
+  // 0 = 不限制：官方上下文 1M，已经发过的内容下次按"缓存命中"计价（原价的 1/50），
+  // 所以默认全带上，既不丢内容也不贵。只有用户自己填了上限才截断。
+  const HISTORY_TOKEN_BUDGET = 0;
+  const HISTORY_MIN_MESSAGES = 4;
+
+  function roughTokens(text) {
+    const pricing = (typeof globalThis !== "undefined" && globalThis.RoleWorldPricing) || null;
+    if (pricing && typeof pricing.estimateTokens === "function") return pricing.estimateTokens(text);
+    const value = String(text === undefined || text === null ? "" : text);
+    let cjk = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+      if ((code >= 0x3000 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xff00 && code <= 0xffef)) cjk += 1;
+    }
+    return Math.max(1, Math.round(cjk * 0.6 + (value.length - cjk) / 4));
+  }
+
+  /** 从最近往前装；只有用户自己设了上限才截断，默认全带。 */
+  function planHistory(history, options) {
+    const opts = options || {};
+    // 负数视为没设；0 或没填 = 不限制（默认）。
+    const raw = Number(opts.budget);
+    const budget = Number.isFinite(raw) && raw > 0 ? raw : HISTORY_TOKEN_BUDGET;
+    const unlimited = !(budget > 0);
+    const minMessages = Number(opts.minMessages) >= 0 ? Number(opts.minMessages) : HISTORY_MIN_MESSAGES;
+    const all = (Array.isArray(history) ? history : []).filter((h) => h && typeof h.mes === "string" && h.mes);
+    const totalTokens = all.reduce((sum, h) => sum + roughTokens(h.mes), 0);
+    if (!all.length) {
+      return { kept: [], dropped: 0, droppedTokens: 0, keptTokens: 0, totalTokens: 0, budget: 0, unlimited, truncated: false };
+    }
+    if (unlimited) {
+      return { kept: all, dropped: 0, droppedTokens: 0, keptTokens: totalTokens, totalTokens, budget: 0, unlimited: true, truncated: false };
+    }
+
+    let used = 0;
+    let start = all.length;
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const cost = roughTokens(all[i].mes);
+      const remaining = all.length - i; // 已经保留的条数（含当前这条）
+      if (used + cost > budget && remaining > minMessages) break;
+      used += cost;
+      start = i;
+    }
+    const kept = all.slice(start);
+    return {
+      kept,
+      dropped: start,
+      droppedTokens: all.slice(0, start).reduce((sum, h) => sum + roughTokens(h.mes), 0),
+      keptTokens: used,
+      totalTokens,
+      budget,
+      unlimited: false,
+      truncated: start > 0,
+    };
+  }
+
   /* ---------- 组合 messages（系统提示 + 示例 + 历史 + 用户新输入） ---------- */
   function composeMessages(card, memoryBooks, history, userText, options) {
     const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, options) }];
@@ -279,7 +498,10 @@
     if (isDeepSeekChatMode(mode)) {
       const thinking = opts.thinking === true;
       return {
-        messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, { autoMemory: opts.autoMemory === true }),
+        messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
+          autoMemory: opts.autoMemory === true,
+          extraSystem: opts.extraSystem,
+        }),
         // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
         model: (opts.modelName && String(opts.modelName).trim()) || mode,
         chat_completion_source: "deepseek",
@@ -295,7 +517,10 @@
     if (opts.engine !== "A") throw new Error("引擎 B 当前未启动，发送已禁用。");
     const oai = (opts.settings && opts.settings.oai_settings) || {};
     return {
-      messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, { autoMemory: opts.autoMemory === true }),
+      messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
+        autoMemory: opts.autoMemory === true,
+        extraSystem: opts.extraSystem,
+      }),
       model: "local",
       chat_completion_source: "custom",
       custom_url: oai.custom_url || "",
@@ -307,6 +532,140 @@
       task22_engine: opts.engine || "A",
     };
   }
+
+  /* ---------- 「这次请求到底带了什么」 ----------
+   * 让用户能看清每次发送的内容构成，以及各段占多少字符和 token。
+   * 纯只读：不发请求、不落盘、不含任何密钥。
+   *
+   * 做法是"归因"而不是"另算一遍"：
+   *   - 系统提示按 systemPromptParts 逐块归因（同一套构件清单，拼回去必须逐字节相等）；
+   *   - 其余消息（样例对话 / 旧对话 / 本轮输入）按它们各自在请求体里的位置归因；
+   *   - 最后逐条核对：每条消息都必须刚好被归到一段，所有消息文本拼起来必须逐字节等于请求体。
+   */
+  function describeRequest(opts) {
+    const options = opts || {};
+    const card = options.card;
+    const memoryBooks = options.memoryBooks || [];
+    const autoMemory = options.autoMemory === true;
+    const realMessages = options.messages || composeMessages(card, memoryBooks, options.history, options.userText, { autoMemory });
+
+    const pricing = (typeof globalThis !== "undefined" && globalThis.RoleWorldPricing) || null;
+    const countTokens = (text) => {
+      const value = String(text === undefined || text === null ? "" : text);
+      if (pricing && typeof pricing.estimateTokens === "function") return pricing.estimateTokens(value);
+      let cjk = 0;
+      for (let i = 0; i < value.length; i += 1) {
+        const code = value.charCodeAt(i);
+        if ((code >= 0x3000 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xff00 && code <= 0xffef)) cjk += 1;
+      }
+      return Math.max(1, Math.round(cjk * 0.6 + (value.length - cjk) / 4));
+    };
+
+    // ① 系统提示：逐块归因。
+    // 空行与 [Section] 标题不能丢（丢了就对不上字节），它们跟到下一块内容前面，
+    // 但不单独在面板里占一行，避免出现一堆没有意义的条目。
+    const parts = systemPromptParts(card, memoryBooks, options.userText, { autoMemory });
+    const systemRows = [];
+    let pending = [];
+    for (const part of parts) {
+      const text = String(part.text === undefined || part.text === null ? "" : part.text);
+      if (!text.length || part.kind === "section-lore" || part.kind === "section-matched" || part.kind === "book-header") {
+        pending.push(text);
+        continue;
+      }
+      const texts = pending.concat([text]);
+      pending = [];
+      const last = systemRows[systemRows.length - 1];
+      if (last && last.kind === part.kind && last.label === part.label) last.texts = last.texts.concat(texts);
+      else systemRows.push({ kind: part.kind, label: part.label, texts, hidden: false });
+    }
+    if (pending.length) {
+      const last = systemRows[systemRows.length - 1];
+      if (last) last.texts = last.texts.concat(pending);
+    }
+    // 调用方追加的段落（诚实规则 / 历史检索结果）也是系统提示的一部分，必须单独成段，
+    // 否则面板的字节核对会对不上、也会把它错算到上一段头上。
+    const extraSystem = options.extraSystem ? String(options.extraSystem).trim() : "";
+    if (extraSystem) {
+      systemRows.push({ kind: "extra", label: "附加依据（诚实规则 / 历史检索）", texts: [extraSystem], head: true });
+    }
+
+    // 真正的系统提示最后还有一段固定的「回复格式」要求（composeMessages 追加的）。
+    // 它前面跟的是一个**空行**（真实内容里是 "\n\n[Reply format] …"），
+    // 面板里单独成段，但它自己的 join 已经吃掉一个换行，所以 head 只能再补一个。
+    if (systemRows.length) {
+      systemRows.push({ kind: "reply-format", label: "回复格式要求", texts: ["[Reply format] " + REPLY_FORMAT_INSTRUCTION], head: true });
+    }
+    // 重建系统提示原文：普通块用单个换行相接，head 块前面补一个空行。
+    // 关键是**不能有行尾多余换行**，否则字节对不上。
+    const rowText = (row) => (row.head ? "\n" : "") + row.texts.join("\n");
+    const rebuildSystem = () => systemRows.map(rowText).join("\n");
+
+    const segments = [];
+    if (systemRows.length) {
+      const details = [];
+      for (const row of systemRows) {
+        const content = row.texts.join("\n");
+        const previous = details[details.length - 1];
+        if (previous && previous.label === row.label) {
+          previous.chars += content.length;
+          previous.tokens += countTokens(content);
+          previous.items += 1;
+        } else {
+          details.push({ label: row.label, chars: content.length, tokens: countTokens(content), items: 1 });
+        }
+      }
+      const content = rebuildSystem();
+      segments.push({
+        kind: "system",
+        label: "系统提示",
+        chars: content.length,
+        tokens: countTokens(content),
+        items: systemRows.reduce((sum, row) => sum + row.texts.length, 0),
+        details,
+      });
+    }
+
+    // ② 其余消息：按请求体里的实际位置归因（样例对话 → 旧对话 → 本轮输入）。
+    const exampleTurns = parseExample(cardField(card, "mes_example"));
+    const history = (Array.isArray(options.history) ? options.history : []).filter((h) => h && typeof h.mes === "string" && h.mes);
+    const exampleStart = 1;
+    const historyStart = exampleStart + exampleTurns.length;
+    const inputStart = historyStart + history.length;
+
+    const group = (kind, label, from, to) => {
+      const texts = realMessages.slice(from, to).map((m) => String(m.content === undefined ? "" : m.content));
+      if (!texts.length) return;
+      const content = texts.join("\n");
+      segments.push({ kind, label, chars: content.length, tokens: countTokens(content), items: texts.length });
+    };
+    group("example", "样例对话", exampleStart, historyStart);
+    group("history", `旧对话（最近 ${history.length} 条）`, historyStart, inputStart);
+    group("input", "本轮输入", inputStart, inputStart + 1);
+
+    // ③ 一致性核对（两条都必须为真，否则面板显示的内容就不可信）：
+    //    ① 系统提示逐字节对得上（面板上的细分加起来 == 真正发出去的系统提示）；
+    //    ② 每条消息都刚好被归到一段，一条不多一条不少。
+    const covered = (exampleTurns.length ? exampleTurns.length : 0) + history.length + (options.userText ? 1 : 0) + 1;
+    const joined = realMessages.map((m) => String(m.content === undefined ? "" : m.content)).join("\u0000");
+    const systemSegment = segments.filter((s) => s.kind === "system")[0] || null;
+    const rebuiltSystem = systemSegment ? rebuildSystem() : "";
+    const realSystem = realMessages.length ? String(realMessages[0].content === undefined ? "" : realMessages[0].content) : "";
+    const systemCovered = systemSegment ? (rebuiltSystem === realSystem) : (realSystem.length === 0);
+
+    return {
+      segments,
+      systemDetails: systemSegment ? systemSegment.details : [],
+      totalChars: segments.reduce((sum, s) => sum + s.chars, 0),
+      totalTokens: segments.reduce((sum, s) => sum + s.tokens, 0),
+      messageCount: realMessages.length,
+      coveredMessages: covered,
+      systemMatches: systemCovered,
+      messagesMatches: covered === realMessages.length,
+      fingerprint: joined.length,
+    };
+  }
+
 
   function parseGenerateResponse(json) {
     const choice = json && json.choices && json.choices[0];
@@ -502,7 +861,9 @@
 
   /* ---------- 角色聊天服务器会话模型（无 DOM，浏览器与离线假后端共用）
      Task-29A：会话按角色头像寻址；空白新会话 avatar 为 null（未绑定），
-     首轮三步成功后由 bindActive 固定，随后按该头像保存并写入绑定元数据。 ---------- */
+     首轮三步成功后由 bindActive 固定，随后按该头像保存并写入绑定元数据。
+     Task-39A（2026-09-11）：saveTurn 增加一次性回执（receipt），修掉「保存其实成功、
+     界面却按失败处理，用户重发同一句 → 同一轮被写两遍、还被计费两次」。 ---------- */
   function createHarryChatModel(options) {
     const opts = options || {};
     const api = opts.api;
@@ -726,6 +1087,43 @@
       active.charName = "";
     }
 
+    /* 一次性回执：记下「这一段对话的这一轮已经落盘」。
+     * 只在 saveChat 成功之后写；key 带对话文件名，所以换新对话不会误判。
+     * 没有 receipts 通道时退化为「内存里记住」，至少挡掉同一次会话内的重发。 */
+    let lastTurnReceipt = null;
+
+    function receipts() {
+      const channel = opts.receipts;
+      if (channel && typeof channel.get === "function" && typeof channel.set === "function") return channel;
+      return null;
+    }
+
+    async function turnAlreadySaved(session, turnId) {
+      if (!turnId) return false;
+      if (lastTurnReceipt && lastTurnReceipt.avatar === session.avatar
+        && lastTurnReceipt.fileName === session.fileName && lastTurnReceipt.turnId === turnId) {
+        return true;
+      }
+      const channel = receipts();
+      if (!channel) return false;
+      try {
+        const stored = await channel.get(session.avatar, session.fileName);
+        return !!(stored && stored.turnId === turnId);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function rememberTurnReceipt(session, turnId) {
+      if (!turnId) return;
+      lastTurnReceipt = { avatar: session.avatar, fileName: session.fileName, turnId };
+      const channel = receipts();
+      if (!channel) return;
+      try {
+        await channel.set(session.avatar, session.fileName, { turnId, savedAt: new Date().toISOString() });
+      } catch (_) { /* 回执存不下不影响本轮保存 */ }
+    }
+
     async function saveTurn(text, assistantText, saveOptions = {}) {
       if (!active) throw new Error("no active chat");
       if (!active.avatar) {
@@ -736,6 +1134,10 @@
       const userText = String(text || "").trim();
       const reply = String(assistantText || "").trim();
       if (!userText || !reply) throw new Error("empty chat turn");
+      // 幂等闸门：这一轮已经落盘过就直接返回，不写第二遍、也不再计一次费。
+      if (await turnAlreadySaved(active, saveOptions.turnId)) {
+        return { session: active, duplicate: true };
+      }
       if (!active.serverSaved) ensureUniqueFileName(active);
       const title = active.title === "新对话" ? deriveChatTitle(userText) : active.title;
       const userMessage = buildChatMessage({ name: saveOptions.userName || userName, is_user: true, mes: userText });
@@ -743,7 +1145,8 @@
         name: saveOptions.charName || active.charName || charName,
         is_user: false,
         mes: reply,
-        extra: saveOptions.extra || {},
+        // 轮次 ID 也写进消息里：台账按它关联，界面标记才不会标错轮次。
+        extra: Object.assign({}, saveOptions.extra || {}, saveOptions.turnId ? { roleworld_turn_id: saveOptions.turnId } : {}),
       });
       const payload = buildSavePayload(active.lines, userMessage, assistantMessage, {
         userName: saveOptions.userName || userName,
@@ -753,6 +1156,7 @@
         bind: { avatar: active.avatar, charName: active.charName || (saveOptions.charName || charName) },
       });
       await api.saveChat(active.avatar, active.fileName, payload, true, { signal: saveOptions.signal });
+      await rememberTurnReceipt(active, saveOptions.turnId);
       active.lines = payload;
       active.messages = messagesFromChat(payload);
       active.title = title;
@@ -765,7 +1169,7 @@
       knownServerFiles.add(active.fileName);
       rememberActive();
       sortSessions();
-      return { session: active, payload };
+      return { session: active, payload, duplicate: false };
     }
 
     async function setArchived(sessionId, archived) {
@@ -858,6 +1262,8 @@
     CARD_CONSTANT_IDS,
     REPLY_FORMAT_INSTRUCTION,
     cardField,
+    cardLanguageOf,
+    languageLine,
     cardBookEntries,
     cardEntryKeywords,
     memoryEntryKeywords,
@@ -871,6 +1277,15 @@
     buildGeneratePayload,
     parseGenerateResponse,
     extractMemory: extractMemories,
+    extractSearchRequests,
+    searchInstruction,
+    stripPartialMemoryMarkers,
+    SEARCH_REQUEST_LIMIT,
+    systemPromptParts,
+    describeRequest,
+    planHistory,
+    HISTORY_TOKEN_BUDGET,
+    HISTORY_MIN_MESSAGES,
     memoryInstruction,
     buildChatMessage,
     buildSavePayload,

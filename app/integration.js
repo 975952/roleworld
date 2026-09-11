@@ -90,6 +90,19 @@
     memoryMutation: null,
     archiveSearch: "",
     pendingText: "",
+    // 本轮标识与「上一次保存结果不确定」的标记（重发同一句要靠它们认出重复）。
+    pendingTurnId: "",
+    uncertainSave: null,
+    // 「本次请求」：上一次真实发出的 payload + 它的分段说明（只读展示用）。
+    lastPayload: null,
+    lastRequest: null,
+    // 记忆面板：当前角色的自动记忆书（书名 / 条目 / 原始 entries）。
+    memoryBook: "",
+    memoryRows: [],
+    memoryEntries: {},
+    memoryPanelOpen: false,
+    // 设置页刚改、还没落盘完成的值：整量重读时不能被旧值盖回去。
+    pendingSettingsPatch: null,
     // Task-29A：AI 创建角色状态
     aiDialogOpen: false,
     aiPhase: "description",
@@ -627,6 +640,31 @@
     renderArchivedChatSettings();
   }
 
+  /* 消息旁的标记控件：两个很轻的文字按钮。只在有轮次 ID 的助手消息上出现。 */
+  function buildFlagControls(turnId) {
+    const core = window.ROLEWORLD_METRICS_CORE;
+    const box = document.createElement("span");
+    box.className = "message-flags";
+    if (!core) return box;
+    const current = core.flagsOf(liveState.metrics || [], turnId);
+    const make = (flag, label, title) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "message-flag";
+      button.textContent = label;
+      button.title = title;
+      if (current.indexOf(flag) >= 0) button.classList.add("flag-on");
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        flagTurnFromMessage(turnId, flag, button).catch(() => {});
+      });
+      return button;
+    };
+    box.appendChild(make(core.FLAGS.WRONG_MEMORY, "记错", "它记错了——计入台账"));
+    box.appendChild(make(core.FLAGS.FABRICATION, "编造", "它编造了没发生过的事——计入台账"));
+    return box;
+  }
+
   function messageRow(message) {
     const row = document.createElement("article");
     const isUser = !!message.is_user;
@@ -638,6 +676,9 @@
     const who = document.createElement("strong");
     who.textContent = message.name || (isUser ? liveState.userName : liveState.charName);
     meta.appendChild(who);
+    // 助手消息旁边给一个很轻的标记入口：记错 / 编造。**只由人点，机器不自动判定。**
+    const turnId = !isUser && message.extra && message.extra.roleworld_turn_id ? String(message.extra.roleworld_turn_id) : "";
+    if (turnId) meta.appendChild(buildFlagControls(turnId));
     stack.appendChild(meta);
     if (isUser) {
       const bubble = document.createElement("div");
@@ -703,11 +744,490 @@
     loadCostFor(session);
   }
 
+  /* ---------- 「本次请求」只读查看 ----------
+   * 让用户能看清上一次到底发了什么：按来源分段（角色卡 / 世界设定 / 记忆书 / 旧对话 / 本轮输入），
+   * 各段给字符数与 token。**只读**：不发新请求、不落盘、不含 API Key、不主动弹出。
+   * 内容按文本插入（textContent），不做 HTML 拼接，避免角色卡里的尖括号变成标签。
+   */
+  function setRequestPeekVisible(visible) {
+    const button = document.querySelector("#requestPeekButton");
+    if (!button) return;
+    const has = !!(liveState.lastPayload && liveState.lastRequest);
+    button.hidden = !(has && visible !== false);
+  }
+
+  function renderRequestPeek() {
+    const body = document.querySelector("#requestPeekBody");
+    if (!body) return;
+    body.textContent = "";
+    const payload = liveState.lastPayload;
+    const info = liveState.lastRequest;
+    if (!payload || !info) {
+      const empty = document.createElement("p");
+      empty.className = "request-peek-empty";
+      empty.textContent = "还没有发送过请求。发出第一条消息后，这里会显示那次请求的内容构成。";
+      body.appendChild(empty);
+      return;
+    }
+
+    // 台账汇总：最近 N 轮的延迟、费用、记忆错误与编造次数。
+    const metricsCore = window.ROLEWORLD_METRICS_CORE;
+    if (metricsCore) {
+      const stats = metricsCore.summarize(liveState.metrics || []);
+      const box = document.createElement("div");
+      box.className = "request-peek-dropped";
+      if (!stats.turns) {
+        box.textContent = "台账：还没有记录。发出第一条消息后开始统计。";
+      } else {
+        const rate = stats.wrongMemoryRate === null ? "—" : Math.round(stats.wrongMemoryRate * 100) + "%";
+        box.textContent = `台账（最近 ${stats.turns} 轮）：首字平均 ${metricsCore.formatDuration(stats.avgFirstTokenMs)}`
+          + ` · 整轮平均 ${metricsCore.formatDuration(stats.avgTotalMs)}`
+          + ` · 费用合计 ¥${stats.cost.toFixed(4)}`
+          + ` · 记忆写入 ${stats.memoriesAdded} 条 · 检索命中 ${stats.searchHits} 条`
+          + ` · 记错 ${stats.wrongMemory} 次（${rate}）· 编造 ${stats.fabrication} 次`;
+      }
+      body.appendChild(box);
+      if (stats.turns) {
+        const hint = document.createElement("div");
+        hint.className = "request-peek-dropped";
+        hint.textContent = "「记错 / 编造」这两个数字只能由你手动标记 —— 每条回复旁边有按钮，机器不替你判定。";
+        body.appendChild(hint);
+      }
+    }
+
+    // 语言约束自检：卡里到底有没有语言要求、这次发出去几处。一眼可见，不用猜。
+    const sysText = (payload.messages || []).filter((m) => m && m.role === "system")
+      .map((m) => String(m.content || "")).join("\n");
+    const langMatches = sysText.match(/\[Language\][^\n]*/g) || [];
+    const langBox = document.createElement("div");
+    langBox.className = "request-peek-dropped";
+    langBox.textContent = langMatches.length
+      ? `语言约束（${langMatches.length} 处）：${langMatches[0]}`
+      : "语言约束：这张角色卡没有设语言（没说只说中文或只说英文），所以模型会跟着你的语言走。";
+    body.appendChild(langBox);
+
+    const pricing = window.RoleWorldPricing;
+    const fmtTokens = (n) => (pricing && pricing.formatTokens ? pricing.formatTokens(n) : String(n));
+    const list = document.createElement("div");
+    list.className = "request-peek-list";
+
+    const addRow = (label, chars, tokens, note, cls) => {
+      const row = document.createElement("div");
+      row.className = "request-peek-row" + (cls ? " " + cls : "");
+      const name = document.createElement("span");
+      name.className = "request-peek-label";
+      name.textContent = label;
+      const meta = document.createElement("span");
+      meta.className = "request-peek-meta";
+      meta.textContent = `${chars} 字 · ${fmtTokens(tokens)} tokens`;
+      row.appendChild(name);
+      row.appendChild(meta);
+      if (note) {
+        const sub = document.createElement("span");
+        sub.className = "request-peek-note-inline";
+        sub.textContent = note;
+        row.appendChild(sub);
+      }
+      list.appendChild(row);
+      return row;
+    };
+
+    for (const segment of info.segments) {
+      if (segment.kind === "system" && Array.isArray(segment.details) && segment.details.length) {
+        addRow("系统提示", segment.chars, segment.tokens, `共 ${segment.details.length} 项，构成如下`, "request-peek-system");
+        for (const part of segment.details) {
+          const isBook = String(part.label || "").indexOf("记忆书 · ") === 0;
+          const row = addRow("　" + part.label, part.chars, part.tokens, "", "request-peek-part");
+          // 记忆书点开能看到具体记了哪几条（以及各自来自哪句话）。
+          if (isBook) {
+            row.classList.add("request-peek-book");
+            row.setAttribute("role", "button");
+            row.setAttribute("tabindex", "0");
+            row.dataset.book = String(part.label).slice("记忆书 · ".length);
+            const caret = document.createElement("span");
+            caret.className = "request-peek-caret";
+            caret.textContent = "▸ 点开看记了什么";
+            row.appendChild(caret);
+          }
+        }
+      } else {
+        addRow(segment.label, segment.chars, segment.tokens, `${segment.items} 条`, "");
+      }
+    }
+
+    const total = document.createElement("div");
+    total.className = "request-peek-total";
+    total.textContent = `合计 ${info.totalChars} 字 · ${fmtTokens(info.totalTokens)} tokens · 共 ${info.messageCount} 条消息`;
+    list.appendChild(total);
+
+    // 模型主动要求的检索：这一轮带上的是它上一轮点名要翻的内容。
+    if (Array.isArray(info.requested) && info.requested.length) {
+      const asked = document.createElement("div");
+      asked.className = "request-peek-dropped";
+      asked.textContent = "模型主动翻查：" + info.requested
+        .map((row) => `「${row.query}」找到 ${row.matched} 条`).join("；");
+      list.appendChild(asked);
+    }
+
+    // 历史检索：找到几条、扫了多少条。让"它怎么突然想起这句话"有据可查。
+    if (info.search) {
+      const found = document.createElement("div");
+      found.className = "request-peek-dropped";
+      found.textContent = info.search.matched
+        ? `历史检索：从以前的对话里翻到 ${info.search.matched} 条相关记录（已连同出处一起发给模型）`
+        : "历史检索：没有翻到相关记录 —— 已告诉模型「没有记录，不要编造」。";
+      list.appendChild(found);
+    }
+
+    // 被预算丢掉的旧对话必须说出来，绝不静默丢弃。
+    if (info.dropped && !info.dropped.keptAll) {
+      const dropped = document.createElement("div");
+      dropped.className = "request-peek-dropped";
+      const what = info.dropped.count > 0 ? `更早的 ${info.dropped.count} 条消息` : "更早的对话内容";
+      dropped.textContent = `未带上：${what}（约 ${fmtTokens(info.dropped.tokens)} tokens）`
+        + `——旧对话预算为 ${fmtTokens(info.dropped.budget)} tokens，超出的部分没有发送。`
+        + `可以在「设置 → 模型」里调大这个预算。`;
+      list.appendChild(dropped);
+    }
+
+    // 一致性自检：分段拼起来必须与真正发出的请求体逐字节一致。
+    // 万一不一致，这里会直接说出来，而不是悄悄显示一份不可信的统计。
+    const check = document.createElement("p");
+    check.className = "request-peek-check";
+    check.textContent = (info.systemMatches && info.messagesMatches)
+      ? "已核对：分段之和与真正发出的请求逐字节一致。"
+      : "注意：分段统计与真实请求没有完全对上，这份数字不可信。";
+    if (!(info.systemMatches && info.messagesMatches)) check.classList.add("request-peek-check-bad");
+
+    body.appendChild(list);
+    body.appendChild(check);
+
+    const source = document.createElement("p");
+    source.className = "request-peek-source";
+    source.textContent = `模型：${payload.model || "未配置"}　发送方式：${payload.chat_completion_source === "deepseek" ? "DeepSeek 官方" : "自定义端点"}`;
+    body.appendChild(source);
+
+    const notice = document.createElement("p");
+    notice.className = "request-peek-notice";
+    notice.textContent = "⚠ 以上内容会发送给你配置的模型服务商。";
+    body.appendChild(notice);
+  }
+
+  function openRequestPeek() {
+    const surface = document.querySelector("#requestPeek");
+    if (!surface) return;
+    renderRequestPeek();
+    surface.hidden = false;
+  }
+
+  // 点开一本记忆书：列出它到底带了哪几条，以及每条来自哪句话。
+  async function toggleBookEntries(row) {
+    const bookName = row.dataset.book || "";
+    if (!bookName || !window.STApi) return;
+    const box = row.nextElementSibling && row.nextElementSibling.classList.contains("request-peek-book-entries")
+      ? row.nextElementSibling
+      : null;
+    if (box) { box.hidden = !box.hidden; return; }
+    const holder = document.createElement("div");
+    holder.className = "request-peek-book-entries";
+    holder.textContent = "正在读取…";
+    row.parentNode.insertBefore(holder, row.nextSibling);
+    let world = null;
+    try { world = await window.STApi.getWorld(bookName); } catch (_) { world = null; }
+    const memory = window.ROLEWORLD_MEMORY_CORE;
+    const rows = memory ? memory.listEntries(world && world.entries) : [];
+    holder.textContent = "";
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "request-peek-book-empty";
+      empty.textContent = "这本记忆书目前是空的。";
+      holder.appendChild(empty);
+      return;
+    }
+    const list = document.createElement("ol");
+    list.className = "request-peek-book-list";
+    rows.forEach((item) => {
+      const li = document.createElement("li");
+      const content = document.createElement("span");
+      content.className = "request-peek-book-content";
+      content.textContent = item.content;
+      li.appendChild(content);
+      const meta = document.createElement("span");
+      meta.className = "request-peek-book-source";
+      meta.textContent = describeMemorySource(item.source, item.topic, item.replacedContent);
+      li.appendChild(meta);
+      list.appendChild(li);
+    });
+    holder.appendChild(list);
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.className = "plain-button request-peek-manage";
+    manage.textContent = "管理这本记忆（改 / 删）";
+    manage.addEventListener("click", () => { closeRequestPeek(); openMemoryPanel(); });
+    holder.appendChild(manage);
+  }
+
+  // 来源说明：来自哪段对话的第几条消息、什么时候、谁写的。缺字段就不编。
+  function describeMemorySource(source, topic, replacedContent) {
+    const parts = [];
+    if (topic) parts.push(`主题「${topic}」`);
+    if (source && source.origin === "user") parts.push("你自己写的");
+    else parts.push("模型自记");
+    if (source && source.file) {
+      const index = source.messageIndex === null || source.messageIndex === undefined ? "" : ` 第 ${source.messageIndex} 条`;
+      parts.push(`来自对话 ${source.file}${index}`);
+    } else {
+      parts.push("来源未记录（早期记下的）");
+    }
+    if (source && source.at) {
+      const date = new Date(source.at);
+      if (!Number.isNaN(date.getTime())) {
+        const pad = (n) => String(n).padStart(2, "0");
+        parts.push(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`);
+      }
+    }
+    if (source && source.edited) parts.push("你改过");
+    if (replacedContent) parts.push(`替换了原来的「${replacedContent}」`);
+    return parts.join(" · ");
+  }
+
+  function closeRequestPeek() {
+    const surface = document.querySelector("#requestPeek");
+    if (surface) surface.hidden = true;
+  }
+
+  /* ---------- 角色记忆：看 / 改 / 删 ----------
+   * 模型自己记的要点以前是"只进不出"的黑盒。这里让它可见、可改、可删。
+   * 删除是真的从记忆书里删掉 —— 后续请求不会再带上它。
+   */
+  async function openMemoryPanel() {
+    const surface = document.querySelector("#memoryPanel");
+    if (!surface) return;
+    surface.hidden = false;
+    const entry = activeCharacterEntry();
+    const subtitle = document.querySelector("#memoryPanelSubtitle");
+    const list = document.querySelector("#memoryList");
+    if (list) { list.textContent = "正在读取…"; }
+    if (!entry || !entry.avatar) {
+      if (subtitle) subtitle.textContent = "还没有选中的角色。";
+      if (list) list.textContent = "";
+      return;
+    }
+    const data = await readAutoMemory(entry);
+    liveState.memoryBook = data.bookName;
+    liveState.memoryRows = data.rows;
+    liveState.memoryEntries = data.entries;
+    if (subtitle) {
+      subtitle.textContent = `${entry.charName || entry.name} · 《${data.bookName}》 共 ${data.rows.length} 条`
+        + `（上限 ${AUTO_MEMORY_MAX} 条，超出会挤掉最旧的）`;
+    }
+    renderMemoryList();
+  }
+
+  function renderMemoryList() {
+    const list = document.querySelector("#memoryList");
+    if (!list) return;
+    list.textContent = "";
+    const rows = liveState.memoryRows || [];
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "request-peek-empty";
+      empty.textContent = "还没有记忆。模型在对话里觉得值得记的，会自动写到这里；你也可以手动加。";
+      list.appendChild(empty);
+      return;
+    }
+    const holder = document.createElement("ol");
+    holder.className = "request-peek-book-list memory-list";
+    rows.forEach((item) => {
+      const li = document.createElement("li");
+      li.dataset.key = item.key;
+      const content = document.createElement("span");
+      content.className = "request-peek-book-content";
+      content.textContent = item.content;
+      li.appendChild(content);
+      const meta = document.createElement("span");
+      meta.className = "request-peek-book-source";
+      meta.textContent = describeMemorySource(item.source, item.topic, item.replacedContent);
+      li.appendChild(meta);
+      const actions = document.createElement("span");
+      actions.className = "memory-actions";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "plain-button";
+      edit.textContent = "改";
+      edit.addEventListener("click", () => editMemoryEntry(item.key, content));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "plain-button";
+      remove.textContent = "删";
+      remove.addEventListener("click", () => deleteMemoryEntry(item.key));
+      actions.appendChild(edit);
+      actions.appendChild(remove);
+      li.appendChild(actions);
+      holder.appendChild(li);
+    });
+    list.appendChild(holder);
+  }
+
+  async function saveMemoryEntries(entries) {
+    const bookName = liveState.memoryBook;
+    if (!bookName) return false;
+    let data = { entries: {} };
+    try {
+      const existing = await window.STApi.getWorld(bookName);
+      if (existing && existing.entries) data = existing;
+    } catch (_) { /* 新书 */ }
+    try {
+      await window.STApi.editWorld(bookName, Object.assign({}, data, { entries }));
+    } catch (_) {
+      showToast("记忆保存失败，原内容已保留");
+      return false;
+    }
+    await loadBooks().catch(() => {});
+    return true;
+  }
+
+  async function editMemoryEntry(key, node) {
+    const current = (liveState.memoryRows || []).filter((row) => row.key === key)[0];
+    if (!current || !node) return;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rw-field memory-edit";
+    input.value = current.content;
+    input.maxLength = 500;
+    node.replaceWith(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    let done = false;
+    const commit = async () => {
+      if (done) return;
+      done = true;
+      const text = String(input.value || "").trim();
+      if (!text || text === current.content) { renderMemoryList(); return; }
+      const result = window.ROLEWORLD_MEMORY_CORE.updateEntry(liveState.memoryEntries || {}, key, text);
+      if (!result.ok) { renderMemoryList(); return; }
+      if (await saveMemoryEntries(result.entries)) showToast("记忆已更新");
+      await openMemoryPanel();
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+      if (event.key === "Escape") { event.preventDefault(); done = true; renderMemoryList(); }
+    });
+  }
+
+  async function deleteMemoryEntry(key) {
+    const result = window.ROLEWORLD_MEMORY_CORE.removeEntry(liveState.memoryEntries || {}, key);
+    if (!result.ok) { renderMemoryList(); return; }
+    if (await saveMemoryEntries(result.entries)) showToast("已删除，后续对话不会再带上它");
+    await openMemoryPanel();
+  }
+
+  // 手动加一条：用面板内联输入，不用 window.prompt（原生弹窗在桌面端很难看，也不可测）。
+  function addMemoryEntry() {
+    const list = document.querySelector("#memoryList");
+    if (!list) return;
+    if (list.querySelector(".memory-add-row")) return;
+    const row = document.createElement("div");
+    row.className = "memory-add-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rw-field memory-edit";
+    input.maxLength = 500;
+    input.placeholder = "要记住什么？例如：玩家不喜欢咖啡";
+    input.setAttribute("aria-label", "新增记忆内容");
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "plain-button";
+    confirm.textContent = "记下";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "plain-button";
+    cancel.textContent = "取消";
+    row.appendChild(input);
+    row.appendChild(confirm);
+    row.appendChild(cancel);
+    list.insertBefore(row, list.firstChild);
+    input.focus();
+
+    const close = () => { row.remove(); };
+    cancel.addEventListener("click", close);
+    input.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); close(); } });
+    const commit = async () => {
+      const trimmed = String(input.value || "").trim();
+      if (!trimmed) { close(); return; }
+      confirm.disabled = true;
+      const result = window.ROLEWORLD_MEMORY_CORE.applyMemories(liveState.memoryEntries || {}, [trimmed], {
+        max: AUTO_MEMORY_MAX,
+        origin: window.ROLEWORLD_MEMORY_CORE.ORIGIN.USER,
+        // 手动加的记忆：来源写"你自己写的"，不编造来自哪段对话。
+        source: { origin: window.ROLEWORLD_MEMORY_CORE.ORIGIN.USER, file: "", messageIndex: null },
+      });
+      if (!result.added) { showToast("这条已经记过了"); close(); return; }
+      if (await saveMemoryEntries(result.entries)) {
+        showToast(result.removed.length ? `已记下（挤掉最旧的 ${result.removed.length} 条）` : "已记下");
+      }
+      await openMemoryPanel();
+    };
+    confirm.addEventListener("click", () => { commit().catch(() => {}); });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); commit().catch(() => {}); }
+    });
+  }
+
+  function closeMemoryPanel() {
+    const surface = document.querySelector("#memoryPanel");
+    if (surface) surface.hidden = true;
+  }
+
   /* ---------- 用量与费用估算 ---------- */
   const COST_KEY_PREFIX = "usage:";
+  // 一次性回执：这一轮是否已经落盘。用于挡掉「保存其实成功、界面却当失败 → 重发 →
+  // 同一条写两遍 + 模型被计费两次」。
+  const TURN_RECEIPT_PREFIX = "turn:";
 
   function costKey(avatar, fileName) {
     return COST_KEY_PREFIX + avatar + ":" + fileName;
+  }
+
+  function turnReceiptKey(avatar, fileName) {
+    return TURN_RECEIPT_PREFIX + avatar + ":" + fileName;
+  }
+
+  // 回执通道：走与费用累计同一个本地 store，不新增存储层。
+  const turnReceipts = {
+    get: (avatar, fileName) => window.RoleWorld.store.getKV(turnReceiptKey(avatar, fileName), null),
+    set: (avatar, fileName, value) => window.RoleWorld.store.setKV(turnReceiptKey(avatar, fileName), value),
+  };
+
+  // 本轮标识：新的一次发送生成新 id，重发同一句沿用同一个 id，重试才能被认成同一轮。
+  function newTurnId() {
+    const nonce = (window.crypto && typeof window.crypto.randomUUID === "function")
+      ? window.crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+    return Date.now().toString(36) + "-" + nonce;
+  }
+
+  // 「上一次保存结果不确定」只记在内存里：它描述的是"紧接着的那一次重发"。
+  // 正常发送完全不碰这条路径，不给普通对话增加任何多余的读写。
+  function markSaveAttempted(session, turnId) {
+    if (!session || !session.avatar || !session.fileName) return;
+    liveState.uncertainSave = { avatar: session.avatar, fileName: session.fileName, turnId };
+  }
+
+  function clearSaveAttempted() {
+    liveState.uncertainSave = null;
+  }
+
+  // 这一轮是否其实已经存过了。只在「上次保存结果不确定」时才去本地库确认一次。
+  async function turnAlreadySaved(session, turnId) {
+    if (!session || !session.avatar || !session.fileName || !turnId) return false;
+    try {
+      const stored = await turnReceipts.get(session.avatar, session.fileName);
+      return !!(stored && stored.turnId === turnId);
+    } catch (_) {
+      return false;
+    }
   }
 
   function emptyCost() {
@@ -727,44 +1247,45 @@
   const AUTO_MEMORY_BOOK = "自动记忆";
   const AUTO_MEMORY_MAX = 50;
 
-  // 把模型给的要点写进「MB <角色短名> — 自动记忆」，只保留最近 AUTO_MEMORY_MAX 条。
-  async function rememberForCharacter(entry, memories) {
+  // 把模型给的要点写进「MB <角色短名> — 自动记忆」。
+  // 每条记下来源（哪段对话的第几条消息、什么时候、谁写的）与主题；
+  // 同一主题的新记忆会**替换**旧的（"改口"才会生效），被替换与被挤掉的都会返回给调用方。
+  async function rememberForCharacter(entry, memories, source) {
     const core = window.TASK29_CHARACTER_CORE;
-    if (!entry || !entry.avatar || !core || !memories.length) return 0;
+    const memory = window.ROLEWORLD_MEMORY_CORE;
+    if (!entry || !entry.avatar || !core || !memory || !memories.length) {
+      return { added: 0, skipped: 0, replaced: [], rejected: [], removed: [] };
+    }
     const bookName = core.newMemoryBookName(entry, AUTO_MEMORY_BOOK);
     let data = { entries: {} };
     try {
       const existing = await window.STApi.getWorld(bookName);
       if (existing && existing.entries) data = existing;
     } catch (_) { /* 还没有这本书，下面新建 */ }
-    const entries = Object.assign({}, data.entries || {});
-    const contents = Object.keys(entries).map((key) => String(entries[key].content || "").trim());
-    let maxUid = 0;
-    Object.keys(entries).forEach((key) => { maxUid = Math.max(maxUid, Number(entries[key].uid) || 0); });
-    let added = 0;
-    memories.forEach((text) => {
-      if (contents.indexOf(text) >= 0) return;
-      maxUid += 1;
-      entries[String(maxUid)] = {
-        uid: maxUid,
-        key: [],
-        keysecondary: [],
-        comment: text.slice(0, 24),
-        content: text,
-        // 自动记忆一律常驻上下文：它是模型自己攒的要点，靠关键词匹配会漏。
-        constant: true,
-        disable: false,
-        displayIndex: maxUid,
-      };
-      contents.push(text);
-      added += 1;
+    const result = memory.applyMemories(data.entries || {}, memories, {
+      max: AUTO_MEMORY_MAX,
+      source: Object.assign({ origin: memory.ORIGIN.MODEL }, source || {}),
     });
-    if (!added) return 0;
-    const ordered = Object.keys(entries).map(Number).sort((a, b) => a - b);
-    while (ordered.length > AUTO_MEMORY_MAX) delete entries[String(ordered.shift())];
-    await window.STApi.editWorld(bookName, Object.assign({}, data, { entries }));
-    return added;
+    if (!result.added) return result;
+    // getWorld 返回的是 {entries}，editWorld 也按同一形状写回，其余字段原样保留。
+    await window.STApi.editWorld(bookName, Object.assign({}, data, { entries: result.entries }));
+    return result;
   }
+
+  /** 读某个角色的「自动记忆」书（供界面展示与增删改）。 */
+  async function readAutoMemory(entry) {
+    const core = window.TASK29_CHARACTER_CORE;
+    const memory = window.ROLEWORLD_MEMORY_CORE;
+    if (!entry || !entry.avatar || !core || !memory) return { bookName: "", entries: {}, rows: [] };
+    const bookName = core.newMemoryBookName(entry, AUTO_MEMORY_BOOK);
+    let data = { entries: {} };
+    try {
+      const existing = await window.STApi.getWorld(bookName);
+      if (existing && existing.entries) data = existing;
+    } catch (_) { /* 还没有这本书 */ }
+    return { bookName, entries: data.entries || {}, rows: memory.listEntries(data.entries || {}) };
+  }
+
 
   async function loadCostFor(session) {
     liveState.cost = emptyCost();
@@ -1321,6 +1842,7 @@
       charName: liveState.charName,
       userName: liveState.userName,
       storage: window.localStorage,
+      receipts: turnReceipts,
     });
     try {
       await liveState.chatModel.refresh({ preserveUnsaved: false });
@@ -1561,6 +2083,7 @@
       userName: liveState.userName,
       charName: overrides.charName || liveState.charName,
       signal,
+      turnId: overrides.turnId || "",
       extra: { task22_engine: "A" },
     });
     syncActiveSession();
@@ -1781,6 +2304,9 @@
       return;
     }
     const previousMessages = targetSession.messages.slice();
+    // 本轮标识（重发同一句会沿用同一个）：只有在「上一轮保存结果不确定」时才用它去查回执。
+    const turnId = liveState.pendingTurnId || newTurnId();
+    liveState.pendingTurnId = turnId;
     liveState.cancelRequested = false;
     restoreInput("");
     renderLiveMessages(previousMessages.concat([{ name: liveState.userName, is_user: true, mes: text }]));
@@ -1788,10 +2314,24 @@
     liveState.pendingText = text;
     const controller = new AbortController();
     liveState.controller = controller;
+    // 每一轮都记时：首字延迟（体感速度）与总延迟（等到答案的时间）。
+    const turnStartedAt = Date.now();
+    let firstTokenMs = 0;
     let saveCompleted = false;
     let bound = false;
     let streamRow = null;
+    let duplicateTurn = false;
     try {
+      // 步骤 0：幂等闸门 —— 上一轮其实已经落盘（请求发出去了、界面却当失败）就别再发第二次，
+      // 否则同一条会被写两遍、模型也被计费两次。
+      // 检查完立刻清掉标记：它只对"紧接着的那一次重发"有效，不会影响后面的正常发送。
+      const uncertain = liveState.uncertainSave;
+      liveState.uncertainSave = null;
+      if (uncertain && await turnAlreadySaved(targetSession, turnId)) {
+        const error = new Error("turn already saved");
+        error.code = "TURN_ALREADY_SAVED";
+        throw error;
+      }
       // 步骤 1：角色初始化 —— 取目标角色完整卡（含 data.*），失败走失败路径。
       let card = liveState.cardCache && liveState.cardCache.get(entry.avatar);
       if (!card) {
@@ -1801,11 +2341,145 @@
       }
       // 只注入当前角色自己的记忆书（按书名的角色短名归属，多个角色各一套）。
       const memoryBooks = window.TASK29_CHARACTER_CORE.memoryBooksFor(entry, liveState.memoryBooks);
+      // 旧对话：按 token 预算从最近往前回填（不再是写死的"最近 16 条"）。
+      // 带不下的部分会被明确报告出来，面板上看得见丢了多少。
+      window.__rwBudget = (liveState.localSettings && liveState.localSettings.history_token_budget) || 0;
+      const historyPlan = window.TASK22_CORE.planHistory(previousMessages, {
+        budget: liveState.localSettings && liveState.localSettings.history_token_budget,
+        minMessages: liveState.localSettings && liveState.localSettings.history_min_messages,
+      });
+  /* 模型主动要求的检索：这一轮它写了 [[搜索: …]]，结果放进**下一轮**的上下文。
+   * 存在本机 kv 里，所以刷新页面也不会丢；一次最多记 SEARCH_REQUEST_LIMIT 条。 */
+  const PENDING_SEARCH_KEY = "pendingsearch:";
+
+  function pendingSearchKey(entry) {
+    return PENDING_SEARCH_KEY + ((entry && entry.avatar) || "unknown");
+  }
+
+  async function readPendingSearches(entry) {
+    try {
+      const stored = await window.RoleWorld.store.getKV(pendingSearchKey(entry), []);
+      return Array.isArray(stored) ? stored.filter((row) => row && typeof row.query === "string" && row.query) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function savePendingSearches(entry, rows) {
+    try { await window.RoleWorld.store.setKV(pendingSearchKey(entry), rows.slice(0, CORE_SEARCH_LIMIT)); }
+    catch (_) { /* 存不下只是少一层保护 */ }
+  }
+
+  /** 执行一批检索请求，返回给下一轮用的提示词片段。 */
+  async function runPendingSearches(entry, requests, skipFileName) {
+    const search = window.ROLEWORLD_SEARCH_CORE;
+    if (!search || !requests.length) return { note: "", results: [] };
+    const sessions = await loadSearchHistory(entry);
+    const seen = new Set();
+    const merged = [];
+    const results = [];
+    for (const request of requests) {
+      const one = search.searchHistory(sessions, request.query, { skipFileName, limit: 3 });
+      results.push({ query: request.query, matched: one.matched });
+      for (const hit of one.hits) {
+        const key = hit.fileName + "#" + hit.index;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(hit);
+      }
+    }
+    merged.sort((a, b) => b.score - a.score);
+    const note = merged.length
+      ? search.buildHistoryNote({ hits: merged.slice(0, 6) })
+      : search.buildHistoryNote({ hits: [] });
+    return { note, results };
+  }
+
+  /* 检索用的历史：把该角色的**所有对话**都读出来（只读尾部若干条，避免一次吃下全部记录）。
+   * 以前这里只看内存里已加载的当前会话，等于"只翻眼前这一页" —— 用户问以前的事永远找不到。
+   * 结果按角色缓存，避免每轮都重读；新对话保存后缓存作废。 */
+  const HISTORY_TAIL = 60;
+  // 与 task22-core 的 SEARCH_REQUEST_LIMIT 保持一致（那边负责解析，这里负责执行与上限）。
+  const CORE_SEARCH_LIMIT = window.TASK22_CORE.SEARCH_REQUEST_LIMIT;
+  let historyCache = { avatar: "", rows: [], at: 0 };
+
+  function invalidateHistoryCache() {
+    historyCache = { avatar: "", rows: [], at: 0 };
+  }
+
+  async function loadSearchHistory(entry) {
+    if (!entry || !entry.avatar || !window.STApi || typeof window.STApi.listChats !== "function") return [];
+    const fresh = historyCache.avatar === entry.avatar && (Date.now() - historyCache.at) < 30000;
+    if (fresh) return historyCache.rows;
+    const rows = [];
+    try {
+      const chats = await window.STApi.listChats(entry.avatar);
+      for (const chat of (Array.isArray(chats) ? chats : [])) {
+        const fileName = chat && (chat.file_name || chat.file_id);
+        if (!fileName) continue;
+        let lines = [];
+        try { lines = await window.STApi.getChat(entry.avatar, fileName); } catch (_) { continue; }
+        // 只留真正的消息：聊天记录第一行是元数据头，它不该占"第几条"的位置。
+        // 条数偏移量保留下来，这样报给用户/模型的"第几条"是相对整段对话的，而不是只相对尾部。
+        const all = Array.isArray(lines) ? lines : [];
+        const kept = [];
+        let offset = 0;
+        all.forEach((line, index) => {
+          if (!line || typeof line.mes !== "string" || !line.mes) return;
+          if (kept.length === 0) offset = index;
+          kept.push(line);
+        });
+        const tail = kept.slice(-HISTORY_TAIL);
+        offset += Math.max(0, kept.length - HISTORY_TAIL);
+        rows.push({ fileName, messages: tail, offset });
+      }
+    } catch (_) { /* 读不到就退回内存里的会话 */ }
+    if (!rows.length && liveState.chatModel) {
+      liveState.chatModel.getSessions().forEach((session) => {
+        rows.push({ fileName: session.fileName, messages: (session.messages || []).slice(-HISTORY_TAIL) });
+      });
+    }
+    historyCache = { avatar: entry.avatar, rows, at: Date.now() };
+    return rows;
+  }
+
+      // 步骤 1.5：诚实规则 + 历史检索。
+      // 检索是**只读的本地关键词匹配**（不引入向量库、不调外部服务）：
+      // 从这个人物的其他对话里翻出与这句话相关的原话，连同出处一起交给模型。
+      // 翻不到就明确写"没有找到"，并要求它直说不知道 —— 不编造回忆。
+      const search = window.ROLEWORLD_SEARCH_CORE;
+      const extraParts = [];
+      let searchResult = null;
+      let requestedResults = [];
+      if (search) {
+        extraParts.push(search.honestyRule());
+        try {
+          // ① 上一轮模型主动要求翻的内容（[[搜索: …]]）：结果在这一轮交给它。
+          const pending = await readPendingSearches(entry);
+          if (pending.length) {
+            const run = await runPendingSearches(entry, pending, targetSession.fileName);
+            if (run.note) extraParts.push(run.note);
+            requestedResults = run.results;
+            await savePendingSearches(entry, []);
+          }
+          // ② 本轮自动翻一次：玩家这句话里有没有提到以前聊过的事。
+          searchResult = search.searchHistory(await loadSearchHistory(entry), text, {
+            skipFileName: targetSession.fileName,
+            limit: 6,
+          });
+          extraParts.push(search.buildHistoryNote(searchResult));
+          // ③ 告诉它"需要的话可以再翻一次"，并给出上限。
+          extraParts.push(window.TASK22_CORE.searchInstruction());
+        } catch (_) { searchResult = null; }
+      }
+      const extraSystem = extraParts.join("\n\n");
+      window.__rwThinking = liveState.thinking === true;
+
       // 步骤 2：流式发送。
       const payload = window.TASK22_CORE.buildGeneratePayload({
         card,
         memoryBooks,
-        history: previousMessages.slice(-16),
+        history: historyPlan.kept,
         userText: text,
         settings: liveState.settings,
         engine: state.engine,
@@ -1814,13 +2488,43 @@
         thinking: liveState.thinking === true,
         autoMemory: liveState.autoMemory !== false,
         stream: true,
+        extraSystem,
       });
+      // 记下这次到底发了什么，供「本次请求」查看（只读，不参与发送流程；
+      // 统计失败也只是少一个入口，绝不影响这轮对话）。
+      liveState.lastPayload = payload;
+      liveState.lastRequest = null;
+      try {
+        liveState.lastRequest = window.TASK22_CORE.describeRequest({
+          card,
+          memoryBooks,
+          history: historyPlan.kept,
+          userText: text,
+          autoMemory: liveState.autoMemory !== false,
+          messages: payload.messages,
+          extraSystem,
+        });
+        // 被预算丢掉的那部分单独记下来，面板里明确显示（绝不静默丢弃）。
+        liveState.lastRequest.requested = requestedResults;
+        liveState.lastRequest.search = searchResult
+          ? { matched: searchResult.matched, scanned: searchResult.scanned, keywords: searchResult.keywords }
+          : null;
+        liveState.lastRequest.dropped = {
+          count: historyPlan.dropped,
+          tokens: historyPlan.droppedTokens,
+          keptAll: historyPlan.dropped === 0,
+          unlimited: historyPlan.unlimited === true,
+          budget: historyPlan.budget,
+        };
+      } catch (_) { /* 统计失败不影响对话 */ }
+      setRequestPeekVisible();
       streamRow = appendLiveStreamRow(entry.charName || liveState.charName);
       let streamed = "";
       let aborted = false;
       let content = "";
       try {
         content = await generateChatStream(payload, controller.signal, (partial) => {
+          if (!firstTokenMs && partial) firstTokenMs = Date.now() - turnStartedAt;
           streamed = partial;
           updateLiveStreamRow(streamRow, partial);
         });
@@ -1830,14 +2534,15 @@
       }
       const rawText = String(content || streamed || "").trim();
       // 自动记忆：模型用 [[记住: …]] 写的要点要剥出来，正文里不能留标记。
-      let finalText = rawText;
+      let finalText = window.TASK22_CORE.stripPartialMemoryMarkers(rawText).trim();
       let memories = [];
+      // topics 是 [{topic, content}]，memories 是纯文本（兼容旧调用方）。
+      let memoryTopics = [];
       if (liveState.autoMemory !== false) {
         const parsed = window.TASK22_CORE.extractMemory(rawText);
-        if (parsed.memories.length) {
-          finalText = parsed.text || rawText;
-          memories = parsed.memories;
-        }
+        finalText = parsed.text || finalText;
+        memories = parsed.memories;
+        memoryTopics = Array.isArray(parsed.topics) ? parsed.topics : parsed.memories.map((text) => ({ topic: "", content: text }));
       }
       const stopped = aborted || liveState.cancelRequested || controller.signal.aborted;
       if (!finalText) {
@@ -1866,32 +2571,85 @@
         liveState.chatModel.bindActive({ avatar: entry.avatar, charName: entry.charName });
         bound = true;
       }
+      // 先把「这一轮发出去了」记下来：万一下面结果不确定，重发时才知道要去确认。
+      markSaveAttempted(targetSession, turnId);
       try {
-        await saveLiveChat(text, finalText, undefined, { charName: entry.charName });
+        const saved = await saveLiveChat(text, finalText, undefined, { charName: entry.charName, turnId });
+        if (saved && saved.duplicate) duplicateTurn = true;
       } catch (saveError) {
         if (bound) liveState.chatModel.unbindActive();
         throw saveError;
       }
       saveCompleted = true;
+      clearSaveAttempted();
+      invalidateHistoryCache();
+      // 模型这一轮写的 [[搜索: …]]：记下来，下一轮真正去翻。
+      const searchRequests = window.TASK22_CORE.extractSearchRequests(rawText);
+      if (searchRequests.length) {
+        try {
+          const rows = searchRequests.map((query) => ({ query, at: new Date().toISOString() }));
+          await savePendingSearches(entry, rows);
+        } catch (_) { /* 记不下只是少一次主动检索 */ }
+      }
+      // 这一轮其实早就存过了：说明上一轮保存成功、只是被当成了失败。
+      // 正文照常显示，但不再记一次用量与费用。
+      if (duplicateTurn) {
+        showToast("这一条上次其实已经保存过了，没有重复写入，也没有再次计费");
+        setChatListStatus("");
+        return;
+      }
       // 模型自己记下的要点写进该角色的「自动记忆」书；下一条消息就会带上。
+      // 记下来源与主题；同一主题会替换旧的（用户改口时旧记忆不该继续生效）。
+      let memoryResult = null;
       if (memories.length) {
         try {
-          const added = await rememberForCharacter(entry, memories);
-          if (added) {
-            showToast(`已记住 ${added} 条`);
+          memoryResult = await rememberForCharacter(entry, memoryTopics, {
+            file: targetSession.fileName,
+            messageIndex: targetSession.messages.length,
+            at: new Date().toISOString(),
+          });
+          if (memoryResult.added) {
+            const bits = [];
+            if (memoryResult.replaced.length) bits.push(`更新了 ${memoryResult.replaced.length} 条`);
+            else bits.push(`已记住 ${memoryResult.added} 条`);
+            if (memoryResult.removed.length) bits.push(`超出上限挤掉 ${memoryResult.removed.length} 条`);
+            showToast(bits.join("，"));
             loadBooks().catch(() => {});
+          } else if (memoryResult.rejected && memoryResult.rejected.length) {
+            // 模型想把剧情写进记忆：明确告诉用户被拦下了，而不是悄悄丢掉。
+            showToast(`有 ${memoryResult.rejected.length} 条内容像剧情而不是你的事实，没有写入记忆`);
           }
         } catch (_) { /* 记忆写失败不影响这轮对话 */ }
       }
       // 记一笔用量与费用（接口回了 usage 就用真值，否则按字数估算）。
+      let turnUsage = null;
       try {
-        const usage = window.RoleWorldPricing.usageOf({
+        turnUsage = window.RoleWorldPricing.usageOf({
           usage: liveState.lastUsage,
           messages: payload.messages,
           reply: finalText,
         });
-        await recordCost(targetSession, usage);
+        await recordCost(targetSession, turnUsage);
       } catch (_) { /* 估算失败不影响对话 */ }
+      // 台账：延迟 / 用量 / 费用 / 这一轮的记忆与检索行为。
+      // 记忆错误与编造不在这里判定 —— 那两个只能由用户手动标记。
+      try {
+        await recordTurnMetrics(entry, {
+          turnId,
+          file: targetSession.fileName,
+          firstTokenMs,
+          totalMs: Date.now() - turnStartedAt,
+          inputTokens: turnUsage ? turnUsage.input : 0,
+          outputTokens: turnUsage ? turnUsage.output : 0,
+          cost: turnUsage ? window.RoleWorldPricing.costOf(turnUsage, currentPrices()) : 0,
+          costExact: !!(turnUsage && turnUsage.exact),
+          memoriesAdded: memoryResult ? memoryResult.added : 0,
+          memoriesReplaced: memoryResult ? memoryResult.replaced.length : 0,
+          memoriesRejected: memoryResult ? memoryResult.rejected.length : 0,
+          searchHits: searchResult ? searchResult.matched : 0,
+          activeSearches: requestedResults.length,
+        });
+      } catch (_) { /* 台账写失败不影响对话 */ }
       if (stopped) showToast("已停止（保留已生成的部分）");
       setChatListStatus("");
     } catch (err) {
@@ -1900,6 +2658,10 @@
       renderLiveMessages(targetSession.messages);
       if (!saveCompleted) restoreInput(originalInput);
       if (isAuthRequired(err)) { showAuthGate(); return; }
+      if (err && err.code === "TURN_ALREADY_SAVED") {
+        showToast("这一条上次其实已经保存过了，没有重复写入");
+        return;
+      }
       if (err && err.name === "AbortError") showToast("已停止");
       else if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode) && err && err.status === 400) showToast("尚未保存 DeepSeek API Key：请到「设置 → 对话」粘贴并保存");
       else showToast("回复未保存，请重试");
@@ -1908,6 +2670,9 @@
       liveState.controller = null;
       liveState.cancelRequested = false;
       liveState.pendingText = "";
+      // 这一次发送彻底结束：本轮标识作废。
+      // 只有"失败后原样重发"（不会走到这里的 finally）才该沿用同一个标识。
+      liveState.pendingTurnId = "";
       setLiveBusy(false);
       updateComposerLive();
     }
@@ -2323,6 +3088,12 @@
     createMemoryBookLive,
     deleteMemoryBookLive,
     deleteMemoryLive,
+    openRequestPeek,
+    closeRequestPeek,
+    openMemoryPanel,
+    closeMemoryPanel,
+    flagTurnFromMessage,
+    addMemoryEntry,
     isLiveBusy: () => liveState.pending,
     sendLive,
     stopLive,
@@ -2343,20 +3114,36 @@
     refreshCharacterRegistryAfterDelete,
   };
 
-  window.addEventListener("roleworld:settings-changed", (event) => {
-    // 模型页改了配置（服务商 / 模型名 / 思考模式）就地生效，不用刷新。
-    // 先按事件里的新值同步一次，保证"刚改完就发送"用的是新值；随后再整体重读。
-    const patch = (event && event.detail) || {};
+  /* 把一份设置补丁压到当前生效状态上。 */
+  function applySettingsPatch(patch) {
     const core = window.TASK22_CORE;
+    if (!patch) return;
     if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
     if (typeof patch.auto_memory === "boolean") liveState.autoMemory = patch.auto_memory;
     if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
     if (patch.provider) {
       liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
     }
+  }
+
+  window.addEventListener("roleworld:settings-changed", (event) => {
+    // 模型页改了配置（服务商 / 模型名 / 思考模式 / 开关）就地生效，不用刷新。
+    const patch = (event && event.detail) || {};
+    // 记下这次改动：整量重读是异步的，重读到的是**改动前**的旧值，
+    // 读回来会把刚改的值盖回去 —— 这正是"刚改完就发送用的是旧值"的根因。
+    liveState.pendingSettingsPatch = Object.assign({}, liveState.pendingSettingsPatch || {}, patch);
+    applySettingsPatch(patch);
     syncChatModelControls();
     updateComposerLive();
-    loadChatModelSettings().then(updateComposerLive).catch(() => {});
+    loadChatModelSettings()
+      .then(() => {
+        // 重读完成后，把"用户刚改、可能还没落盘"的值重新压回去，最后再清掉。
+        applySettingsPatch(liveState.pendingSettingsPatch);
+        liveState.pendingSettingsPatch = null;
+        syncChatModelControls();
+        updateComposerLive();
+      })
+      .catch(() => {});
   });
 
   window.addEventListener("DOMContentLoaded", () => {
@@ -2389,6 +3176,45 @@
     });
     const characterImportInput = document.querySelector("#characterImportInput");
     if (characterImportInput) characterImportInput.addEventListener("change", onImportFileSelected);
+    // 「本次请求」：平时只是一个很淡的入口，点开才看，关掉即消失。
+    const peekButton = document.querySelector("#requestPeekButton");
+    if (peekButton) peekButton.addEventListener("click", openRequestPeek);
+    document.querySelectorAll("[data-action='close-request-peek']").forEach((node) => {
+      node.addEventListener("click", closeRequestPeek);
+    });
+    const peekSurface = document.querySelector("#requestPeek");
+    if (peekSurface) {
+      peekSurface.addEventListener("click", (event) => {
+        if (event.target === peekSurface) { closeRequestPeek(); return; }
+        const book = event.target.closest(".request-peek-book");
+        if (book) toggleBookEntries(book).catch(() => {});
+      });
+      peekSurface.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const book = event.target.closest(".request-peek-book");
+        if (book) { event.preventDefault(); toggleBookEntries(book).catch(() => {}); }
+      });
+    }
+    // 记忆面板：关闭按钮、点背景关、手动加一条。
+    document.querySelectorAll("[data-action='close-memory']").forEach((node) => {
+      node.addEventListener("click", closeMemoryPanel);
+    });
+    document.querySelectorAll("[data-action='add-memory']").forEach((node) => {
+      node.addEventListener("click", () => { addMemoryEntry(); });
+    });
+    const memorySurface = document.querySelector("#memoryPanel");
+    if (memorySurface) {
+      memorySurface.addEventListener("click", (event) => { if (event.target === memorySurface) closeMemoryPanel(); });
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const memory = document.querySelector("#memoryPanel");
+      if (memory && !memory.hidden) { event.preventDefault(); closeMemoryPanel(); }
+    });
+    document.addEventListener("keydown", (event) => {
+      const surface = document.querySelector("#requestPeek");
+      if (event.key === "Escape" && surface && !surface.hidden) { event.preventDefault(); closeRequestPeek(); }
+    });
     document.addEventListener("click", (event) => {
       if (liveState.pickerOpen && !event.target.closest("#characterPicker")) setPickerMenuOpen(false);
     });
@@ -2402,4 +3228,56 @@
       }
     });
   });
+
+  /* ---------- 每轮指标台账 ----------
+   * 记：首字延迟 / 总延迟 / token 与费用 / 这一轮写了几条记忆、检索命中几条 / 用户手动标记。
+   * 只存本机（kv 按角色一本台账），上限 200 轮。
+   * **记忆错误与编造只由用户手动标记**，绝不自动判定 —— 机器猜不准这种事。
+   */
+  const METRICS_KEY = "metrics:";
+
+  function metricsKey(entry) {
+    return METRICS_KEY + ((entry && entry.avatar) || "unknown");
+  }
+
+  async function readMetrics(entry) {
+    try {
+      const stored = await window.RoleWorld.store.getKV(metricsKey(entry), []);
+      return Array.isArray(stored) ? stored : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function writeMetrics(entry, turns) {
+    liveState.metrics = turns;
+    try { await window.RoleWorld.store.setKV(metricsKey(entry), turns); }
+    catch (_) { /* 存不下不影响对话 */ }
+  }
+
+  async function recordTurnMetrics(entry, turn) {
+    const core = window.ROLEWORLD_METRICS_CORE;
+    if (!core || !entry) return;
+    const turns = core.appendTurn(await readMetrics(entry), turn);
+    await writeMetrics(entry, turns);
+  }
+
+  // 给某条消息打标记（记错 / 编造 / 很准）。再点一次取消。
+  async function flagTurnFromMessage(turnId, flag, button) {
+    const core = window.ROLEWORLD_METRICS_CORE;
+    const entry = activeCharacterEntry();
+    if (!core || !entry) return;
+    const result = core.flagTurn(await readMetrics(entry), turnId, flag);
+    if (!result.ok) {
+      showToast(result.reason === "missing" ? "这一轮的记录还没落盘，稍后再试" : "标记失败");
+      return;
+    }
+    await writeMetrics(entry, result.turns);
+    const on = core.flagsOf(result.turns, turnId).indexOf(flag) >= 0;
+    if (button) button.classList.toggle("flag-on", on);
+    showToast(on
+      ? (flag === core.FLAGS.WRONG_MEMORY ? "已记为记错" : flag === core.FLAGS.FABRICATION ? "已记为编造" : "已记为很准")
+      : "已取消标记");
+  }
+
 })();

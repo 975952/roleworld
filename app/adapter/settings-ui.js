@@ -75,6 +75,10 @@
     pick("price-output").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.price_output) > 0 ? settings.price_output : "";
     });
+    // 旧对话 token 预算：留空表示用默认值。
+    pick("history-budget").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.history_token_budget) > 0 ? settings.history_token_budget : "";
+    });
 
     // 单价提示：把币种、时段、高峰翻倍一次说清（官方英文页用美元报价，容易被误读成"价格不对"）。
     const pricing = global.RoleWorldPricing;
@@ -120,6 +124,12 @@
     const priceOut = first("price-output");
     if (priceIn) patch.price_input = Math.max(0, Number(priceIn.value) || 0);
     if (priceOut) patch.price_output = Math.max(0, Number(priceOut.value) || 0);
+    const historyBudget = first("history-budget");
+    if (historyBudget) {
+      const raw = String(historyBudget.value || "").trim();
+      // 留空 = 用默认（60000）。填了就是填的值，下限 1000，避免填 0 把历史全关掉。
+      patch.history_token_budget = raw === "" ? 0 : Math.max(1000, Number(raw) || 0);
+    }
     await adapter.saveLocalSettings(patch);
     await refresh();
     // 页面里的模型徽标、剧情模式的模型都要跟着变。

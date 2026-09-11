@@ -881,3 +881,62 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 @media (prefers-reduced-motion: reduce) {
   .assistant-body .stream-text::after { animation: none !important; opacity: .6; }
 }
+
+/* ---------- 「本次请求」只读查看（2026-09-11） ----------
+   平时只是一个很淡的入口；点开是覆盖层，关掉即消失。
+   不新增配色，全部走现有设计变量，六种风格自动跟随。 */
+.composer-peek { padding: 0; color: var(--quiet-text); font: inherit; font-size: 12px; border: 0; background: none; cursor: pointer; white-space: nowrap; transition: color var(--hover-motion) ease; }
+.composer-peek:hover { color: var(--secondary-text); }
+.composer-peek[hidden] { display: none; }
+
+.request-peek { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--overlay); }
+.request-peek[hidden] { display: none; }
+.request-peek-card { display: flex; flex-direction: column; width: min(560px, 100%); max-height: min(78vh, 720px); padding: 20px 22px; border: 1px solid var(--hairline); border-radius: var(--card-radius); background: var(--raised); box-shadow: 0 24px 60px rgba(0, 0, 0, .38); }
+.request-peek-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.request-peek-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--main-text); }
+.request-peek-note { margin: 8px 0 14px; color: var(--muted-text); font-size: 12px; line-height: 1.6; }
+.request-peek-body { overflow-y: auto; }
+.request-peek-list { display: flex; flex-direction: column; gap: 2px; }
+.request-peek-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--hairline); }
+.request-peek-label { flex: 1; min-width: 0; color: var(--secondary-text); font-size: 13px; }
+.request-peek-meta { color: var(--muted-text); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.request-peek-note-inline { flex: 0 0 100%; color: var(--quiet-text); font-size: 11px; }
+.request-peek-system .request-peek-label { color: var(--main-text); font-weight: 600; }
+.request-peek-part { padding-left: 4px; border-bottom: 0; }
+.request-peek-part .request-peek-label { color: var(--muted-text); font-size: 12px; }
+.request-peek-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--strong-line); color: var(--main-text); font-size: 13px; font-variant-numeric: tabular-nums; }
+.request-peek-check { margin: 10px 0 0; color: var(--muted-text); font-size: 12px; }
+.request-peek-check-bad { color: var(--error); }
+.request-peek-source { margin: 10px 0 0; color: var(--quiet-text); font-size: 12px; }
+.request-peek-notice { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--hairline); color: var(--muted-text); font-size: 12px; }
+.request-peek-empty { margin: 0; color: var(--muted-text); font-size: 13px; }
+.request-peek-dropped { margin: 10px 0 0; padding: 8px 10px; color: var(--secondary-text); font-size: 12px; line-height: 1.6; border-left: 2px solid var(--strong-line); background: var(--hover); border-radius: 0 var(--base-radius) var(--base-radius) 0; }
+
+/* ---------- 记忆：点开看条目 + 管理（看 / 改 / 删） ---------- */
+.request-peek-book { cursor: pointer; }
+.request-peek-book:hover .request-peek-label { color: var(--main-text); }
+.request-peek-caret { flex: 0 0 100%; color: var(--quiet-text); font-size: 11px; }
+.request-peek-book-entries { padding: 8px 0 10px 14px; border-bottom: 1px solid var(--hairline); }
+.request-peek-book-empty { margin: 0; color: var(--muted-text); font-size: 12px; }
+.request-peek-book-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 18px; }
+.request-peek-book-list li { color: var(--secondary-text); font-size: 12px; line-height: 1.6; }
+.request-peek-book-content { display: block; }
+.request-peek-book-source { display: block; margin-top: 2px; color: var(--quiet-text); font-size: 11px; }
+.request-peek-manage { margin-top: 4px; }
+.memory-panel-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.memory-panel-bar .request-peek-note { margin: 0 0 12px; }
+.memory-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.memory-list .request-peek-book-content { flex: 1; min-width: 0; }
+.memory-list .request-peek-book-source { flex: 0 0 100%; }
+.memory-actions { display: flex; gap: 6px; }
+.memory-edit { min-width: 220px; flex: 1; }
+.memory-add-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+
+/* ---------- 每条回复旁的标记入口（记错 / 编造） ----------
+   很轻：平时几乎看不见，鼠标移上去或已经标记过才显形；触屏上一律可见。 */
+.message-flags { display: inline-flex; gap: 6px; margin-left: 8px; }
+.message-flag { padding: 0; color: var(--quiet-text); font: inherit; font-size: 11px; border: 0; background: none; cursor: pointer; opacity: 0; transition: opacity var(--hover-motion) ease, color var(--hover-motion) ease; }
+.message-row:hover .message-flag, .message-flag:focus-visible { opacity: 1; }
+.message-flag:hover { color: var(--secondary-text); }
+.message-flag.flag-on { opacity: 1; color: var(--error); }
+@media (hover: none) { .message-flag { opacity: .55; } }

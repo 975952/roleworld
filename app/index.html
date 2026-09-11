@@ -194,6 +194,7 @@
             <textarea id="messageInput" rows="1" placeholder="给 Harry 发消息" aria-label="消息输入"></textarea>
             <div class="composer-footer">
               <span class="composer-cost" id="chatCostLine" title="按官方单价估算，实际以账单为准"></span>
+              <button class="composer-peek" id="requestPeekButton" type="button" hidden>本次请求</button>
               <span class="composer-hint" hidden></span>
               <span class="composer-engine" id="composerEngine" hidden></span>
               <button class="stop-button" id="stopButton" type="button" hidden>停止</button>
@@ -205,6 +206,34 @@
         </div>
       </section>
     </main>
+
+    <!-- 「本次请求」：只读查看上一次实际发出去的内容构成。平时完全隐藏，看完即关，不落盘。 -->
+    <section class="request-peek" id="requestPeek" role="dialog" aria-modal="true" aria-labelledby="requestPeekTitle" hidden>
+      <div class="request-peek-card">
+        <header class="request-peek-head">
+          <h2 id="requestPeekTitle">本次请求</h2>
+          <button class="plain-button" type="button" data-action="close-request-peek">关闭</button>
+        </header>
+        <p class="request-peek-note">这是上一次真正发给模型的内容构成，按来源分段统计。只在这台设备上显示，不会保存，也不含 API Key。</p>
+        <div class="request-peek-body" id="requestPeekBody"></div>
+      </div>
+    </section>
+
+    <!-- 角色记忆：看 / 改 / 删模型自己记下的要点。删掉就真的不再注入，不只是隐藏。 -->
+    <section class="request-peek" id="memoryPanel" role="dialog" aria-modal="true" aria-labelledby="memoryPanelTitle" hidden>
+      <div class="request-peek-card">
+        <header class="request-peek-head">
+          <h2 id="memoryPanelTitle">角色记忆</h2>
+          <button class="plain-button" type="button" data-action="close-memory">关闭</button>
+        </header>
+        <div class="memory-panel-bar">
+          <p class="request-peek-note" id="memoryPanelSubtitle"></p>
+          <button class="plain-button" type="button" data-action="add-memory">手动加一条</button>
+        </div>
+        <div class="request-peek-body" id="memoryList"></div>
+        <p class="request-peek-notice">这些内容每次对话都会发送给模型服务商。删掉一条，它就不再出现在后续请求里。</p>
+      </div>
+    </section>
 
     <section class="settings-surface" id="settingsSurface" aria-labelledby="settingsTitle" hidden>
       <header class="settings-topbar">
@@ -262,6 +291,7 @@
               <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="off" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
               <label class="settings-row"><div><strong>思考模式</strong><span>仅 DeepSeek 生效。关闭时不会请求也不会显示思维链，回复直接逐字出现。</span></div><input type="checkbox" data-roleworld="thinking"></label>
               <label class="settings-row"><div><strong>自动记忆</strong><span>让模型自己记要点：每个角色一本「自动记忆」书，跨对话保留，最多 50 条。关掉就只用手写的记忆书。</span></div><input type="checkbox" data-roleworld="auto-memory"></label>
+              <label class="settings-row"><div><strong>旧对话预算（token）</strong><span>默认<b>不限制</b>：以前的对话全部带上（官方上下文 1M，且重复内容按缓存命中计价，很便宜）。只有你想压开销时才填一个上限，超出的部分不发出去——面板里会写明丢了几条。</span></div><input class="rw-field rw-field-num" type="number" min="1000" step="1000" data-roleworld="history-budget" placeholder="不限制" aria-label="旧对话 token 预算"></label>
               <div class="settings-row"><div><strong>单价（元 / 百万 token）</strong><span class="rw-status" data-roleworld="price-hint">正在读取…</span></div><div class="rw-actions"><input class="rw-field rw-field-num" type="number" min="0" step="0.01" data-roleworld="price-input" placeholder="输入" aria-label="输入单价"><input class="rw-field rw-field-num" type="number" min="0" step="0.01" data-roleworld="price-output" placeholder="输出" aria-label="输出单价"></div></div>
               <div class="settings-row settings-action-row"><div><strong>保存</strong><span>改完点保存立即生效。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="save">保存设置</button><button class="plain-button" type="button" data-roleworld="test">测试连接</button></div></div>
               <p class="settings-empty rw-status" data-roleworld="test-result"></p>
@@ -472,6 +502,9 @@
   <script src="app.js"></script>
   <script src="task22-core.js"></script>
   <script src="task29-character-core.js"></script>
+<script src="memory-core.js"></script>
+<script src="search-core.js"></script>
+<script src="metrics-core.js"></script>
   <script src="adapter/store.js"></script>
   <script src="adapter/desktop.js"></script>
 <script src="adapter/model.js"></script>

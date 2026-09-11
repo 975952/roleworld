@@ -131,6 +131,120 @@ async function main() {
     assert.equal(blob.size, 3);
   });
 
+  // Task-39A：保存其实成功、界面却当失败时，用户重发同一句不能写第二遍（也不能再计一次费）。
+  const Core22ForChat = require(path.join(__dirname, "..", "app", "task22-core.js"));
+
+  function turnApi() {
+    return {
+      listChats: (avatar) => Store.listChats(avatar),
+      getChat: (avatar, fileName) => Store.getChat(avatar, fileName),
+      saveChat: (avatar, fileName, messages) => Store.saveChat(avatar, fileName, messages),
+    };
+  }
+
+  // 回执通道与 integration.js 一致：同一个本地 store，不新增存储层。
+  const turnReceipts = {
+    get: (avatar, fileName) => Store.getKV("turn:" + avatar + ":" + fileName, null),
+    set: (avatar, fileName, value) => Store.setKV("turn:" + avatar + ":" + fileName, value),
+  };
+
+  function makeTurnModel() {
+    return Core22ForChat.createHarryChatModel({
+      api: turnApi(),
+      receipts: turnReceipts,
+      avatar: "a.png",
+      charName: "甲",
+      userName: "我",
+      userHandle: "unit",
+      storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      characters: [{ avatar: "a.png", name: "甲" }],
+    });
+  }
+
+  async function turnCount(avatar, fileName) {
+    const lines = await Store.getChat(avatar, fileName);
+    return lines.filter((line) => line && typeof line.mes === "string" && line.mes).length;
+  }
+
+  await test("重发同一轮（同一个 turnId）不写第二遍，第二轮照旧写入", async () => {
+    Store.resetForTests();
+    Store.setBackendForTests(Store.createMemoryBackend());
+    await Store.putCharacter(card("a.png", "甲"));
+    const model = makeTurnModel();
+    await model.refresh();
+    model.bindActive({ avatar: "a.png", charName: "甲" });
+
+    const first = await model.saveTurn("第一句", "第一答", { userName: "我", charName: "甲", turnId: "turn-1" });
+    assert.equal(first.duplicate, false, "第一次保存不该被当成重复");
+    const fileName = model.getActive().fileName;
+    assert.equal(await turnCount("a.png", fileName), 2);
+
+    const again = await model.saveTurn("第一句", "第一答", { userName: "我", charName: "甲", turnId: "turn-1" });
+    assert.equal(again.duplicate, true, "重发同一轮没有被识别成重复");
+    assert.equal(await turnCount("a.png", fileName), 2, "重发之后消息数变了");
+
+    await model.saveTurn("第二句", "第二答", { userName: "我", charName: "甲", turnId: "turn-2" });
+    assert.equal(await turnCount("a.png", fileName), 4, "正常的新一轮应当照旧写入");
+  });
+
+  await test("幂等回执跨刷新有效（新模型实例仍然认得这一轮）", async () => {
+    Store.resetForTests();
+    Store.setBackendForTests(Store.createMemoryBackend());
+    await Store.putCharacter(card("a.png", "甲"));
+    const firstModel = makeTurnModel();
+    await firstModel.refresh();
+    firstModel.bindActive({ avatar: "a.png", charName: "甲" });
+    await firstModel.saveTurn("我改主意了", "好，听你的。", { userName: "我", charName: "甲", turnId: "turn-r" });
+    const fileName = firstModel.getActive().fileName;
+
+    const secondModel = makeTurnModel();   // 等同刷新页面：内存全丢
+    await secondModel.refresh();
+    assert.equal(secondModel.getActive().fileName, fileName);
+    const retry = await secondModel.saveTurn("我改主意了", "好，听你的。", { userName: "我", charName: "甲", turnId: "turn-r" });
+    assert.equal(retry.duplicate, true, "刷新后重发没有被识别成重复");
+    assert.equal(await turnCount("a.png", fileName), 2, "刷新后重发还是写了一遍");
+  });
+
+  await test("保存失败的那一轮不留回执，重发会被真正写入", async () => {
+    Store.resetForTests();
+    Store.setBackendForTests(Store.createMemoryBackend());
+    await Store.putCharacter(card("a.png", "甲"));
+    const model = makeTurnModel();
+    await model.refresh();
+    model.bindActive({ avatar: "a.png", charName: "甲" });
+    const original = Store.saveChat;
+    let failOnce = true;
+    const failing = async function () {
+      if (failOnce) { failOnce = false; throw new Error("network down"); }
+      return original.apply(null, arguments);
+    };
+    const api = turnApi();
+    api.saveChat = failing;
+    const flaky = Core22ForChat.createHarryChatModel({
+      api,
+      receipts: turnReceipts,
+      avatar: "a.png",
+      charName: "甲",
+      userName: "我",
+      userHandle: "unit",
+      storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      characters: [{ avatar: "a.png", name: "甲" }],
+    });
+    await flaky.refresh();
+    flaky.bindActive({ avatar: "a.png", charName: "甲" });
+
+    let threw = false;
+    try { await flaky.saveTurn("会失败的", "不会成功", { userName: "我", charName: "甲", turnId: "turn-f" }); }
+    catch (_) { threw = true; }
+    assert.ok(threw, "第一次保存应当失败");
+
+    const retry = await flaky.saveTurn("会失败的", "这次成功", { userName: "我", charName: "甲", turnId: "turn-f" });
+    assert.equal(retry.duplicate, false, "失败的那轮不该留下回执");
+    const chats = await Store.listChats("a.png");
+    assert.equal(chats.length, 1);
+    assert.equal(await turnCount("a.png", chats[0].file_name), 2);
+  });
+
   await test("存档导出 / 导入往返（replace 与 merge）", async () => {
     Store.resetForTests();
     Store.setBackendForTests(Store.createMemoryBackend());
@@ -497,6 +611,150 @@ async function main() {
     const without = Core22.buildSystemPrompt(card, [], "你好", { autoMemory: false });
     assert.ok(withMemory.indexOf("[Memory]") >= 0, "开了自动记忆却没有指令");
     assert.ok(without.indexOf("[Memory]") < 0, "关掉了还带记忆指令");
+  });
+
+  await test("生成中途被按停：半截的记忆标记不会被当成正文", () => {
+    // 用户可能在模型刚打出 `[[记住:` 的时候按停止键，这时标记是断的。
+    const samples = [
+      "他把书合上。\n[[记住",
+      "他把书合上。\n[[记住:",
+      "他把书合上。\n[[记住: 玩家叫小林",
+      "他把书合上。\n【记住：玩家叫小林",
+    ];
+    for (const sample of samples) {
+      const visible = Core22.stripPartialMemoryMarkers(sample);
+      assert.equal(visible, "他把书合上。", "半截标记没清掉：" + JSON.stringify(visible));
+      const parsed = Core22.extractMemory(sample);
+      assert.equal(parsed.text, "他把书合上。", "半截标记进了要保存的正文：" + JSON.stringify(parsed.text));
+      assert.deepEqual(parsed.memories, [], "半截标记被当成了记忆要点：" + JSON.stringify(parsed.memories));
+    }
+  });
+
+  await test("半截标记拦不住完整标记：完整的照收，半截的丢掉", () => {
+    const raw = "他把书合上。\n[[记住: 玩家叫小林]]\n[[记住: 玩家怕黑";
+    assert.equal(Core22.stripPartialMemoryMarkers(raw).indexOf("怕黑"), -1, "半截那条还在显示文本里");
+    const parsed = Core22.extractMemory(raw);
+    assert.equal(parsed.text, "他把书合上。");
+    assert.deepEqual(parsed.memories, ["玩家叫小林"], "完整那一条应当照收：" + JSON.stringify(parsed.memories));
+  });
+
+  await test("没有半截标记时，strip 不改动原文", () => {
+    const raw = "他把书合上。\n\n“明天见。”";
+    assert.equal(Core22.stripPartialMemoryMarkers(raw), raw);
+    assert.equal(Core22.stripPartialMemoryMarkers(""), "");
+    assert.equal(Core22.stripPartialMemoryMarkers(null), "");
+  });
+
+  console.log("== 角色语言约束 ==");
+
+  await test("语言标记：CCv3 嵌套与顶层两种写法都认", () => {
+    assert.equal(Core22.cardLanguageOf({ data: { extensions: { task29: { language: "en" } } } }), "en");
+    assert.equal(Core22.cardLanguageOf({ data: { extensions: { task29: { language: "zh" } } } }), "zh");
+    assert.equal(Core22.cardLanguageOf({ language: "en" }), "en");
+    assert.equal(Core22.cardLanguageOf({ language: "zh-cn" }), "zh");
+    assert.equal(Core22.cardLanguageOf({ language: "english" }), "en");
+    assert.equal(Core22.cardLanguageOf({}), null);
+    assert.equal(Core22.cardLanguageOf(null), null);
+  });
+
+  await test("英文卡：写明即使用中文提问也用英文回答（实测踩过的坑）", () => {
+    const card = { name: "Harry", description: "d", data: { extensions: { task29: { language: "en" } } } };
+    const prompt = Core22.buildSystemPrompt(card, [], "你好", {});
+    assert.ok(prompt.indexOf("[Language]") >= 0, "没有语言约束：" + prompt.slice(0, 200));
+    assert.ok(/English only/.test(prompt), "没有说明只说英文");
+    assert.ok(/even when the player writes/i.test(prompt), "没有说明玩家用别的语言时也要说英文");
+    assert.ok(/Never switch languages/i.test(prompt), "没有禁止跟着玩家切语言");
+  });
+
+  await test("中文卡：同样不许跟着玩家切语言", () => {
+    const card = { name: "小明", description: "d", data: { extensions: { task29: { language: "zh" } } } };
+    const prompt = Core22.buildSystemPrompt(card, [], "hello", {});
+    assert.ok(prompt.indexOf("一律使用中文") >= 0 || prompt.indexOf("用中文回答") >= 0, "没有中文约束");
+    assert.ok(prompt.indexOf("切换语言") >= 0, "没有禁止跟着玩家切语言");
+  });
+
+  await test("语言要求钉在系统提示的最后（格式指令之后）", () => {
+    // 实测症状：只写在中间时，模型"旁白英文、台词中文" —— 被最后的格式指令盖过去了。
+    const card = { name: "Harry", description: "d", data: { extensions: { task29: { language: "en" } } } };
+    const prompt = Core22.buildSystemPromptWithFormat(card, [], "你好", null, {});
+    const lines = prompt.split("\n").filter((line) => line.trim());
+    assert.ok(/^\[Language\]/.test(lines[lines.length - 1]),
+      "最后一条规则应当是语言要求，实际是：" + JSON.stringify(lines[lines.length - 1].slice(0, 60)));
+    assert.ok(prompt.indexOf("[Reply format]") < prompt.lastIndexOf("[Language]"),
+      "语言要求必须排在回复格式之后");
+    // 两头都要有：开头是身份级约束，结尾是"最后一条规则"。
+    assert.ok(/^\[Language\]/.test(lines[0]), "开头没有语言要求：" + JSON.stringify(lines[0].slice(0, 40)));
+    assert.ok((prompt.match(/\[Language\]/g) || []).length >= 3,
+      "语言要求应当出现在开头、中间、结尾三处，实际 " +
+      (prompt.match(/\[Language\]/g) || []).length + " 处");
+  });
+
+  await test("没设语言的卡不硬塞语言约束", () => {
+    const card = { name: "X", description: "d", data: {} };
+    assert.equal(Core22.buildSystemPrompt(card, [], "你好", {}).indexOf("[Language]"), -1, "没设语言却塞了语言要求");
+    assert.equal(Core22.buildSystemPromptWithFormat(card, [], "你好", null, {}).indexOf("[Language]"), -1,
+      "带格式的完整系统提示里也不该有语言要求");
+    assert.equal(Core22.languageLine(card), "");
+  });
+
+  console.log("== 旧对话的 token 预算 ==");
+
+  const manyMessages = (count, length) => Array.from({ length: count }, (_, i) => ({
+    is_user: i % 2 === 0,
+    mes: "第" + i + "条：" + "字".repeat(length),
+  }));
+
+  await test("预算够时全部保留，不截断", () => {
+    const plan = Core22.planHistory(manyMessages(20, 10), { budget: 60000 });
+    assert.equal(plan.kept.length, 20);
+    assert.equal(plan.dropped, 0);
+    assert.equal(plan.truncated, false);
+    assert.equal(plan.keptTokens, plan.totalTokens);
+  });
+
+  await test("超出预算时从最近往前保留，并报告丢了几条", () => {
+    const plan = Core22.planHistory(manyMessages(200, 100), { budget: 3000, minMessages: 4 });
+    assert.ok(plan.kept.length < 200 && plan.kept.length > 4, "保留条数不合理：" + plan.kept.length);
+    assert.equal(plan.dropped, 200 - plan.kept.length);
+    assert.ok(plan.keptTokens <= 3000, "超预算了：" + plan.keptTokens);
+    assert.equal(plan.truncated, true);
+    // 保留的必须是最后那一段（最近的），顺序不变
+    assert.equal(plan.kept[plan.kept.length - 1].mes, "第199条：" + "字".repeat(100));
+    assert.equal(plan.kept[0].mes, "第" + plan.dropped + "条：" + "字".repeat(100));
+  });
+
+  await test("预算再紧也至少留最近几条，不会一条都不带", () => {
+    const plan = Core22.planHistory(manyMessages(50, 100), { budget: 1, minMessages: 4 });
+    assert.equal(plan.kept.length, 4, "至少保留最近 4 条，实际 " + plan.kept.length);
+    assert.equal(plan.dropped, 46);
+  });
+
+  await test("空历史与脏数据不炸", () => {
+    assert.deepEqual(Core22.planHistory([], {}).kept, []);
+    assert.equal(Core22.planHistory(null, {}).dropped, 0);
+    const dirty = [{ mes: "有效" }, null, { mes: "" }, { mes: 123 }, undefined];
+    const plan = Core22.planHistory(dirty, { budget: 60000 });
+    assert.equal(plan.kept.length, 1, "只应保留 mes 是字符串且非空的那条");
+  });
+
+  await test("默认不限制：不填预算就全部带上，不丢内容", () => {
+    const many = manyMessages(500, 50);
+    const plan = Core22.planHistory(many, {});
+    assert.equal(plan.kept.length, 500, "默认应当全带，实际 " + plan.kept.length);
+    assert.equal(plan.dropped, 0);
+    assert.equal(plan.truncated, false);
+    assert.equal(plan.unlimited, true);
+    assert.equal(Core22.planHistory(many, { budget: 0 }).kept.length, 500, "预算 0 也应当是不限制");
+    assert.equal(Core22.planHistory(many, { budget: -5 }).kept.length, 500, "负数视为没设");
+    assert.equal(Core22.HISTORY_TOKEN_BUDGET, 0, "默认预算应为 0（不限制）");
+  });
+
+  await test("用户自己填了上限才截断", () => {
+    const plan = Core22.planHistory(manyMessages(500, 50), { budget: 3000 });
+    assert.ok(plan.kept.length < 500, "填了上限就该截断");
+    assert.ok(plan.keptTokens <= 3000);
+    assert.equal(plan.unlimited, false);
+    assert.equal(plan.truncated, true);
   });
 
   console.log("== 价格估算 ==");

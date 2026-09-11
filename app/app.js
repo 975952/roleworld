@@ -1614,8 +1614,12 @@ function bindInertialScroll(element) {
 
 function renderAssistantBody(text) {
   const live = !!window.TASK21_LIVE;
-  if (!live) return `<div class="message-bubble assistant-bubble"><p>${escapeHtml(text)}</p></div>`;
-  const segments = window.TASK22_CORE ? window.TASK22_CORE.splitReply(text) : [{ type: "narration", text }];
+  // 流式或中途停止时，正文里可能留着没写完的 [[记住: —— 它不是正文，不该显示出来。
+  const safeText = window.TASK22_CORE && typeof window.TASK22_CORE.stripPartialMemoryMarkers === "function"
+    ? window.TASK22_CORE.stripPartialMemoryMarkers(text)
+    : text;
+  if (!live) return `<div class="message-bubble assistant-bubble"><p>${escapeHtml(safeText)}</p></div>`;
+  const segments = window.TASK22_CORE ? window.TASK22_CORE.splitReply(safeText) : [{ type: "narration", text: safeText }];
   return segments.map((segment) => segment.type === "dialogue"
     ? `<div class="message-bubble assistant-bubble"><p>${escapeHtml(segment.text)}</p></div>`
     : `<div class="narration-line">${escapeHtml(segment.text)}</div>`).join("");
