@@ -2600,6 +2600,30 @@ async function main() {
     assert(visible.wrong.length === 0, "仍然可见的管理面板：" + visible.wrong.join(","));
   });
 
+  await check("已经配好自己 API Key 的人：打开网站什么都不弹，直接进对话", async () => {
+    // 用户问过：「已经配好自己的 apikey 的人、或者不是用卡登陆的人，开网站的界面是怎样的」。
+    // 老用户的预期是**什么都没有**：不弹"填 Key"那套，也不弹体验卡开场。
+    // 这条以前没有用例守着（主 fixture 把 tutorial_seen 设成 true，走不到这条分支）。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: false, card_welcome_seen: false, provider: 'deepseek', endpoint: '', card_relay: '' }); await RoleWorld.secrets.remove('api_key_custom'); await RoleWorld.secrets.set('api_key_deepseek', 'sk-自己的key'); return true; })()");
+    try {
+      await goto(base + "/index.html");
+      await waitFor("window.TASK21_READY === true", 30000);
+      await sleep(1200);   // 引导是"等启动落定再弹"的，给它足够时间（真的会弹就不会漏）
+      assert(await evaluate("document.querySelector('.rw-ob') === null"), "配好 Key 的老用户被打扰了：弹了引导");
+      const settings = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
+      assert(settings.tutorial_seen === true, "应当顺手把 tutorial_seen 补上（下次启动不用再判断一遍）");
+      assert(settings.card_welcome_seen !== true, "没在用卡的人不该被记上「体验卡开场看过」");
+      assert(await evaluate("document.querySelector('#messageInput').disabled === false"), "输入框不可用");
+    } finally {
+      // 收尾要把 endpoint 还原成夹具那个假端点 —— 否则后面的用例会拿空地址去连真服务商。
+      await evaluate(`(async () => {
+        await RoleWorld.secrets.remove('api_key_deepseek');
+        await RoleWorld.saveLocalSettings({ tutorial_seen: true, provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", card_welcome_seen: false });
+        return true;
+      })()`).catch(() => {});
+    }
+  });
+
   await check("首次启动强制走完引导：没有跳过，先写称呼再填 Key", async () => {
     // 主流程的 fixture 把 tutorial_seen 设成 true（否则引导浮层会盖住整个界面，
     // 用例里那些 element.click() 照样能点，真人却点不到 —— 记忆按钮那个缺陷就是这么漏掉的）。
