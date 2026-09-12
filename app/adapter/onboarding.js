@@ -115,7 +115,7 @@ html[data-theme="light"] .rw-ob{
     }
     if (step === "key") {
       return [
-        "<h2>填入你的 API Key</h2>",
+        "<h2>填入你的 API Key，或用体验卡</h2>",
         "<p>请求从这台设备**直接**发给你选的模型服务，不经过任何中转。Key 只保存在本机。</p>",
         '<div class="rw-ob-field"><select data-ob="provider" aria-label="服务商">',
         '<option value="deepseek">DeepSeek 官方</option>',
@@ -129,6 +129,14 @@ html[data-theme="light"] .rw-ob{
         '<div class="rw-ob-field"><input type="text" data-ob="endpoint" placeholder="接口地址（留空用服务商默认）" spellcheck="false" autocomplete="off" aria-label="接口地址"></div>',
         '<p class="rw-ob-status" data-ob="status"></p>',
         '<p class="rw-ob-hint">自定义服务需要填写支持跨域访问的 HTTPS 接口地址和对应 API Key。</p>',
+        // 2026-09-12：**别人给你体验卡**也要能在这一步进门。
+        // 以前这里只有 API Key 一条路：发卡链接被聊天软件截掉、或者同学自己打开首页（地址里没带卡），
+        // 就会看到"必须输 API Key"，看起来像进不去（用户实测反馈："为什么我登的时候还是要输 apikey"）。
+        '<p class="rw-ob-hint">有人给你<b>体验卡</b>？不用 API Key —— 把他给的<b>卡号那一整行</b>'
+          + '（形如 <code>RW-XXXXX-XXXXX-XXXXX@中转地址</code>，或者他发的那条整链接）粘在下面，点「用体验卡」。</p>',
+        '<div class="rw-ob-field"><input type="text" data-ob="card" placeholder="RW-XXXXX-XXXXX-XXXXX@https://…" spellcheck="false" autocomplete="off" maxlength="400" aria-label="体验卡号或体验卡链接">',
+        '<button type="button" data-ob="card-use">用体验卡</button></div>',
+        '<p class="rw-ob-status" data-ob="card-status"></p>',
       ].join("");
     }
     return [
@@ -241,7 +249,17 @@ html[data-theme="light"] .rw-ob{
       });
     }
     syncKeyFields();
-    if (step === "key") prefillKeyStep();
+    if (step === "key") {
+      prefillKeyStep();
+      const cardButton = overlay.querySelector('[data-ob="card-use"]');
+      if (cardButton) cardButton.addEventListener("click", () => { useCardInOnboarding().catch(() => {}); });
+      const cardInput = overlay.querySelector('[data-ob="card"]');
+      if (cardInput) {
+        cardInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") { event.preventDefault(); useCardInOnboarding().catch(() => {}); }
+        });
+      }
+    }
     if (step === "name") {
       const input = overlay.querySelector('[data-ob="nickname"]');
       prefillNicknameStep(input);
@@ -283,6 +301,41 @@ html[data-theme="light"] .rw-ob{
     node.textContent = text || "";
     node.classList.toggle("is-ok", kind === "ok");
     node.classList.toggle("is-bad", kind === "bad");
+  }
+
+  function setCardStatus(text, kind) {
+    const node = overlay && overlay.querySelector('[data-ob="card-status"]');
+    if (!node) return;
+    node.textContent = text || "";
+    node.classList.toggle("is-ok", kind === "ok");
+    node.classList.toggle("is-bad", kind === "bad");
+  }
+
+  /** 引导里用体验卡：配好接口地址 + 把卡号存进密钥位 —— 之后 keyReady() 就认它，不再要求 API Key。
+   *  卡号只在这台设备上落盘，和「设置 → 模型 → 体验卡」那一行走的是同一个 apply()。 */
+  async function useCardInOnboarding() {
+    if (busy) return;
+    const card = global.RoleWorldCard;
+    const input = overlay && overlay.querySelector('[data-ob="card"]');
+    const raw = input ? String(input.value || "").trim() : "";
+    if (!card || typeof card.apply !== "function") { setCardStatus("这个版本不支持体验卡，请填 API Key。", "bad"); return; }
+    if (!raw) { setCardStatus("先粘贴卡号（或者发卡人给你的那条链接）。", "bad"); return; }
+    busy = true;
+    setCardStatus("正在配置…", null);
+    try {
+      const result = await card.apply(raw);
+      if (!result.ok) { setCardStatus(result.message || "这张卡没用上。", "bad"); return; }
+      if (input) input.value = "";
+      // 「保存并测试」那一行留着的 Key 不该再把卡顶掉：清掉输入框。
+      const keyInput = overlay.querySelector('[data-ob="key"]');
+      if (keyInput) keyInput.value = "";
+      setCardStatus("体验卡已配好：" + (result.message || "") + " 点「下一步」继续。", "ok");
+    } catch (error) {
+      setCardStatus("这张卡没用上：" + String((error && error.message) || error).slice(0, 120), "bad");
+    } finally {
+      busy = false;
+      notifySettings();
+    }
   }
 
   async function onSaveKey() {
@@ -337,16 +390,25 @@ html[data-theme="light"] .rw-ob{
     await finish();
   }
 
-  // 第二步必须已有对应服务商的 Key（体验卡也算：卡号就存在密钥位里）。
+  // 第二步必须有凭据：API Key，或者一张体验卡（卡号就存在密钥位里）。
   async function keyReady() {
     const adapter = global.RoleWorld;
-    const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
-      ? await global.RoleWorldCard.currentState() : null;
+    const currentCard = async () => (global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+      ? await global.RoleWorldCard.currentState() : null);
+    const card = await currentCard();
     if (card && card.active) return true;
+    // 卡号框里已经粘了东西、但还没点「用体验卡」就按了下一步 —— 顺手用掉它。
+    // （同学的直觉就是"粘上、点下一步"，不该因为我们少做一步就把人挡回去。）
+    const cardInput = overlay.querySelector('[data-ob="card"]');
+    if (cardInput && String(cardInput.value || "").trim()) {
+      await useCardInOnboarding();
+      const after = await currentCard();
+      if (after && after.active) return true;
+    }
     const provider = overlay.querySelector('[data-ob="provider"]').value;
     const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
     if (saved && saved.value) return true;
-    setStatus("请先粘贴 API Key 并点「保存并测试」。", "bad");
+    setStatus("请先粘贴 API Key 并点「保存并测试」；有体验卡的话，把卡号粘在下面点「用体验卡」。", "bad");
     return false;
   }
 

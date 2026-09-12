@@ -2330,6 +2330,75 @@ async function main() {
     }
   });
 
+  await check("地址里没带卡的人：引导里能直接用体验卡进门，不用 API Key", async () => {
+    // 用户 2026-09-12 实测：「为什么我登的时候还是要输 apikey」。
+    // 链接被聊天软件截掉、或者自己打开首页（地址里没有 card=…）时，以前引导只给 API Key 一条路。
+    // 现在把「卡号@中转地址」粘在这一步就能进 —— 和「设置 → 模型 → 体验卡」走同一个 apply()。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: false, provider: 'deepseek', endpoint: '', card_relay: '', model: 'deepseek-flash' }); await RoleWorld.secrets.remove('api_key_custom'); await RoleWorld.secrets.remove('api_key_deepseek'); return true; })()");
+    try {
+      await goto(base + "/index.html");   // 注意：地址里**没有** card=…
+      await waitFor("window.TASK21_READY === true", 30000);
+      await waitFor("!!document.querySelector('.rw-ob')", 15000);
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!!document.querySelector('[data-ob=\"nickname\"]')", 8000);
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-ob="nickname"]');
+        input.value = '体验卡同学';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-ob="next"]').click();
+        return true;
+      })()`);
+      await waitFor("!!document.querySelector('[data-ob=\"card\"]')", 8000);
+
+      // ① 这一步必须看得见"用体验卡"这条路，并且说明白要粘什么
+      const entry = await evaluate(`(() => {
+        const input = document.querySelector('[data-ob="card"]');
+        const button = document.querySelector('[data-ob="card-use"]');
+        const box = input ? input.getBoundingClientRect() : null;
+        return {
+          hasInput: !!input, hasButton: !!button,
+          w: box ? Math.round(box.width) : 0, h: box ? Math.round(box.height) : 0,
+          text: document.querySelector('.rw-ob-card').textContent,
+        };
+      })()`);
+      assert(entry.hasInput && entry.hasButton, "引导里没有「用体验卡」这一条路：" + JSON.stringify(entry));
+      assert(entry.w > 0 && entry.h > 0, "卡号输入框看不见/不占位置：" + JSON.stringify(entry));
+      assert(entry.text.indexOf("体验卡") >= 0 && entry.text.indexOf("不用 API Key") >= 0,
+        "引导里没写清「有卡就可以不用 Key」：" + entry.text.slice(0, 200));
+
+      // ② 粘「卡号@中转地址」，而且**故意不点「用体验卡」**直接点下一步 ——
+      //    同学的直觉就是"粘上、点下一步"，这一步不该被自己漏掉的按钮挡住。
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-ob="card"]');
+        input.value = 'RW-AAAAA-BBBBB-CCCCC@${base}/relay';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-ob="next"]').click();
+        return true;
+      })()`);
+      await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('准备就绪') >= 0", 20000);
+      const settings = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
+      assert(settings.provider === "custom", "卡没把服务商切到自定义：" + settings.provider);
+      assert(settings.endpoint === base + "/relay/v1/chat/completions", "接口地址没指向中转：" + settings.endpoint);
+      const secret = await evaluate("(async () => (await RoleWorld.secrets.get('api_key_custom') || {}).value || '')()");
+      assert(secret === "RW-AAAAA-BBBBB-CCCCC", "卡号没进密钥位：" + secret);
+
+      // ③ 走完引导：顶栏要有剩余次数徽标、输入框可用
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!document.querySelector('.rw-ob')", 8000);
+      await waitFor("document.querySelector('#cardChip') && document.querySelector('#cardChip').hidden === false", 8000);
+      const chip = await evaluate("document.querySelector('#cardChip').textContent");
+      assert(chip.indexOf("剩 4 次") >= 0, "顶栏没显示剩余次数：" + chip);
+      assert(await evaluate("document.querySelector('#messageInput').disabled === false"), "输入框不可用");
+    } finally {
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true });
+        await RoleWorld.secrets.remove("api_key_custom");
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "" } }));
+        return true;
+      })()`).catch(() => {});
+    }
+  });
+
   await check("角色语言：默认跟角色卡自己（英文卡说英文），每个角色可以在顶栏单独开成中文", async () => {
     // 用户 2026-09-12 的两句话定了这件事：
     //   「应该是可以开启强制全部中文，默认应该是角色自身的语言」+「每个角色都弄一个语言开关选项」。

@@ -97,7 +97,15 @@
     if (!parsed.ok) return { ok: false, message: parsed.message || "卡号不对" };
     const settings = adapter ? await adapter.getLocalSettings() : {};
     const relay = cleanRelay(parsed.relay || (options && options.relay) || settings.card_relay || "");
-    if (!relay) return { ok: false, message: "这条信息里没有中转地址：请把发卡人给你的**整条链接**粘进来" };
+    // 这台设备没配过中转地址、粘的又只有卡号 —— 必须让用户知道"还要有中转地址"，
+    // 而且给出**可以直接粘贴的那一行**（发卡人那边能生成，见 scripts/card-cli.cjs 的 text 命令）。
+    if (!relay) {
+      return {
+        ok: false,
+        message: "只有卡号还不够：这台设备还不知道中转地址。请把发卡人给你的那一整行"
+          + "（形如 RW-XXXXX-XXXXX-XXXXX@中转地址）或他发的整条链接粘进来。",
+      };
+    }
 
     const patch = {
       provider: "custom",

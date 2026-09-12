@@ -710,6 +710,35 @@ async function main() {
     assert.equal(Card.parseCardInput("").ok, false);
   });
 
+  await test("体验卡：新设备只粘卡号会被挡住，并说清「要带上中转地址」", async () => {
+    // 2026-09-12 用户实测：「为什么我登的时候还是要输 apikey」。
+    // 第二台设备 / 换浏览器时本机并不知道中转地址，而发卡文案当时只给了卡号 —— 照着做必然失败。
+    // 这条用例把两头都钉住：① 应用侧的报错要说清缺什么、给出能直接粘贴的形式；
+    // ② 发卡文案必须直接给「卡号@中转地址」那一整行。
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const previous = globalThis.RoleWorld;
+    globalThis.RoleWorld = {
+      getLocalSettings: async () => ({ card_relay: "", provider: "deepseek" }),
+      saveLocalSettings: async () => ({}),
+    };
+    try {
+      const result = await Card.apply("RW-0AA71-B79FC-DCB79");
+      assert.equal(result.ok, false, "没有中转地址却当成功了");
+      assert.ok(result.message.indexOf("中转地址") >= 0, "没说清缺什么：" + result.message);
+      assert.ok(result.message.indexOf("RW-XXXXX-XXXXX-XXXXX@") >= 0, "要给能直接粘贴的形式：" + result.message);
+    } finally {
+      if (previous === undefined) delete globalThis.RoleWorld;
+      else globalThis.RoleWorld = previous;
+    }
+
+    // 发卡文案是同学唯一会照着做的东西，静态检查（它同时是"发卡人怎么说话"的合同）。
+    const cli = fs.readFileSync(path.join(__dirname, "..", "scripts", "card-cli.cjs"), "utf8");
+    assert.ok(/function pasteLine\(token\)/.test(cli), "card-cli 里应当有「可直接粘贴的那一行」");
+    const sharePart = cli.split("function shareText")[1] || "";
+    assert.ok(/pasteLine\(token\)/.test(sharePart), "发卡文案没有把那一整行放进去");
+    assert.ok(cli.indexOf("只粘卡号是不够的") >= 0, "发卡文案要说明新设备为什么必须带中转地址");
+  });
+
   await test("体验卡：认得出本机正在用的是卡号（而不是普通 API Key）", () => {
     const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
     assert.equal(Card.looksLikeCard("RW-0AA71-B79FC-DCB79"), true);
