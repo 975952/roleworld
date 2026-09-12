@@ -598,6 +598,30 @@ async function main() {
     // 行为正确性（真离线打开、提示页不覆盖外壳）由 tests/offline-check.cjs 在真实浏览器里验。
   });
 
+  await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
+    // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
+    // 这条守着一件事：别再让它们长回来。
+    const root = path.join(__dirname, "..");
+    const html = fs.readFileSync(path.join(root, "app", "index.html"), "utf8");
+    const appJs = fs.readFileSync(path.join(root, "app", "app.js"), "utf8");
+    const banned = ["退出登录", "注销账户", "重置密码", "修改密钥", "账号管理", "新建账号", "登录密钥"];
+    for (const word of banned) {
+      assert.ok(html.indexOf(word) < 0, "index.html 里还有账号文案：「" + word + "」");
+      assert.ok(appJs.indexOf(word) < 0, "app.js 里还有账号文案：「" + word + "」");
+    }
+    const bannedIds = ["logoutDialog", "passwordDialog", "renameDialog", "adminCreateDialog", "adminDeleteDialog", "selfDeleteDialog", "adminUsersList"];
+    for (const id of bannedIds) {
+      assert.ok(html.indexOf('id="' + id + '"') < 0, "index.html 里还有账号对话框：" + id);
+    }
+    const bannedFns = ["openLogoutDialog", "confirmPassword", "refreshAdminUsers", "promoteUser", "openSelfDeleteDialog", "setAdminMenuVisible"];
+    for (const fn of bannedFns) {
+      assert.ok(appJs.indexOf(fn) < 0, "app.js 里还有账号逻辑：" + fn);
+    }
+    // 保留的是"本地档案"这套：没有密码、不同步。别把这段也一起删了。
+    assert.ok(html.indexOf("不是账号") >= 0, "关于页应当说明本地档案不是账号");
+    assert.ok(appJs.indexOf("setUserContext") >= 0, "本地档案的读取路径不该被删掉");
+  });
+
   await test("仓库文本文件不带 UTF-8 BOM", () => {
     // Rust 的 serde_json 不接受 BOM，带上去整个桌面端打包会秒挂。
     // （真发生过：用 PowerShell 的 Set-Content -Encoding UTF8 改版本号。）

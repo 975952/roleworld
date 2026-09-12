@@ -149,11 +149,9 @@
     const link = document.querySelector("#adminAssistantLink");
     if (link) link.hidden = !isAdmin;
     if (window.TASK25C_UI) {
+      // 本地版没有管理员入口；身份（称呼、档案标识）照常交给上层。
       if (window.TASK25C_UI.setUserContext) window.TASK25C_UI.setUserContext(user);
-      else {
-        window.TASK25C_UI.setAdminMenuVisible(isAdmin);
-        window.TASK25C_UI.setUserIdentity(user);
-      }
+      else if (window.TASK25C_UI.setUserIdentity) window.TASK25C_UI.setUserIdentity(user);
     }
     return user;
   }

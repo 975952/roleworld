@@ -60,25 +60,7 @@ const state = {
   userMenuOpen: false,
   settingsOpen: false,
   settingsReturnFocus: null,
-  logoutOpen: false,
-  logoutPending: false,
   memoryBusy: false,
-  renameOpen: false,
-  renamePending: false,
-  passwordOpen: false,
-  passwordPending: false,
-  passwordMode: "self",
-  passwordTarget: "",
-  adminDeleteOpen: false,
-  adminDeletePending: false,
-  adminDeleteTarget: "",
-  selfDeleteOpen: false,
-  selfDeletePending: false,
-  selfDeleteHandle: "",
-  adminCreateOpen: false,
-  adminCreatePending: false,
-  adminUsers: [],
-  adminUsersLoaded: false,
   user: null,
   preferences: defaultAccountPreferences(),
   storageWarned: false,
@@ -198,7 +180,7 @@ function syncMobileViewport() {
 }
 
 function syncOverlayScrollLock() {
-  const overlayIds = ["memoryModal", "aiCreateDialog", "logoutDialog", "renameDialog", "passwordDialog", "adminDeleteDialog", "selfDeleteDialog", "adminCreateDialog"];
+  const overlayIds = ["memoryModal", "aiCreateDialog"];
   const hasOverlay = state.mobileDrawerOpen || overlayIds.some((id) => {
     const node = document.getElementById(id);
     return !!(node && !node.hidden);
@@ -585,10 +567,6 @@ function setUserIdentity(userOrModel) {
   setIdentityAvatar(model);
 }
 
-function setAdminMenuVisible(isAdmin) {
-  document.querySelectorAll("[data-admin-only]").forEach((node) => { node.hidden = !isAdmin; });
-}
-
 function updateLocalDataControls() {
   const row = $("#generalAiDataRow");
   if (!row || !state.user || !accountCore) return;
@@ -608,8 +586,7 @@ function persistAccountPreferences() {
 }
 
 function setSettingsSection(section) {
-  let allowed = accountCore && accountCore.ENUMS.lastSettingsSection.includes(section) ? section : "appearance";
-  if (allowed === "admin-users" && !(state.user && state.user.isAdmin)) allowed = "appearance";
+  const allowed = accountCore && accountCore.ENUMS.lastSettingsSection.includes(section) ? section : "appearance";
   document.querySelectorAll("[data-settings-section]").forEach((item) => item.classList.toggle("is-active", item.dataset.settingsSection === allowed));
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.settingsPanel === allowed));
   if (isMobileViewport()) {
@@ -619,7 +596,6 @@ function setSettingsSection(section) {
     state.preferences.lastSettingsSection = allowed;
     persistAccountPreferences();
   }
-  if (allowed === "admin-users" && state.user && state.user.isAdmin) refreshAdminUsers();
   if (allowed === "characters") refreshCharacterManagement();
 }
 
@@ -637,7 +613,6 @@ function setUserContext(user) {
   state.sidebarWidth = state.preferences.harry.sidebarWidth;
   state.rightWidth = state.preferences.harry.memoryWidth;
   setUserIdentity(model);
-  setAdminMenuVisible(model.isAdmin);
   applyPreferences();
   applyLayoutWidths();
   setSidebarCollapsed(state.sidebarCollapsed, { skipPersist: true });
@@ -793,440 +768,6 @@ async function resolveAccountFailure(error) {
     }
   }
   return accountErrorMessage(error);
-}
-
-function closeRenameDialog() {
-  if (state.renamePending) return;
-  state.renameOpen = false;
-  $("#renameDialog").hidden = true;
-  syncOverlayScrollLock();
-  restoreDialogFocus("renameDialog");
-}
-
-function openRenameDialog() {
-  if (!state.user || !state.user.handle) return;
-  setUserMenuOpen(false, { restoreFocus: false });
-  $("#renameError").hidden = true;
-  $("#renameInput").value = state.user.displayName || "";
-  rememberDialogFocus("renameDialog");
-  state.renameOpen = true;
-  $("#renameDialog").hidden = false;
-  syncOverlayScrollLock();
-  window.setTimeout(() => $("#renameInput")?.focus(), 30);
-}
-
-async function confirmRename() {
-  if (state.renamePending || !state.user) return;
-  const input = $("#renameInput");
-  const name = String(input?.value || "").trim();
-  const errorNode = $("#renameError");
-  if (!name) { errorNode.textContent = "显示名不能为空。"; errorNode.hidden = false; input?.focus(); return; }
-  if (name === state.user.displayName) { closeRenameDialog(); return; }
-  state.renamePending = true;
-  const button = $("#confirmRenameButton");
-  errorNode.hidden = true;
-  if (button) { button.disabled = true; button.textContent = "保存中…"; }
-  try {
-    await window.STApi.changeName(state.user.handle, name);
-    state.user = Object.assign({}, state.user, { name, displayName: name });
-    setUserIdentity(state.user);
-    closeRenameDialog();
-    showToast("显示名已修改");
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
-  } finally {
-    state.renamePending = false;
-    if (button) { button.disabled = false; button.textContent = "保存"; }
-  }
-}
-
-function closePasswordDialog() {
-  if (state.passwordPending) return;
-  state.passwordOpen = false;
-  $("#passwordDialog").hidden = true;
-  syncOverlayScrollLock();
-  restoreDialogFocus("passwordDialog");
-}
-
-function openPasswordDialog(mode, targetHandle) {
-  const dialog = $("#passwordDialog");
-  if (!dialog) return;
-  setUserMenuOpen(false, { restoreFocus: false });
-  const isReset = mode === "reset";
-  state.passwordMode = isReset ? "reset" : "self";
-  state.passwordTarget = isReset ? String(targetHandle || "") : (state.user?.handle || "");
-  $("#oldPasswordField").hidden = isReset;
-  $("#passwordDialogTitle").textContent = isReset ? "重置密码" : "修改密钥";
-  $("#passwordDialogDescription").textContent = isReset
-    ? `为账户 @${state.passwordTarget} 设置新密钥。`
-    : "输入当前密钥后设置新密钥。";
-  ["#oldPasswordInput", "#newPasswordInput", "#confirmPasswordInput"].forEach((selector) => { const node = $(selector); if (node) node.value = ""; });
-  $("#passwordError").hidden = true;
-  rememberDialogFocus("passwordDialog");
-  state.passwordOpen = true;
-  dialog.hidden = false;
-  syncOverlayScrollLock();
-  window.setTimeout(() => (isReset ? $("#newPasswordInput") : $("#oldPasswordInput"))?.focus(), 30);
-}
-
-async function confirmPassword() {
-  if (state.passwordPending) return;
-  const isReset = state.passwordMode === "reset";
-  const target = state.passwordTarget;
-  const oldPassword = $("#oldPasswordInput")?.value || "";
-  const newPassword = $("#newPasswordInput")?.value || "";
-  const confirm = $("#confirmPasswordInput")?.value || "";
-  const errorNode = $("#passwordError");
-  if (!isReset && !oldPassword) { errorNode.textContent = "请输入当前密钥。"; errorNode.hidden = false; return; }
-  if (!newPassword) { errorNode.textContent = "请输入新密钥。"; errorNode.hidden = false; return; }
-  if (newPassword !== confirm) { errorNode.textContent = "两次输入的新密钥不一致。"; errorNode.hidden = false; return; }
-  state.passwordPending = true;
-  const button = $("#confirmPasswordButton");
-  errorNode.hidden = true;
-  if (button) { button.disabled = true; button.textContent = "保存中…"; }
-  try {
-    await window.STApi.changePassword(target, isReset ? "" : oldPassword, newPassword);
-    closePasswordDialog();
-    showToast(isReset ? `已重置 @${target} 的密码` : "密钥已修改");
-    if (isReset) refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
-  } finally {
-    state.passwordPending = false;
-    if (button) { button.disabled = false; button.textContent = "保存"; }
-  }
-}
-
-function closeAdminDeleteDialog() {
-  if (state.adminDeletePending) return;
-  state.adminDeleteOpen = false;
-  state.adminDeleteTarget = "";
-  $("#adminDeleteDialog").hidden = true;
-  syncOverlayScrollLock();
-  restoreDialogFocus("adminDeleteDialog");
-}
-
-function openAdminDeleteDialog(handle) {
-  state.adminDeleteTarget = String(handle || "");
-  $("#adminDeleteDialogTitle").textContent = "删除账户";
-  $("#adminDeleteDialogDescription").textContent = `删除后账户 @${state.adminDeleteTarget} 及其数据不可恢复。请输入账户名 ${state.adminDeleteTarget} 以确认。`;
-  $("#adminDeleteInput").value = "";
-  $("#adminDeleteError").hidden = true;
-  $("#confirmAdminDeleteButton").disabled = true;
-  rememberDialogFocus("adminDeleteDialog");
-  state.adminDeleteOpen = true;
-  $("#adminDeleteDialog").hidden = false;
-  syncOverlayScrollLock();
-  window.setTimeout(() => $("#adminDeleteInput")?.focus(), 30);
-}
-
-function adminDeleteInputChanged() {
-  const input = $("#adminDeleteInput");
-  const button = $("#confirmAdminDeleteButton");
-  if (input && button) button.disabled = String(input.value || "").trim() !== state.adminDeleteTarget;
-}
-
-async function confirmAdminDelete() {
-  if (state.adminDeletePending || !state.adminDeleteTarget) return;
-  const input = $("#adminDeleteInput");
-  const errorNode = $("#adminDeleteError");
-  if (!input || String(input.value || "").trim() !== state.adminDeleteTarget) {
-    errorNode.textContent = "账户名不匹配，删除已取消。";
-    errorNode.hidden = false;
-    return;
-  }
-  state.adminDeletePending = true;
-  const button = $("#confirmAdminDeleteButton");
-  errorNode.hidden = true;
-  if (button) { button.disabled = true; button.textContent = "删除中…"; }
-  try {
-    await window.STApi.deleteUser(state.adminDeleteTarget, true);
-    const deleted = state.adminDeleteTarget;
-    closeAdminDeleteDialog();
-    showToast(`已删除 @${deleted}`);
-    await refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
-  } finally {
-    state.adminDeletePending = false;
-    if (button) { button.disabled = false; button.textContent = "删除"; }
-    adminDeleteInputChanged();
-  }
-}
-
-function closeSelfDeleteDialog() {
-  if (state.selfDeletePending) return;
-  state.selfDeleteOpen = false;
-  state.selfDeleteHandle = "";
-  $("#selfDeleteDialog").hidden = true;
-  syncOverlayScrollLock();
-  restoreDialogFocus("selfDeleteDialog");
-}
-
-function openSelfDeleteDialog() {
-  const handle = state.user?.handle || "";
-  if (!handle || !window.STApi || typeof window.STApi.deleteSelf !== "function") return;
-  state.selfDeleteHandle = handle;
-  $("#selfDeleteDialogDescription").textContent = `将永久删除账户 @${handle} 及其角色卡、会话与 Memory Books，不可恢复。请输入账户名 ${handle} 以确认。`;
-  $("#selfDeletePasswordInput").value = "";
-  $("#selfDeleteInput").value = "";
-  $("#selfDeleteError").hidden = true;
-  $("#confirmSelfDeleteButton").disabled = true;
-  rememberDialogFocus("selfDeleteDialog");
-  state.selfDeleteOpen = true;
-  $("#selfDeleteDialog").hidden = false;
-  syncOverlayScrollLock();
-  window.setTimeout(() => $("#selfDeletePasswordInput")?.focus(), 30);
-}
-
-function selfDeleteInputChanged() {
-  const input = $("#selfDeleteInput");
-  const button = $("#confirmSelfDeleteButton");
-  if (input && button) button.disabled = String(input.value || "").trim() !== state.selfDeleteHandle;
-}
-
-async function confirmSelfDelete() {
-  if (state.selfDeletePending || !state.selfDeleteHandle) return;
-  const input = $("#selfDeleteInput");
-  const passwordInput = $("#selfDeletePasswordInput");
-  const errorNode = $("#selfDeleteError");
-  if (!input || String(input.value || "").trim() !== state.selfDeleteHandle) {
-    errorNode.textContent = "账户名不匹配，注销已取消。";
-    errorNode.hidden = false;
-    return;
-  }
-  state.selfDeletePending = true;
-  const button = $("#confirmSelfDeleteButton");
-  errorNode.hidden = true;
-  if (button) { button.disabled = true; button.textContent = "注销中…"; }
-  try {
-    const password = passwordInput ? passwordInput.value : "";
-    await window.STApi.deleteSelf(password, true);
-    // 成功后清除本地偏好与通用 AI 会话，再刷新页面。
-    if (state.user && accountCore) {
-      accountCore.removePreferences(window.localStorage, state.user.handle);
-      accountCore.clearGeneralAi(window.localStorage, state.user.handle);
-    }
-    clearThemeAccountHint();
-    state.user = null;
-    if (window.STApi) window.STApi._token = null;
-    window.location.reload();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
-  } finally {
-    state.selfDeletePending = false;
-    if (button) { button.disabled = false; button.textContent = "永久注销"; }
-    selfDeleteInputChanged();
-  }
-}
-
-function closeAdminCreateDialog() {
-  if (state.adminCreatePending) return;
-  state.adminCreateOpen = false;
-  $("#adminCreateDialog").hidden = true;
-  syncOverlayScrollLock();
-  restoreDialogFocus("adminCreateDialog");
-}
-
-function openAdminCreateDialog() {
-  if (!state.user || !state.user.isAdmin || !window.STApi || typeof window.STApi.createUser !== "function") return;
-  $("#adminCreateHandleInput").value = "";
-  $("#adminCreateNameInput").value = "";
-  $("#adminCreatePasswordInput").value = "";
-  $("#adminCreateAdminCheck").checked = false;
-  $("#adminCreateError").hidden = true;
-  rememberDialogFocus("adminCreateDialog");
-  state.adminCreateOpen = true;
-  $("#adminCreateDialog").hidden = false;
-  syncOverlayScrollLock();
-  window.setTimeout(() => $("#adminCreateHandleInput")?.focus(), 30);
-}
-
-async function confirmAdminCreate() {
-  if (state.adminCreatePending) return;
-  const handleInput = $("#adminCreateHandleInput");
-  const nameInput = $("#adminCreateNameInput");
-  const passwordInput = $("#adminCreatePasswordInput");
-  const adminCheck = $("#adminCreateAdminCheck");
-  const errorNode = $("#adminCreateError");
-  const handle = handleInput ? String(handleInput.value || "").trim() : "";
-  const name = nameInput ? String(nameInput.value || "").trim() : "";
-  const password = passwordInput ? String(passwordInput.value || "") : "";
-  if (!handle) {
-    errorNode.textContent = "请填写档案名。";
-    errorNode.hidden = false;
-    return;
-  }
-  state.adminCreatePending = true;
-  const button = $("#confirmAdminCreateButton");
-  errorNode.hidden = true;
-  if (button) { button.disabled = true; button.textContent = "创建中…"; }
-  try {
-    await window.STApi.createUser(handle, name, password, adminCheck ? adminCheck.checked : false);
-    closeAdminCreateDialog();
-    showToast(`已创建 @${handle}`);
-    await refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") { errorNode.textContent = label; errorNode.hidden = false; }
-  } finally {
-    state.adminCreatePending = false;
-    if (button) { button.disabled = false; button.textContent = "创建"; }
-  }
-}
-
-async function refreshAdminUsers() {
-  if (!state.user || !state.user.isAdmin || !window.STApi || typeof window.STApi.listUsers !== "function") return;
-  const list = $("#adminUsersList");
-  const empty = $("#adminUsersEmpty");  try {
-    const users = await window.STApi.listUsers();
-    state.adminUsers = Array.isArray(users) ? users : [];
-    state.adminUsersLoaded = true;
-    renderAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") {
-      if (list) list.textContent = "";
-      if (empty) { empty.textContent = label; empty.hidden = false; }
-    }
-  }
-}
-
-function renderAdminUsers() {
-  const list = $("#adminUsersList");
-  const empty = $("#adminUsersEmpty");
-  const count = $("#adminUsersCount");
-  if (!list) return;
-  list.textContent = "";
-  if (count) count.textContent = `${state.adminUsers.length} 个账户`;
-  if (!state.adminUsers.length) { if (empty) { empty.textContent = "暂无账户"; empty.hidden = false; } return; }
-  if (empty) empty.hidden = true;
-  const selfHandle = state.user?.handle;
-  for (const user of state.adminUsers) {
-    const row = document.createElement("div");
-    row.className = "admin-user-row";
-    const isSelf = user.handle === selfHandle;
-    // 头像缩略图（若有，仅用于展示；无则跳过）
-    const copy = document.createElement("div");
-    copy.className = "admin-user-copy";
-    const head = document.createElement("div");
-    head.className = "admin-user-head";
-    if (user.avatar && typeof user.avatar === "string") {
-      const avatarImg = document.createElement("img");
-      avatarImg.className = "admin-user-avatar";
-      avatarImg.src = user.avatar;
-      avatarImg.alt = "";
-      head.appendChild(avatarImg);
-    }
-    const name = document.createElement("strong");
-    name.textContent = `${user.name || "匿名"} (@${user.handle})`;
-    head.appendChild(name);
-    copy.appendChild(head);
-    const meta = document.createElement("span");
-    meta.textContent = `${user.admin ? "管理员" : "用户"} · ${user.enabled ? "已启用" : "已停用"}${isSelf ? " · 当前账户" : ""}`;
-    copy.appendChild(meta);
-    // 创建时间 + 是否已设密
-    const createdText = user.created ? accountCore.formatTimestamp(user.created) : "未知";
-    const detail = document.createElement("span");
-    detail.className = "admin-user-detail";
-    detail.textContent = `创建：${createdText} · ${user.password ? "已设密钥" : "未设密钥"}`;
-    copy.appendChild(detail);
-    // 使用量统计（只计数/大小/时间，不含正文）
-    const statsText = `会话 ${numberOrZero(user.chats)} · 角色卡 ${numberOrZero(user.characters)} · Memory Books ${numberOrZero(user.worlds)} · 数据 ${formatBytes(user.dataSizeBytes)} · 最近活动 ${formatLastActivity(user.lastActivity)}`;
-    const stats = document.createElement("span");
-    stats.className = "admin-user-stats";
-    stats.textContent = statsText;
-    copy.appendChild(stats);
-    row.appendChild(copy);
-    const actions = document.createElement("div");
-    actions.className = "admin-user-actions";
-    if (isSelf) {
-      const note = document.createElement("span");
-      note.className = "settings-value";
-      note.textContent = "当前账户";
-      actions.appendChild(note);
-    } else {
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = user.enabled ? "plain-button" : "primary-button";
-      toggle.textContent = user.enabled ? "停用" : "启用";
-      toggle.addEventListener("click", () => toggleUserEnabled(user.handle, !user.enabled));
-      const reset = document.createElement("button");
-      reset.type = "button";
-      reset.className = "plain-button";
-      reset.textContent = "重置密码";
-      reset.addEventListener("click", () => openPasswordDialog("reset", user.handle));
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "danger-button";
-      del.textContent = "删除";
-      del.addEventListener("click", () => openAdminDeleteDialog(user.handle));
-      actions.append(toggle, reset, del);
-      // Task-30E：提升/降级（视当前 admin 状态）；后端保护最后一个管理员与 self-demote。
-      const roleButton = document.createElement("button");
-      roleButton.type = "button";
-      roleButton.className = user.admin ? "plain-button" : "primary-button";
-      roleButton.textContent = user.admin ? "降级为普通用户" : "提升为管理员";
-      roleButton.addEventListener("click", () => (user.admin ? demoteUser(user.handle) : promoteUser(user.handle)));
-      actions.appendChild(roleButton);
-    }
-    row.append(copy, actions);
-    list.appendChild(row);
-  }
-}
-
-function numberOrZero(value) {
-  return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function formatBytes(bytes) {
-  const b = Number(bytes);
-  if (!Number.isFinite(b) || b <= 0) return "0 MB";
-  const mb = b / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(b / 1024).toFixed(1)} KB`;
-}
-
-function formatLastActivity(value) {
-  if (!value) return "暂无";
-  return accountCore.formatTimestamp(value);
-}
-
-async function promoteUser(handle) {
-  try {
-    await window.STApi.promoteUser(handle);
-    showToast(`已将 @${handle} 提升为管理员`);
-    await refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") showToast(label);
-  }
-}
-
-async function demoteUser(handle) {
-  try {
-    await window.STApi.demoteUser(handle);
-    showToast(`已将 @${handle} 降级为普通用户`);
-    await refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") showToast(label);
-  }
-}
-
-async function toggleUserEnabled(handle, enable) {
-  try {
-    if (enable) await window.STApi.enableUser(handle);
-    else await window.STApi.disableUser(handle);
-    showToast(enable ? `已启用 @${handle}` : `已停用 @${handle}`);
-    await refreshAdminUsers();
-  } catch (error) {
-    const label = await resolveAccountFailure(error);
-    if (label !== "redirect") showToast(label);
-  }
 }
 
 /* ---------- Task-31D：角色管理（设置区 + 侧边栏「角色」入口） ---------- */
@@ -1468,77 +1009,6 @@ function bindSettings() {
   document.querySelectorAll("[data-settings-section]").forEach((button) => button.addEventListener("click", () => setSettingsSection(button.dataset.settingsSection)));
 }
 
-function logoutFocusableNodes() {
-  return ["#cancelLogoutButton", "#confirmLogoutButton"]
-    .map((selector) => $(selector))
-    .filter((node) => node && !node.disabled && !node.hidden);
-}
-
-function closeLogoutDialog(options = {}) {
-  if (state.logoutPending) return;
-  const dialog = $("#logoutDialog");
-  if (!dialog) return;
-  state.logoutOpen = false;
-  dialog.hidden = true;
-  syncOverlayScrollLock();
-  const returnFocus = state.logoutReturnFocus;
-  state.logoutReturnFocus = null;
-  if (options.restoreFocus !== false && returnFocus && typeof returnFocus.focus === "function") {
-    returnFocus.focus({ preventScroll: true });
-  }
-}
-
-function openLogoutDialog() {
-  const dialog = $("#logoutDialog");
-  const confirmButton = $("#confirmLogoutButton");
-  if (!dialog || !confirmButton || state.logoutPending) return;
-  state.logoutReturnFocus = document.activeElement;
-  setUserMenuOpen(false, { restoreFocus: false });
-  $("#logoutError").hidden = true;
-  state.logoutOpen = true;
-  dialog.hidden = false;
-  syncOverlayScrollLock();
-  $("#cancelLogoutButton")?.focus();
-}
-
-async function confirmLogout() {
-  if (state.logoutPending || !window.STApi || typeof window.STApi.logout !== "function") return;
-  const confirmButton = $("#confirmLogoutButton");
-  const cancelButton = $("#cancelLogoutButton");
-  const error = $("#logoutError");
-  state.logoutPending = true;
-  if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = "正在退出…"; }
-  if (cancelButton) cancelButton.disabled = true;
-  if (error) error.hidden = true;
-  try {
-    await window.STApi.logout();
-    clearThemeAccountHint();
-    state.user = null;
-    if (window.STApi) window.STApi._token = null;
-    window.location.reload();
-  } catch (logoutError) {
-    const kind = accountCore ? accountCore.classifyLogoutError(logoutError) : "unknown";
-    if (kind === "auth") {
-      try {
-        await window.STApi.getCurrentUser();
-      } catch (meError) {
-        if (window.STApi.isAuthRequired && window.STApi.isAuthRequired(meError)) {
-          state.user = null;
-          clearThemeAccountHint();
-          window.STApi._token = null;
-          window.location.reload();
-          return;
-        }
-      }
-    }
-    if (error) { error.textContent = "退出失败，请重试"; error.hidden = false; }
-  } finally {
-    state.logoutPending = false;
-    if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = "退出登录"; }
-    if (cancelButton) cancelButton.disabled = false;
-  }
-}
-
 function bindPanelResizer(handle, side) {
   if (!handle) return;
   handle.addEventListener("pointerdown", (event) => {
@@ -1725,10 +1195,6 @@ function handleAction(action, node) {
   if (action === "toggle-user-menu") setUserMenuOpen(!state.userMenuOpen);
   if (action === "open-settings") openSettings();
   if (action === "close-settings") closeSettings();
-  if (action === "open-logout") openLogoutDialog();
-  if (action === "open-self-delete") openSelfDeleteDialog();
-  if (action === "open-rename") openRenameDialog();
-  if (action === "open-password") openPasswordDialog("self", state.user?.handle || "");
   if (action === "new-conversation" && window.TASK21?.createNewConversation) window.TASK21.createNewConversation();
   if (action === "select-chat" && window.TASK21?.selectChat) window.TASK21.selectChat(node?.dataset.chatId || "");
   if (action === "archive-chat" && window.TASK21?.archiveChat) window.TASK21.archiveChat(node?.dataset.chatId || "");
@@ -1751,29 +1217,6 @@ $("#saveCorrection")?.addEventListener("click", saveCorrection);
 $("#deleteMemoryButton")?.addEventListener("click", deleteMemory);
 $("#newMemoryBookButton")?.addEventListener("click", createMemoryBook);
 $("#memoryModal")?.addEventListener("click", (event) => { if (event.target.id === "memoryModal") closeModal(); });
-$("#cancelLogoutButton")?.addEventListener("click", () => closeLogoutDialog());
-$("#confirmLogoutButton")?.addEventListener("click", confirmLogout);
-$("#logoutDialog")?.addEventListener("click", (event) => { if (event.target.id === "logoutDialog") closeLogoutDialog(); });
-$("#cancelRenameButton")?.addEventListener("click", () => closeRenameDialog());
-$("#confirmRenameButton")?.addEventListener("click", confirmRename);
-$("#renameDialog")?.addEventListener("click", (event) => { if (event.target.id === "renameDialog") closeRenameDialog(); });
-$("#renameInput")?.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); confirmRename(); } });
-$("#cancelPasswordButton")?.addEventListener("click", () => closePasswordDialog());
-$("#confirmPasswordButton")?.addEventListener("click", confirmPassword);
-$("#passwordDialog")?.addEventListener("click", (event) => { if (event.target.id === "passwordDialog") closePasswordDialog(); });
-$("#cancelAdminDeleteButton")?.addEventListener("click", () => closeAdminDeleteDialog());
-$("#confirmAdminDeleteButton")?.addEventListener("click", confirmAdminDelete);
-$("#adminDeleteDialog")?.addEventListener("click", (event) => { if (event.target.id === "adminDeleteDialog") closeAdminDeleteDialog(); });
-$("#adminDeleteInput")?.addEventListener("input", adminDeleteInputChanged);
-$("#adminUsersRefresh")?.addEventListener("click", () => refreshAdminUsers());
-$("#adminUsersCreateButton")?.addEventListener("click", openAdminCreateDialog);
-$("#cancelAdminCreateButton")?.addEventListener("click", () => closeAdminCreateDialog());
-$("#confirmAdminCreateButton")?.addEventListener("click", confirmAdminCreate);
-$("#adminCreateDialog")?.addEventListener("click", (event) => { if (event.target.id === "adminCreateDialog") closeAdminCreateDialog(); });
-$("#cancelSelfDeleteButton")?.addEventListener("click", () => closeSelfDeleteDialog());
-$("#confirmSelfDeleteButton")?.addEventListener("click", confirmSelfDelete);
-$("#selfDeleteDialog")?.addEventListener("click", (event) => { if (event.target.id === "selfDeleteDialog") closeSelfDeleteDialog(); });
-$("#selfDeleteInput")?.addEventListener("input", selfDeleteInputChanged);
 $("#sendButton")?.addEventListener("click", sendDemoMessage);
 $("#stopButton")?.addEventListener("click", () => window.TASK21?.stopLive?.());
 $("#messageInput")?.addEventListener("keydown", (event) => {
@@ -1798,31 +1241,6 @@ document.addEventListener("keydown", (event) => {
   const activeDialog = document.querySelector(".modal-backdrop:not([hidden]) [role='dialog'], .confirm-backdrop:not([hidden]) [role='dialog']");
   if (activeDialog && event.key === "Tab") {
     trapDialogTab(event, activeDialog);
-    return;
-  }
-  if (state.logoutOpen) {
-    const nodes = logoutFocusableNodes();
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeLogoutDialog();
-      return;
-    }
-    if (event.key === "Tab" && nodes.length) {
-      event.preventDefault();
-      const current = nodes.indexOf(document.activeElement);
-      nodes[(current + (event.shiftKey ? -1 : 1) + nodes.length) % nodes.length].focus();
-      return;
-    }
-  }
-  if (state.renameOpen || state.passwordOpen || state.adminDeleteOpen || state.selfDeleteOpen || state.adminCreateOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (state.renameOpen) closeRenameDialog();
-      else if (state.passwordOpen) closePasswordDialog();
-      else if (state.adminDeleteOpen) closeAdminDeleteDialog();
-      else if (state.selfDeleteOpen) closeSelfDeleteDialog();
-      else if (state.adminCreateOpen) closeAdminCreateDialog();
-    }
     return;
   }
   if (event.key !== "Escape") return;
@@ -1900,7 +1318,6 @@ window.TASK25C_UI = {
   clearThemeAccountHint,
   setUserContext,
   setUserIdentity,
-  setAdminMenuVisible,
   openSettings,
   closeSettings,
   setSettingsSection,

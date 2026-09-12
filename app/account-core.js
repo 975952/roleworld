@@ -1,11 +1,15 @@
 "use strict";
 
 /*
- * Task-27A shared account and preference contract.
+ * 本地档案与界面偏好的存取层（历史名字叫 account-core，但**这里已经没有账号了**）。
  *
- * This module is intentionally storage-only and DOM-free.  The pages provide
- * the confirmed /api/users/me identity before calling any user-scoped helper.
- * It never owns chat, character, Memory Book, authentication, or server data.
+ * 现在的职责只剩两件：
+ *   ① 界面偏好：按"本地档案标识"（handle，目前恒为 local）读写、重置、兼容旧键；
+ *   ② 身份展示模型：把本地档案变成界面上要显示的几个字段（称呼/显示名/档案标识）。
+ * 刻意保持 storage-only、不碰 DOM，也不持有聊天、角色卡、记忆书或任何服务端数据。
+ *
+ * 2026-09-12：删掉了注销、改密、改名、管理员账号列表那一整套（产品里早已没有账号，
+ * 这些对话框和函数只是留在代码里）；同时删掉只服务于它们的两个工具函数。
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -192,20 +196,6 @@
     try { return JSON.parse(value); } catch (_) { return fallback; }
   }
 
-  // Task-30E：把时间戳/日期字符串格式化为本地可读时间；无效输入返回 fallback。
-  function formatTimestamp(value, fallback) {
-    const fb = fallback || "未知";
-    let date = null;
-    if (typeof value === "number" && Number.isFinite(value)) date = new Date(value);
-    else if (typeof value === "string" && value.trim()) {
-      const parsed = new Date(value);
-      if (!Number.isNaN(parsed.getTime())) date = parsed;
-    }
-    if (!date || Number.isNaN(date.getTime())) return fb;
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  }
-
   function parseLegacyBoolean(value) {
     if (value === "true") return true;
     if (value === "false") return false;
@@ -316,16 +306,6 @@
     return typeof value === "string" && value.length <= 2_000_000 && /^data:image\/[a-z0-9.+-]+(?:;[^,]+)?,/i.test(value);
   }
 
-  function classifyLogoutError(error) {
-    const status = Number(error && error.status);
-    if (error && error.name === "AbortError") return "network";
-    if (error && (error.code === "NETWORK_ERROR" || error.code === "LOGOUT_NETWORK")) return "network";
-    if (status === 401 || status === 403) return "auth";
-    if (status >= 500) return "server";
-    if (error && error.message) return "network";
-    return "unknown";
-  }
-
   // Task-28A 统一账户错误文案：注册错误码 + SillyTavern 账户端点 error 字符串。
   function accountErrorLabel(status, code) {
     const s = Number(status);
@@ -392,9 +372,7 @@
     localDataTargets,
     identityModel,
     isValidAvatar,
-    classifyLogoutError,
     accountErrorLabel,
-    formatTimestamp,
     parseJson,
   };
 });
