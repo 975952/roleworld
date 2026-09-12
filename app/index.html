@@ -345,7 +345,7 @@
           </section>
           <section class="settings-section" id="settings-account" data-settings-panel="about">
             <div class="settings-section-heading"><h2>关于</h2><p>角色世界是本地开源应用：所有数据只存在这台设备上，不经过任何服务器。</p></div>
-            <div class="settings-card"><div class="settings-row"><div><strong>开源许可</strong><span>MIT License · 源码与问题反馈见仓库 README。</span></div><a class="plain-button" href="about.html" target="_blank" rel="noopener">查看说明</a></div><div class="settings-row"><div><strong>同人作品声明</strong><span>内置角色包属于同人二次创作，仅供个人非商业使用，版权归原作者所有。</span></div><span class="settings-value">非商业</span></div><div class="settings-row"><div><strong>数据位置</strong><span>角色卡、对话与记忆书都保存在本机数据库，可直接导出备份。</span></div><span class="settings-value">仅本机</span></div><div class="settings-row settings-action-row"><div><strong>使用教程</strong><span>五步说明：配模型、内置角色、数据在哪、怎么开始。</span></div><button class="plain-button" type="button" data-roleworld="tutorial">再看一次教程</button></div></div>
+            <div class="settings-card"><div class="settings-row"><div><strong>版本</strong><span class="rw-status" data-roleworld="app-version">正在读取…</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="force-update">检查更新</button></div></div><div class="settings-row"><div><strong>开源许可</strong><span>MIT License · 源码与问题反馈见仓库 README。</span></div><a class="plain-button" href="about.html" target="_blank" rel="noopener">查看说明</a></div><div class="settings-row"><div><strong>同人作品声明</strong><span>内置角色包属于同人二次创作，仅供个人非商业使用，版权归原作者所有。</span></div><span class="settings-value">非商业</span></div><div class="settings-row"><div><strong>数据位置</strong><span>角色卡、对话与记忆书都保存在本机数据库，可直接导出备份。</span></div><span class="settings-value">仅本机</span></div><div class="settings-row settings-action-row"><div><strong>使用教程</strong><span>五步说明：配模型、内置角色、数据在哪、怎么开始。</span></div><button class="plain-button" type="button" data-roleworld="tutorial">再看一次教程</button></div></div>
             <div class="settings-card">
               <div class="settings-row"><div><strong>本地档案</strong><span>这台设备上的一个档案：没有密码、不会同步。称呼与显示名都在下面改。</span></div><span class="settings-value">仅本机</span></div>
             </div>
@@ -483,6 +483,8 @@
 
   <input type="file" id="characterImportInput" accept=".json,.png,.charx,.yaml,.yml" hidden>
 
+  <!-- 编译进去的版本号：设置里显示"运行中的是哪一版"，用来发现浏览器还在跑旧缓存 -->
+  <script src="build.js"></script>
   <script src="product-routing.js"></script>
   <script src="account-core.js"></script>
   <script src="app.js"></script>

@@ -573,6 +573,11 @@ async function main() {
     assert.equal(web.version, pkg.version, "app/version.json 与 package.json 版本号不一致");
     assert.equal(tauri.version, pkg.version, "tauri.conf.json 与 package.json 版本号不一致");
     assert.equal(cargoVersion, pkg.version, "Cargo.toml 与 package.json 版本号不一致（系统里会显示错版本）");
+    // app/build.js 是"运行中的版本"的唯一来源：设置里靠它和线上 version.json 对照，
+    // 才能发现浏览器还在跑旧缓存（2026-09-12 用户报"还是英文"时就是靠这一手定位的）。
+    const buildJs = fs.readFileSync(path.join(root, "app", "build.js"), "utf8");
+    const buildVersion = (buildJs.match(/window\.ROLEWORLD_BUILD\s*=\s*"([^"]+)"/) || [])[1] || "";
+    assert.equal(buildVersion, pkg.version, "app/build.js 与 package.json 版本号不一致（界面会显示错的运行版本）");
     assert.ok(/^\d+\.\d+\.\d+$/.test(pkg.version), "版本号格式不对：" + pkg.version);
   });
 
@@ -778,7 +783,8 @@ async function main() {
     const override = Core22.languageLine(enCard, { fullChinese: true });
     assert.ok(override.indexOf("一律用简体中文回复") >= 0, "没给出全中文要求：" + override);
     assert.ok(override.indexOf("English only") < 0, "开着全中文就不该再要求说英文");
-    assert.ok(override.indexOf("先用中文把意思重说一遍") >= 0, "英文开场白也要被翻过来：" + override);
+    assert.ok(override.indexOf("先用中文把上一条的意思重说一遍") >= 0, "英文开场白也要被翻过来：" + override);
+    assert.ok(override.indexOf("Hard requirement") >= 0, "要有一句英文硬要求兜底（整段历史是英文时更管用）");
 
     const on = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: true });
     const off = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: false });

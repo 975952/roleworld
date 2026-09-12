@@ -158,6 +158,27 @@
       setStatus(node, saved ? "已保存到本机 · 不会上传到任何服务器" : "未保存", false);
     });
     await refreshCardStatus(settings, saved);
+    await refreshVersion();
+  }
+
+  /** 版本行：显示"运行中的版本"，并和线上 version.json 对照 ——
+   *  网页版有离线壳，浏览器可能还在跑旧 JS；没有这一行就只能靠猜（2026-09-12 真踩过：
+   *  "我明明发新版了，用户那边还是旧行为"）。 */
+  async function refreshVersion() {
+    const nodes = pick("app-version");
+    if (!nodes.length) return;
+    const running = String(global.ROLEWORLD_BUILD || "");
+    let online = "";
+    try {
+      const res = await fetch("version.json", { cache: "no-store" });
+      if (res.ok) online = String(((await res.json()) || {}).version || "");
+    } catch (_) { /* 离线时只有运行版本可显示 */ }
+    let text;
+    if (!running) text = online ? "运行版本未知 · 线上 " + online : "运行版本未知";
+    else if (!online) text = "运行 " + running + "（离线，查不到线上版本）";
+    else if (online === running) text = "运行 " + running + " · 已是最新";
+    else text = "运行 " + running + " · 线上已更新到 " + online + "：点右边「检查更新」刷新页面";
+    nodes.forEach((node) => setStatus(node, text, !!(running && online && online !== running)));
   }
 
   /** 体验卡状态：密钥看起来像卡号时，顺手查一下还能用多少。 */
@@ -383,6 +404,17 @@
       });
     });
     pick("card-use").forEach((node) => node.addEventListener("click", () => { useCard().catch(() => {}); }));
+    // 「检查更新」：让等待中的离线壳接管再刷新（和顶部那个更新提示是同一件事）。
+    pick("force-update").forEach((node) => node.addEventListener("click", async () => {
+      await refreshVersion();
+      try {
+        if (global.ROLEWORLD_PWA && typeof global.ROLEWORLD_PWA.reloadForUpdate === "function") {
+          await global.ROLEWORLD_PWA.reloadForUpdate();
+          return;
+        }
+      } catch (_) { /* 下面兜底 */ }
+      global.location.reload();
+    }));
     pick("card-check").forEach((node) => node.addEventListener("click", () => { checkCardQuota().catch(() => {}); }));
     pick("card").forEach((node) => node.addEventListener("keydown", (event) => {
       if (event.key === "Enter") { event.preventDefault(); useCard().catch(() => {}); }

@@ -268,9 +268,15 @@
    *  内置角色卡是英文的，但用的人多半只想看中文（2026-09-12 用户要求："有些人看不懂英文"）。 */
   function languageLine(card, options) {
     if (options && options.fullChinese === true) {
+      // 中英各写一遍是刻意的：模型对"最后一条硬规则"最敏感，而英文那句是给
+      // "整段历史都是英文、角色卡也是英文"的情况兜底的（实测只写中文时有时压不住，
+      // 用户 2026-09-12 反馈"还是英文"）。
       return "[Language] 一律用简体中文回复：台词、旁白、动作描写、称呼都用中文，不要夹英文句子。"
         + "角色卡里的英文设定你自己看懂就行，不要照抄成英文原文。"
-        + "如果你之前用英文说过话，先用中文把意思重说一遍，再继续。";
+        + "即使之前的对话、开场白、角色卡都是英文，也从这一句开始换成中文；"
+        + "先用中文把上一条的意思重说一遍，再继续。"
+        + " (Hard requirement: reply in Simplified Chinese only — dialogue, narration and actions included — "
+        + "regardless of the character card language or the language of earlier messages.)";
     }
     const language = cardLanguageOf(card);
     if (language === "zh") {

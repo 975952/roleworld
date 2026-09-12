@@ -86,6 +86,28 @@ for (const relative of targets) {
   }
 }
 
+// app/build.js：把版本号编进前端代码，界面才能显示"**运行中的**是哪一版"。
+// 为什么需要它：网页版有离线壳，浏览器可能还在跑旧 JS；只比对线上 version.json 看不出这件事，
+// 于是会出现"我明明发新版了，用户那边还是旧行为"（2026-09-12 真踩过）。
+{
+  const relative = "app/build.js";
+  const file = path.join(ROOT, relative);
+  const body = [
+    "// 自动生成，别手改：由 scripts/set-version.cjs 写入。",
+    "// 用途：界面显示“运行中的版本”，和线上 version.json 对照就能发现浏览器还在跑旧代码。",
+    `window.ROLEWORLD_BUILD = "${version}";`,
+    "",
+  ].join("\n");
+  const before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  if (before === body) {
+    console.log(`${relative} 已是 ${version}`);
+  } else {
+    fs.writeFileSync(file, body); // 默认 utf8，无 BOM
+    console.log(`${relative} → ${version}`);
+    changed += 1;
+  }
+}
+
 // tauri.conf.json 的 JSON 解析能通过不代表没有 BOM（BOM 在 Node 里会被容忍），单独查一次。
 for (const relative of targets) {
   const bytes = fs.readFileSync(path.join(ROOT, relative));

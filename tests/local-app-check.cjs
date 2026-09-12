@@ -2044,6 +2044,12 @@ async function main() {
       return true;
     })()`);
     await waitFor("(async () => (await window.RoleWorld.getLocalSettings()).max_tokens === 600)()", 8000);
+    // 光等落盘还不够：页面的采样参数来自内存里的设置，异步重读可能还没回来。
+    // 等"发送前预估"那一行把 600 显示出来，才是"这一轮会按 600 发"的信号。
+    await waitFor(`(() => {
+      const node = document.querySelector('#chatEstimateLine');
+      return node && node.textContent.indexOf('600') >= 0;
+    })()`, 8000);
     await evaluate(`(() => {
       const input = document.querySelector('#messageInput');
       input.value = '再试一次输出上限';
@@ -2145,6 +2151,22 @@ async function main() {
   await check("设置面板能读到本机模型配置", async () => {
     const value = await evaluate("document.querySelector('[data-roleworld=\"endpoint\"]').value");
     assert(value === base + "/v1/chat/completions", "端点显示为 " + value);
+  });
+
+  await check("关于里能看到「运行中的版本」，和线上 version.json 对得上", async () => {
+    // 用户报"还是英文"时，第一件要排除的就是"浏览器还在跑旧缓存"。
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
+    await evaluate("document.querySelector('[data-settings-section=\"about\"]').click()");
+    const shown = await waitFor(`(() => {
+      const node = document.querySelector('[data-roleworld="app-version"]');
+      return node && node.textContent.indexOf("运行 ") >= 0 ? node.textContent : "";
+    })()`, 8000);
+    const expected = await evaluate("(window.ROLEWORLD_BUILD || '')");
+    assert(expected, "页面里没有编译进去的版本号（app/build.js 没加载？）");
+    assert(shown.indexOf(expected) >= 0, "版本行没显示运行中的版本（" + expected + "）：" + shown);
+    assert(shown.indexOf("已是最新") >= 0, "本地与线上版本一致时应当说「已是最新」：" + shown);
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
   });
 
   await check("界面大小可调：生效、持久化、固定面板不受影响", async () => {
