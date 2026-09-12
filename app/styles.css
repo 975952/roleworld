@@ -607,11 +607,22 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .navigation-button { width: 44px; height: 44px; }
   .sidebar-inner-toggle, .new-conversation-button, .settings-back-button { min-height: 44px; }
   .topbar, .settings-topbar {
+    /* 手机上顶栏以前是**写死高度**（--mobile-topbar-height）。内容一换行（角色名长、
+       体验卡徽标 + 记忆 + 模型/语言下拉挤在一起）就会溢出自己的盒子，而聊天区是后画的，
+       于是那一排**看得见、点不到**（2026-09-12 用户实测「手机端上面几个东西点不动、还有重叠」）。
+       改成"至少这么高、内容多了可以长高"，并把顶栏抬到聊天区之上。 */
     min-height: var(--mobile-topbar-height);
-    height: var(--mobile-topbar-height);
-    padding: var(--mobile-safe-top) max(12px, var(--mobile-safe-right)) 0 max(12px, var(--mobile-safe-left));
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    position: relative;
+    z-index: 3;
+    padding: var(--mobile-safe-top) max(12px, var(--mobile-safe-right)) 8px max(12px, var(--mobile-safe-left));
   }
   .topbar-title, .topbar-actions { gap: 6px; }
+  /* 空间不够时允许换行、也允许缩小，但**不许溢出**（溢出的那块会盖住邻居，看着就是"重叠"）。 */
+  .topbar-actions { flex-wrap: wrap; row-gap: 6px; min-width: 0; }
+  .topbar-actions > * { min-width: 0; }
   .topbar h1, .settings-topbar h1 { min-width: 0; font-size: 14px; }
 
   .mobile-drawer-backdrop {

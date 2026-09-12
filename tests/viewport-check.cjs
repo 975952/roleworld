@@ -225,6 +225,55 @@ async function main() {
       assert(probe.input.bottom <= probe.innerHeight + 1, "输入框超出视口底部：" + JSON.stringify(probe.input));
     });
 
+    await check(`${viewport.label}：顶栏每个控件都真的点得到（不被盖住、不互相压住）`, async () => {
+      // 2026-09-12 用户实测：「手机端上面几个东西都点不动，而且还有重叠」。
+      // 根因两条：① 手机上顶栏是**写死高度**，第二行溢出自己的盒子 → 被后画的聊天区盖住；
+      // ② 两个下拉的 select 最大宽度按整屏算，并排时互相压住。
+      // 这类 bug 的特点是"看得见、点不到"：element.click() 照样能触发，
+      // 所以只有**在中心点做命中测试**才抓得到（和 0.1.18 那颗 hidden 的记忆按钮同一类）。
+      const probe = await evaluate(`(() => {
+        const describe = (node) => node ? (node.tagName.toLowerCase() + (node.id ? "#" + node.id : "")) : "null";
+        const controls = Array.from(document.querySelectorAll(
+          ".topbar button, .topbar select, .topbar input, .topbar .chat-model, .topbar [role='button']"
+        ));
+        const visible = [];
+        const blocked = [];
+        const tooSmall = [];
+        for (const node of controls) {
+          const r = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          if (node.hidden === true || style.display === "none" || style.visibility === "hidden") continue;
+          if (r.width < 1 || r.height < 1) continue;
+          visible.push(describe(node));
+          const cx = Math.round(r.left + r.width / 2);
+          const cy = Math.round(r.top + r.height / 2);
+          const top = document.elementFromPoint(cx, cy);
+          const reachable = !!(top && (top === node || node.contains(top) || top.contains(node)));
+          if (!reachable) blocked.push(describe(node) + "@" + cx + "," + cy + "→" + describe(top));
+          // 触屏要点得着：不然就是"看得见按不上"
+          if (r.height < 28 || r.width < 24) tooSmall.push(describe(node) + "=" + Math.round(r.width) + "×" + Math.round(r.height));
+        }
+        const overlaps = [];
+        for (let i = 0; i < controls.length; i += 1) {
+          for (let j = i + 1; j < controls.length; j += 1) {
+            // 父子不算重叠（.chat-model 本来就包着它的 select）。
+            if (controls[i].contains(controls[j]) || controls[j].contains(controls[i])) continue;
+            const a = controls[i].getBoundingClientRect();
+            const b = controls[j].getBoundingClientRect();
+            if (a.width < 1 || b.width < 1) continue;
+            const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            if (ox > 1 && oy > 1) overlaps.push(describe(controls[i]) + " ∩ " + describe(controls[j]) + " " + Math.round(ox) + "×" + Math.round(oy));
+          }
+        }
+        return { visible, blocked, tooSmall, overlaps };
+      })()`);
+      assert(probe.visible.length >= 3, "顶栏可见控件太少，检查可能失效：" + JSON.stringify(probe.visible));
+      assert(probe.blocked.length === 0, "这些顶栏控件点不到（被别的元素盖住）：" + probe.blocked.join("; "));
+      assert(probe.overlaps.length === 0, "顶栏控件互相重叠：" + probe.overlaps.join("; "));
+      assert(probe.tooSmall.length === 0, "顶栏控件命中区太小： " + probe.tooSmall.join("; "));
+    });
+
     await check(`${viewport.label}：「本次请求」弹层能开、能关、内容可滚动`, async () => {
       await evaluate("window.TASK21.openRequestPeek(); true");
       await waitFor("document.querySelector('#requestPeek').hidden === false", 8000);

@@ -936,7 +936,12 @@ function renderCharacterManagement(cards) {
     copy.appendChild(head);
     const meta = document.createElement("span");
     meta.className = "character-manage-detail";
-    meta.textContent = card.avatar || "";
+    // 不把文件名（"Harry Potter (EN).png"）当介绍显示 —— 那是内部标识，
+    // 用户看到只会疑惑括号里的 (EN) 是什么（2026-09-12 用户就问了这件事）。
+    meta.textContent = isBuiltin
+      ? "内容包更新时会自动刷新，你的对话与记忆不受影响"
+      : (card.avatar || "");
+    meta.title = card.avatar || "";
     copy.appendChild(meta);
     row.appendChild(copy);
     const actions = document.createElement("div");

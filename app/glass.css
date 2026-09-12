@@ -125,8 +125,16 @@
 @media (max-width: 760px) {
   .app-shell .main-stage { grid-template-rows: auto minmax(0, 1fr); }
   .topbar { padding: 10px 12px; }
-  .chat-model { display: grid; }
-  .chat-model select { max-width: calc(var(--viewport-w, 100%) / var(--ui-scale) - 48px); }
+  /* 手机上把模型 / 语言两个下拉收窄成"能缩、不溢出"的格子：
+     以前这里的 select 最大宽度按整屏算（--viewport-w - 48px），两个并排就会互相压住
+     （2026-09-12 实测 modelBadge ∩ langSelect = 22×38）。 */
+  .chat-model { display: grid; min-width: 0; }
+  .chat-model select {
+    width: 100%;
+    min-width: 0;
+    max-width: calc(var(--viewport-w, 100%) / var(--ui-scale) - 48px);
+  }
+  .chat-language select { max-width: 96px; }
   .composer-box { padding: 10px; }
 }
 @media (min-width: 761px) {
