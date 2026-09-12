@@ -1039,6 +1039,78 @@ async function main() {
       "剧情条目必须标明，否则模型会把它当成玩家的事实：" + JSON.stringify(prompt.slice(-260)));
   });
 
+  console.log("== 生成参数（预设 + 自己填）==");
+
+  await test("默认跟随用途：三种用途各用各的温度", () => {
+    const chat = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "chat" });
+    const companion = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "companion" });
+    const scene = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "scene" });
+    assert.equal(chat.temperature, Core22.PURPOSE_PROFILES.chat.temperature);
+    assert.equal(companion.temperature, Core22.PURPOSE_PROFILES.companion.temperature);
+    assert.equal(scene.temperature, Core22.PURPOSE_PROFILES.scene.temperature);
+    assert.ok(chat.source.indexOf("用途默认") >= 0, "应当说明值是从哪层来的：" + chat.source);
+    assert.equal(chat.preset, "auto");
+  });
+
+  await test("预设：稳一点 / 活泼一点各有各的数", () => {
+    const steady = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "chat", preset: "steady" });
+    const lively = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "chat", preset: "lively" });
+    assert.equal(steady.temperature, 0.6);
+    assert.equal(steady.topP, 0.85);
+    assert.equal(lively.temperature, 1.1);
+    assert.equal(lively.topP, 0.95);
+    assert.ok(steady.temperature < lively.temperature);
+    // 没见过的预设按"跟随用途"，不炸也不静默改成别的
+    assert.equal(Core22.normalizePreset("乱写"), "auto");
+    assert.equal(Core22.resolveSampling({ mode: "deepseek-flash", preset: "乱写" }).preset, "auto");
+  });
+
+  await test("自己填：只在 manual 下生效，且会被夹到合法区间", () => {
+    const manual = Core22.resolveSampling({
+      mode: "deepseek-flash", purpose: "chat", preset: "manual", temperature: 1.4, topP: 0.5,
+    });
+    assert.equal(manual.temperature, 1.4);
+    assert.equal(manual.topP, 0.5);
+    assert.ok(manual.source.indexOf("自己填") >= 0);
+    // 越界会被夹住，而不是原样塞进请求
+    assert.equal(Core22.resolveSampling({ preset: "manual", temperature: 9 }).temperature, 2);
+    assert.equal(Core22.resolveSampling({ preset: "manual", temperature: -3 }).temperature, 0);
+    assert.equal(Core22.resolveSampling({ preset: "manual", topP: 0 }).topP, 0.01);
+    assert.equal(Core22.resolveSampling({ preset: "manual", topP: 5 }).topP, 1);
+    // 不是 manual 时，手填的数**不该**生效（否则旧版本存的 0.8/0.9 会把"跟随用途"钉死）
+    const auto = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "companion", preset: "auto", temperature: 1.9 });
+    assert.equal(auto.temperature, Core22.PURPOSE_PROFILES.companion.temperature);
+  });
+
+  await test("输出上限：留空用渠道默认，填了取小，越小越会被截断", () => {
+    assert.equal(Core22.outputLimitFor("deepseek-flash", "chat"), 32768);
+    assert.equal(Core22.outputLimitFor("deepseek-flash", "chat", 600), 600);
+    assert.equal(Core22.outputLimitFor("local", "chat"), 2048, "本地渠道默认上限不变");
+    assert.equal(Core22.outputLimitFor("local", "chat", 99999), 2048, "填得比渠道上限大也没用");
+    assert.equal(Core22.outputLimitFor("deepseek-flash", "chat", 10), 64, "下限 64，免得只能说一个字");
+    const picked = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "chat", maxOutput: 800 });
+    assert.equal(picked.maxOutput, 800);
+    assert.ok(picked.outputSource.indexOf("自己填") >= 0, "输出上限的来源要说明：" + picked.outputSource);
+  });
+
+  await test("请求体里用的是算出来的那套数", () => {
+    const card = { name: "Harry", description: "男孩。", personality: "", scenario: "" };
+    const payload = Core22.buildGeneratePayload({
+      card, memoryBooks: [], history: [], userText: "你好",
+      mode: "deepseek-flash", modelName: "deepseek-flash", engine: "A",
+      purpose: "companion", sampling: { preset: "steady" },
+    });
+    assert.equal(payload.temperature, 0.6);
+    assert.equal(payload.top_p, 0.85);
+    const payload2 = Core22.buildGeneratePayload({
+      card, memoryBooks: [], history: [], userText: "你好",
+      mode: "deepseek-flash", modelName: "deepseek-flash", engine: "A",
+      purpose: "chat", sampling: { maxOutput: 500 },
+    });
+    assert.equal(payload2.max_tokens, 500);
+    assert.equal(payload2.temperature, Core22.PURPOSE_PROFILES.chat.temperature, "没动预设就还是用途默认");
+  });
+
   console.log("== 上下文上限 与 输出上限（分开算）==");
 
   await test("上下文与输出是两件事，各有各的值", () => {

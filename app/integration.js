@@ -2023,6 +2023,25 @@
     return "";
   }
 
+  /**
+   * 生成参数（设置 → 模型 → 生成参数）：预设 + 手填的温度/top_p + 输出上限。
+   * 只有 preset === "manual" 时温度/top_p 才生效 —— 这样旧版本存下的 0.8/0.9
+   * 不会把"跟随用途"这件事悄悄钉死。
+   */
+  function samplingOptions() {
+    const settings = liveState.localSettings || {};
+    const preset = String(settings.sampling_preset || "auto");
+    const manual = preset === "manual";
+    const maxTokens = Number(settings.max_tokens);
+    return {
+      preset,
+      temperature: manual ? settings.temperature : undefined,
+      topP: manual ? settings.top_p : undefined,
+      // 32768 与渠道默认一致 => 视为"没设"，避免把默认值当成用户设置。
+      maxOutput: Number.isFinite(maxTokens) && maxTokens > 0 && maxTokens !== 32768 ? maxTokens : undefined,
+    };
+  }
+
   /** 上下文上限：DeepSeek 官方按 1M；本地/自定义端点按设置里填的值（默认 32768）。 */
   function contextBudgetOptions() {
     const settings = liveState.localSettings || {};
@@ -2043,7 +2062,7 @@
     const core = window.TASK22_CORE;
     if (!pricing || !core) return null;
     const mode = liveState.modelMode || "local";
-    const output = core.outputLimitFor(mode);
+    const output = core.outputLimitFor(mode, undefined, samplingOptions().maxOutput);
     const context = core.contextLimitFor(mode, contextBudgetOptions().contextLimit);
     const draft = ($("#messageInput") && $("#messageInput").value ? $("#messageInput").value : "").trim();
     const draftTokens = draft ? pricing.estimateTokens(draft) : 0;
@@ -3425,6 +3444,7 @@
         stream: true,
         extraSystem,
         purpose,
+        sampling: samplingOptions(),
       });
       // P2-2：发送前把「输入 + 输出上限」与上下文对一次。超了就直接说该改什么，
       // 而不是等接口回一个 400、再让用户猜是哪里超了。

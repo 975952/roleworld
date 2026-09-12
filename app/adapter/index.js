@@ -42,6 +42,11 @@
     // 留空表示用所选云端服务商的默认地址；自定义云端服务必须填写地址。
     endpoint: "",
     stream: true,
+    // 生成参数（设置 → 模型 → 生成参数）：
+    //   sampling_preset: auto（跟随用途：对话页/伴侣/剧情页各一套）｜steady｜lively｜manual
+    //   temperature / top_p：**只有 manual 下才生效**，所以旧版本存下的 0.8/0.9 不会把用户钉死。
+    //   max_tokens：输出上限。留空/0 = 用渠道默认；填小了回复会被截断（界面会明确提示并被截断计数）。
+    sampling_preset: "auto",
     temperature: 0.8,
     top_p: 0.9,
     max_tokens: 32768,

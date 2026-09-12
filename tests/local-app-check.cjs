@@ -110,6 +110,8 @@ let truncateNext = false;
       requests.push({
         path: p, stream: body.stream === true, model: body.model,
         auth: req.headers.authorization || "", include_reasoning: body.include_reasoning,
+        // 生成参数：用来断言"预设/自己填"真的落到了请求上。
+        temperature: body.temperature, top_p: body.top_p, max_tokens: body.max_tokens,
         isBriefCall: isBriefCall,
         isCardCall: isCardCall,
         // 写卡那一步拿到的"角色描述"（如果走了扩写，这里应当是扩写稿）
@@ -1777,6 +1779,69 @@ async function main() {
     assert(metrics.truncated >= 1, "台账没有记下被截断的那一轮：" + JSON.stringify(metrics));
     assert(metrics.byPurpose && metrics.byPurpose.chat && metrics.byPurpose.chat.avgOutputTokens > 0,
       "台账没有按用途统计平均输出长度：" + JSON.stringify(metrics.byPurpose));
+  });
+
+  await check("生成参数面板：改完立刻生效，且只影响该影响的那一层", async () => {
+    const before = requests.filter((row) => row.stream === true);
+    const baseRequest = before[before.length - 1];
+    assert(typeof baseRequest.temperature === "number", "请求里应当带着温度");
+    const chatTemp = baseRequest.temperature;
+
+    // 切到"稳一点"：下一轮请求的温度/top_p 就该是这一档的数
+    await evaluate(`(() => {
+      const select = document.querySelector('[data-roleworld="sampling-preset"]');
+      select.value = 'steady';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(async () => (await window.RoleWorld.getLocalSettings()).sampling_preset === 'steady')()", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '换了生成参数之后再说一句';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const steady = requests.filter((row) => row.stream === true).slice(-1)[0];
+    assert(steady.temperature === 0.6, "切到稳一点之后温度应当是 0.6，实际 " + steady.temperature);
+    assert(steady.top_p === 0.85, "top_p 应当是 0.85，实际 " + steady.top_p);
+    assert(steady.temperature !== chatTemp, "预设应当真的改变了请求");
+
+    // 输出上限：填 600，下一轮请求的 max_tokens 就是 600
+    await evaluate(`(() => {
+      const input = document.querySelector('[data-roleworld="max-output"]');
+      input.value = '600';
+      document.querySelector('[data-roleworld="save"]').click();
+      return true;
+    })()`);
+    await waitFor("(async () => (await window.RoleWorld.getLocalSettings()).max_tokens === 600)()", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '再试一次输出上限';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const capped = requests.filter((row) => row.stream === true).slice(-1)[0];
+    assert(capped.max_tokens === 600, "输出上限应当写进请求：" + capped.max_tokens);
+    // 发送前预估那一行也要跟着这个上限走（否则面板和实际不一致）
+    const line = await evaluate("document.querySelector('#chatEstimateLine').title");
+    assert(line.indexOf("输出上限") >= 0 && line.indexOf("600") >= 0,
+      "发送前预估没有用新的输出上限：" + JSON.stringify(String(line).slice(0, 140)));
+
+    // 恢复默认，别影响后面的用例
+    await evaluate(`(() => {
+      const select = document.querySelector('[data-roleworld="sampling-preset"]');
+      select.value = 'auto';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      const input = document.querySelector('[data-roleworld="max-output"]');
+      input.value = '';
+      document.querySelector('[data-roleworld="save"]').click();
+      return true;
+    })()`);
+    await waitFor("(async () => { const s = await window.RoleWorld.getLocalSettings(); return s.sampling_preset === 'auto' && s.max_tokens === 32768; })()", 8000);
   });
 
   await check("思考模式默认关闭：思维链既不显示也不请求", async () => {

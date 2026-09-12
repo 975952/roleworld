@@ -126,6 +126,70 @@
     return PURPOSE_IDS.indexOf(key) >= 0 ? key : PURPOSES.CHAT;
   }
 
+  /* ---------- 生成参数预设（用户可调的那一层）----------
+   * 三层优先级，**只有这一处定义**（v0.1.3 那次"两套配置互相顶掉"的教训）：
+   *   ① 渠道默认（SAMPLING / DEEPSEEK_CHAT_SAMPLING）
+   *   ② 用途档案（上面那张表：对话页 / 伴侣 / 剧情页）
+   *   ③ 用户预设：auto（跟随用途）｜ steady（稳）｜ lively（活泼）｜ manual（自己填温度与 top_p）
+   * 输出上限单独一层：用户填了就用 min(填的值, 渠道上限)，没填就按渠道上限。
+   */
+  const SAMPLING_PRESETS = Object.freeze({
+    auto: Object.freeze({ id: "auto", label: "跟随用途（推荐）", temperature: null, topP: null }),
+    steady: Object.freeze({ id: "steady", label: "稳一点", temperature: 0.6, topP: 0.85 }),
+    lively: Object.freeze({ id: "lively", label: "活泼一点", temperature: 1.1, topP: 0.95 }),
+    manual: Object.freeze({ id: "manual", label: "自己填", temperature: null, topP: null }),
+  });
+  const PRESET_IDS = Object.freeze(Object.keys(SAMPLING_PRESETS));
+
+  function normalizePreset(value) {
+    const key = String(value || "").trim().toLowerCase();
+    return PRESET_IDS.indexOf(key) >= 0 ? key : "auto";
+  }
+
+  function clampNumber(value, min, max) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  /**
+   * 算出这一次请求真正要用的采样参数。
+   * @returns { temperature, topP, maxOutput, preset, source } —— source 说明每个值是从哪层来的，
+   *          界面（「本次请求」面板）可以照着解释"为什么是 0.85"。
+   */
+  function resolveSampling(options) {
+    const opts = options || {};
+    const mode = String(opts.mode || CHAT_MODES.LOCAL);
+    const profile = resolveProfile(opts.purpose);
+    const preset = normalizePreset(opts.preset);
+    const channelMax = isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING.max_tokens : SAMPLING.max_tokens;
+
+    let temperature = profile.temperature;
+    let topP = profile.topP;
+    let source = "用途默认（" + profile.purpose + "）";
+    if (preset === "steady" || preset === "lively") {
+      temperature = SAMPLING_PRESETS[preset].temperature;
+      topP = SAMPLING_PRESETS[preset].topP;
+      source = "预设：" + SAMPLING_PRESETS[preset].label;
+    } else if (preset === "manual") {
+      const t = clampNumber(opts.temperature, 0, 2);
+      const p = clampNumber(opts.topP, 0.01, 1);
+      if (t !== null) temperature = t;
+      if (p !== null) topP = p;
+      source = "你自己填的";
+    }
+
+    // 输出上限：用途档案可以给一个更贴切的值；用户填了就在此之上再取小。
+    const purposeMax = Number(profile.maxOutput);
+    let maxOutput = Number.isFinite(purposeMax) && purposeMax > 0 ? Math.min(channelMax, purposeMax) : channelMax;
+    let outputSource = "渠道默认";
+    if (Number.isFinite(purposeMax) && purposeMax > 0) outputSource = "用途档案";
+    const wanted = clampNumber(opts.maxOutput, 64, channelMax);
+    if (wanted !== null) { maxOutput = Math.min(channelMax, Math.floor(wanted)); outputSource = "你自己填的"; }
+
+    return { temperature, topP, maxOutput, preset, source, outputSource };
+  }
+
   /** 取某个用途的档案；override 只允许覆盖表里已有的键（防止页面各写各的）。 */
   function resolveProfile(purpose, override) {
     const key = normalizePurpose(purpose);
@@ -159,14 +223,8 @@
     return MODEL_CONTEXT[key] || MODEL_CONTEXT.local;
   }
 
-  function outputLimitFor(mode, purpose) {
-    const channel = isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING.max_tokens : SAMPLING.max_tokens;
-    const profile = PURPOSE_PROFILES[normalizePurpose(purpose)];
-    // 用途可以给一个更贴切的上限；没写就按渠道。**目前三种用途都没写** ——
-    // 用户明确否掉了"按模式硬压输出"，这里保留字段是为了将来有数据后再定。
-    const wanted = Number(profile && profile.maxOutput);
-    if (Number.isFinite(wanted) && wanted > 0) return Math.min(channel, Math.floor(wanted));
-    return channel;
+  function outputLimitFor(mode, purpose, override) {
+    return resolveSampling({ mode, purpose, maxOutput: override }).maxOutput;
   }
 
   /**
@@ -656,11 +714,19 @@
     if (!opts) throw new Error("生成参数缺失");
     const mode = String(opts.mode || CHAT_MODES.LOCAL);
     const profile = resolveProfile(opts.purpose);
+    // 采样参数由 resolveSampling 一处算出：渠道 → 用途 → 用户预设/手填。
+    const picked = resolveSampling({
+      mode,
+      purpose: profile.purpose,
+      preset: opts.sampling && opts.sampling.preset,
+      temperature: opts.sampling && opts.sampling.temperature,
+      topP: opts.sampling && opts.sampling.topP,
+      maxOutput: opts.sampling && opts.sampling.maxOutput,
+    });
     const sampling = Object.assign(
       {},
       isDeepSeekChatMode(mode) ? DEEPSEEK_CHAT_SAMPLING : SAMPLING,
-      // 用途档案只覆盖它自己声明的键（温度、top_p、输出上限），其余照渠道默认。
-      { temperature: profile.temperature, top_p: profile.topP, max_tokens: outputLimitFor(mode, profile.purpose) },
+      { temperature: picked.temperature, top_p: picked.topP, max_tokens: picked.maxOutput },
     );
     if (isDeepSeekChatMode(mode)) {
       const thinking = opts.thinking === true;
@@ -1459,6 +1525,10 @@
     PURPOSE_PROFILES,
     normalizePurpose,
     resolveProfile,
+    SAMPLING_PRESETS,
+    PRESET_IDS,
+    normalizePreset,
+    resolveSampling,
     SCENE_FORMAT_INSTRUCTION,
     MODEL_CONTEXT,
     contextLimitFor,

@@ -47,6 +47,29 @@
     node.classList.toggle("is-error", !!isError);
   }
 
+  /** 「自己填」那一行只在选中 manual 时出现；顺带把当前生效的默认值讲清楚。 */
+  function syncSamplingRows() {
+    const presetNode = first("sampling-preset");
+    const preset = presetNode ? presetNode.value : "auto";
+    const row = document.getElementById("samplingManualRow");
+    if (row) row.hidden = preset !== "manual";
+    const hint = first("sampling-hint");
+    if (!hint) return;
+    const TASK22 = global.TASK22_CORE;
+    const table = TASK22 && TASK22.PURPOSE_PROFILES;
+    if (preset === "auto" && table) {
+      hint.textContent = "当前生效：对话页 温度 " + table.chat.temperature + " / 伴侣 " + table.companion.temperature
+        + " / 剧情页 " + table.scene.temperature + "（各自 top_p " + table.chat.topP + " 起）";
+    } else if (preset === "manual") {
+      hint.textContent = "留空则沿用该用途的默认值。";
+    } else if (table && TASK22.SAMPLING_PRESETS[preset]) {
+      const row2 = TASK22.SAMPLING_PRESETS[preset];
+      hint.textContent = "当前生效：温度 " + row2.temperature + " / top_p " + row2.topP;
+    } else {
+      hint.textContent = "";
+    }
+  }
+
   async function refresh() {
     const adapter = global.RoleWorld;
     if (!adapter) return;
@@ -90,6 +113,23 @@
         node.value = value >= 2000 && value !== 32768 ? value : "";
       }
     });
+    // 生成参数：预设 +（"自己填"时的）温度 / top_p + 输出上限。
+    const preset = String(settings.sampling_preset || "auto");
+    pick("sampling-preset").forEach((node) => { node.value = preset; });
+    pick("temperature").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.temperature) > 0 ? settings.temperature : "";
+    });
+    pick("top-p").forEach((node) => {
+      if (document.activeElement !== node) node.value = Number(settings.top_p) > 0 ? settings.top_p : "";
+    });
+    pick("max-output").forEach((node) => {
+      if (document.activeElement !== node) {
+        const value = Number(settings.max_tokens);
+        // 与渠道默认相同就视为"没填"，免得把默认值显示成用户自己设的。
+        node.value = Number.isFinite(value) && value > 0 && value !== 32768 ? value : "";
+      }
+    });
+    syncSamplingRows();
 
     // 单价提示：把币种、时段、高峰翻倍一次说清（官方英文页用美元报价，容易被误读成"价格不对"）。
     const pricing = global.RoleWorldPricing;
@@ -153,6 +193,25 @@
       // 留空 = 默认 32768。下限 2000（再小没有可用性），上限 2M（比任何常见模型都大）。
       patch.local_context = raw === "" ? 32768 : Math.min(2000000, Math.max(2000, Number(raw) || 32768));
     }
+    // 生成参数：预设；"自己填"时才有温度/top_p；输出上限留空 = 用渠道默认。
+    const presetNode = first("sampling-preset");
+    if (presetNode) patch.sampling_preset = presetNode.value || "auto";
+    const tempNode = first("temperature");
+    if (tempNode) {
+      const raw = String(tempNode.value || "").trim();
+      patch.temperature = raw === "" ? 0.8 : Math.min(2, Math.max(0, Number(raw)));
+    }
+    const topPNode = first("top-p");
+    if (topPNode) {
+      const raw = String(topPNode.value || "").trim();
+      patch.top_p = raw === "" ? 0.9 : Math.min(1, Math.max(0.01, Number(raw)));
+    }
+    const maxOutNode = first("max-output");
+    if (maxOutNode) {
+      const raw = String(maxOutNode.value || "").trim();
+      // 留空 = 32768（与渠道默认一致，等于"没设"）。下限 64，免得填出只能说一个字的值。
+      patch.max_tokens = raw === "" ? 32768 : Math.min(1000000, Math.max(64, Number(raw) || 32768));
+    }
     await adapter.saveLocalSettings(patch);
     await refresh();
     // 页面里的模型徽标、剧情模式的模型都要跟着变。
@@ -211,6 +270,12 @@
     pick("key-delete").forEach((node) => node.addEventListener("click", () => { deleteKey(); }));
     pick("test").forEach((node) => node.addEventListener("click", () => { testConnection(); }));
     pick("provider").forEach((node) => node.addEventListener("change", () => { refresh(); }));
+    // 生成参数预设：切换时先把"自己填"那一行显示/隐藏对，再落盘（改完立刻生效）。
+    pick("sampling-preset").forEach((node) => node.addEventListener("change", () => {
+      syncSamplingRows();
+      notify({ sampling_preset: node.value || "auto" });
+      saveAll();
+    }));
     // 别处改了配置（比如在聊天顶栏切模型）也要把面板同步过来。
     global.addEventListener("roleworld:settings-changed", () => { refresh(); });
     // 思考模式与自动记忆是即时开关：先让页面立刻按新值走，再落盘，避免"刚打开就发送"用不上。
