@@ -1122,8 +1122,76 @@ async function main() {
       "剧情条目必须标明，否则模型会把它当成玩家的事实：" + JSON.stringify(prompt.slice(-260)));
   });
 
-  console.log("== 生成参数（预设 + 自己填）==");
+  await test("事件类记忆在注入时会带上 [此前发生] 前缀", () => {
+    // 用户 2026-09-12：「我是要让哈利等小说人物记得之前发生了什么」。
+    // 事件要记得，但绝不能和"关于你的事实"混为一谈。
+    const card = { name: "Harry", description: "男孩。", personality: "", scenario: "" };
+    const books = [{ name: "MB Harry — 自动记忆", entries: [
+      { uid: 1, content: "玩家住在杭州", constant: true, rw_source: { kind: "fact" } },
+      { uid: 2, content: "两人约好周六下午在球场学飞行", constant: true, rw_source: { kind: "event" } },
+    ] }];
+    const prompt = Core22.buildSystemPrompt(card, books, "", {});
+    assert.ok(prompt.indexOf("[1] 玩家住在杭州") >= 0, "事实条目原样注入");
+    assert.ok(prompt.indexOf("[2] [此前发生] 两人约好周六下午在球场学飞行") >= 0,
+      "事件条目必须标明是「此前发生」：" + JSON.stringify(prompt.slice(-260)));
+  });
 
+  console.log("== 记忆标记：事实与事件 ==");
+
+  await test("[[事件: …]] 作为事件解析，正文里不留标记", () => {
+    const parsed = Core22.extractMemory("好，那就这么定了。\n[[事件: 两人约好周六下午在球场学飞行]]");
+    assert.equal(parsed.topics.length, 1);
+    assert.equal(parsed.topics[0].kind, "event", "应当标成事件：" + JSON.stringify(parsed.topics));
+    assert.equal(parsed.topics[0].content, "两人约好周六下午在球场学飞行");
+    assert.ok(parsed.text.indexOf("事件") < 0, "标记不该留在正文里：" + JSON.stringify(parsed.text));
+    assert.equal(parsed.text, "好，那就这么定了。");
+  });
+
+  await test("把事件写进 [[记住: 事件 | …]] 也当事件（模型常这么写）", () => {
+    const parsed = Core22.extractMemory("[[记住: 事件 | 他们上周末一起去了图书馆]]");
+    assert.equal(parsed.topics[0].kind, "event");
+    assert.equal(parsed.topics[0].content, "他们上周末一起去了图书馆");
+  });
+
+  await test("半截的 [[事件: 标记在流式阶段就被丢掉", () => {
+    const partial = Core22.stripPartialMemoryMarkers("他点点头。\n[[事件: 两人约好周六");
+    assert.equal(partial.trim(), "他点点头。", "半截标记不该当正文：" + JSON.stringify(partial));
+    // 完整标记照常解析。
+    assert.equal(Core22.extractMemory("[[事件: 完整的经过]]").topics.length, 1);
+  });
+
+  await test("事实最多 3 条、事件最多 2 条", () => {
+    const text = [
+      "[[记住: 称呼 | 玩家叫小林]]",
+      "[[记住: 饮料 | 玩家喜欢咖啡]]",
+      "[[记住: 住处 | 玩家住在杭州]]",
+      "[[记住: 怕的 | 玩家怕高]]",
+      "[[事件: 第一件事]]",
+      "[[事件: 第二件事]]",
+      "[[事件: 第三件事]]",
+    ].join("\n");
+    const parsed = Core22.extractMemory(text);
+    const facts = parsed.topics.filter((row) => row.kind !== "event");
+    const events = parsed.topics.filter((row) => row.kind === "event");
+    assert.equal(facts.length, 3, "事实最多 3 条：" + JSON.stringify(parsed.topics));
+    assert.equal(events.length, 2, "事件最多 2 条：" + JSON.stringify(parsed.topics));
+  });
+
+  await test("记忆指令：默认告诉模型可以记事件，并说明事件会标成「此前发生」", () => {
+    const withEvents = Core22.memoryInstruction("Harry", { events: true });
+    assert.ok(withEvents.indexOf("[[事件:") >= 0, "没告诉模型事件怎么写");
+    assert.ok(withEvents.indexOf("此前发生") >= 0, "没说明事件注入时的标记");
+    assert.ok(withEvents.indexOf("[[记住:") >= 0, "事实的写法不能丢");
+    const without = Core22.memoryInstruction("Harry", { events: false });
+    assert.equal(without.indexOf("[[事件:"), -1, "关掉事件记忆后不该再教模型写事件");
+    assert.ok(without.indexOf("不要写进记忆") >= 0, "关掉时要明确说剧情不记");
+    // 通过 buildSystemPrompt 传开关也要生效。
+    const card = { name: "Harry", description: "男孩。", personality: "", scenario: "" };
+    assert.ok(Core22.buildSystemPrompt(card, [], "你好", { autoMemory: true }).indexOf("[[事件:") >= 0);
+    assert.equal(Core22.buildSystemPrompt(card, [], "你好", { autoMemory: true, autoEventMemory: false }).indexOf("[[事件:"), -1);
+  });
+
+  console.log("== 生成参数（预设 + 自己填）==");
   await test("默认跟随用途：三种用途各用各的温度", () => {
     const chat = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "chat" });
     const companion = Core22.resolveSampling({ mode: "deepseek-flash", purpose: "companion" });

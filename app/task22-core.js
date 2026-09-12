@@ -349,23 +349,47 @@
    * 不需要 function calling，流式也不会被 tool_calls 增量打断。
    */
   const MEMORY_MARKER_RE = /[\[【]{1,2}\s*记住\s*[:：]\s*([^\]】\n]+?)\s*[\]】]{1,2}/g;
+  /* 「事件」标记：用户要的是"角色记得之前发生了什么"（2026-09-12）。
+   * 事实与事件必须分得开：事实注入时不带前缀，事件一律写成 [此前发生]，
+   * 这样模型不会把剧情里的经过当成玩家的现实信息。 */
+  const EVENT_MARKER_RE = /[\[【]{1,2}\s*事件\s*[:：]\s*([^\]】\n]+?)\s*[\]】]{1,2}/g;
+  /* 主题写成"事件/经过"的，按事件处理（模型有时把事件写在 [[记住: 事件 | …]] 里）。
+   * 刻意**不含「剧情」**：剧情走记忆取向那道闸，别用主题词把它绕过去
+   * （端到端用例里模型正是用 [[记住: 剧情 | …]] 试图把剧情塞进记忆的）。 */
+  const EVENT_TOPICS = ["事件", "经过", "发生了什么", "发生的事", "刚才发生", "上回说到"];
+  const MEMORY_FACT_LIMIT = 3;
+  const MEMORY_EVENT_LIMIT = 2;
 
-  function memoryInstruction(characterLabel) {
-    return [
+  function memoryInstruction(characterLabel, options) {
+    // events 关掉时（设置里的「记住发生过的事」）不提事件，模型也就不会写 [[事件: …]]。
+    const events = !options || options.events !== false;
+    const lines = [
       "[Memory]",
       `你有一个只属于「${characterLabel || "你"}」的长期记忆本，跨会话保留。`,
-      "这里只记**玩家本人透露的真实信息**，不记剧情。",
-      "该记的：玩家怎么称呼、喜欢/不喜欢什么、怕什么、过敏、住处、工作或学业、",
-      "家人与朋友、和你之间的约定、正在做的事、说过的计划。",
-      "不该记的：故事里发生了什么（谁攻击了谁、去了哪里、用了什么魔法）、",
-      "你自己的动作与台词、场景描写、任务与战斗结果。这些属于剧情，不要写进记忆。",
-      "写法：在回复的最后单独起行写 [[记住: 主题 | 一句话要点]]，一行一条，最多 3 条，",
+      "它记两类东西，写法不同，别写混：",
+      "① **玩家本人的真实信息** —— 怎么称呼、喜欢/不喜欢什么、怕什么、过敏、住处、",
+      "工作或学业、家人与朋友、说过的计划。写在 [[记住: 主题 | 一句话要点]] 里，最多 3 条，",
       "例如：[[记住: 喜欢的饮料 | 玩家喜欢咖啡]]。",
+    ];
+    if (events) {
+      lines.push(
+        "② **你们之间发生过的事** —— 约定、一起做过什么、关系的变化、上回说到哪里。",
+        "写在 [[事件: 一句话经过]] 里，最多 2 条，",
+        "例如：[[事件: 两人约好周六下午在球场学飞行]]。",
+        "系统会把第 ② 类标成「此前发生」再交给你，所以它不会被当成玩家的现实信息 ——",
+        "但**不要**把剧情经过写成第 ① 类（「玩家被推进密室」「玩家打败了谁」当事实写是不行的）。",
+        "事件是一次性的经过，每次发生都单独写一条，不要合并。",
+      );
+    } else {
+      lines.push("只记第 ① 类；故事里发生了什么不要写进记忆。");
+    }
+    lines.push(
       "主题用两三个字概括这件事（称呼 / 喜欢的饮料 / 怕的东西 / 约定的时间），同一件事始终用同一个主题词。",
       "玩家改变主意时，直接写新的那一条、主题不变 —— 系统会用新的替换旧的，不会两条并存。",
-      "没有值得记的就不要写。不要记剧情，也不要在正文里解释这个标记——它会被系统读取并从文本里移除。",
+      "没有值得记的就不要写。不要在正文里解释这些标记——它们会被系统读取并从文本里移除。",
       "上面 [Memory Book: …] 里是你以前记下的内容，自然地用，不要照抄。",
-    ].join("\n");
+    );
+    return lines.join("\n");
   }
 
   /* 主题归一：模型写的主题（"喜欢的饮料"）和从正文里推出来的主题（"饮料"）
@@ -407,17 +431,21 @@
     return stored || inferTopic(entry && entry.content);
   }
 
-  /* 拆一条记忆要点：允许 `主题 | 正文`，也允许老格式（没有主题）。 */
-  function parseMemoryItem(raw) {
+  /* 拆一条记忆要点：允许 `主题 | 正文`，也允许老格式（没有主题）。
+   * 主题写成"事件/剧情"的，按事件处理（模型有时会把事件写在 [[记住: 事件 | …]] 里）。 */
+  function parseMemoryItem(raw, kind) {
     const text = cleanMemoryText(raw);
-    if (!text) return { topic: "", content: "" };
+    if (!text) return { topic: "", content: "", kind: "fact" };
     const parts = text.split(/\s*[|｜]\s*/);
     if (parts.length >= 2 && parts[0] && parts[0].length <= 16) {
       const topic = normalizeTopic(parts[0]);
       const content = cleanMemoryText(parts.slice(1).join(" | "));
-      if (topic && content) return { topic, content };
+      if (topic && content) {
+        const isEvent = kind === "event" || EVENT_TOPICS.indexOf(topic) >= 0;
+        return { topic: isEvent ? "" : topic, content, kind: isEvent ? "event" : "fact" };
+      }
     }
-    return { topic: inferTopic(text), content: text };
+    return { topic: kind === "event" ? "" : inferTopic(text), content: text, kind: kind === "event" ? "event" : "fact" };
   }
 
   /* 模型可以主动再翻一次历史：[[搜索: 关键词]]。
@@ -460,38 +488,49 @@
   const PARTIAL_MEMORY_MARKER_RE = /\n?[ \t]*[\[【]{1,2}\s*记\s*住\s*[:：]?[^\]】\n]*$/;
   // 搜索标记同样可能被停在半截（[[搜索: 团）。
   const PARTIAL_SEARCH_MARKER_RE = /\n?[ \t]*[\[【]{1,2}\s*搜\s*索\s*[:：]?[^\]】\n]*$/;
+  // 事件标记同上（[[事件: 他们约好）。
+  const PARTIAL_EVENT_MARKER_RE = /\n?[ \t]*[\[【]{1,2}\s*事\s*件\s*[:：]?[^\]】\n]*$/;
 
   /** 去掉末尾未闭合的记忆标记（流式渲染与最终保存都要用它）。 */
   function stripPartialMemoryMarkers(text) {
     let out = String(text === undefined || text === null ? "" : text);
     for (let i = 0; i < 3; i += 1) {
-      let next = out.replace(PARTIAL_MEMORY_MARKER_RE, "").replace(PARTIAL_SEARCH_MARKER_RE, "");
+      let next = out.replace(PARTIAL_MEMORY_MARKER_RE, "").replace(PARTIAL_SEARCH_MARKER_RE, "").replace(PARTIAL_EVENT_MARKER_RE, "");
       if (next === out) break;
       out = next;
     }
     return out;
   }
 
-  /** 从回复里剥出记忆标记。返回清理后的正文与要点数组。 */
+  /** 从回复里剥出记忆标记。返回清理后的正文与要点数组。
+   *  事实（[[记住: …]]）最多 3 条，事件（[[事件: …]]）最多 2 条 —— 事件多记会挤掉事实。 */
   function extractMemories(text) {
-    const memories = [];
+    const facts = [];
+    const events = [];
     // 先摘掉半截标记：停在这里时它不该被当成正文，也不该进聊天记录。
     const source = stripPartialMemoryMarkers(text);
     MEMORY_MARKER_RE.lastIndex = 0;
     let match;
     while ((match = MEMORY_MARKER_RE.exec(source)) !== null) {
-      const item = parseMemoryItem(match[1]);
-      if (item.content && !memories.some((row) => row.content === item.content)) memories.push(item);
+      const item = parseMemoryItem(match[1], "fact");
+      const bucket = item.kind === "event" ? events : facts;
+      if (item.content && !facts.concat(events).some((row) => row.content === item.content)) bucket.push(item);
     }
+    EVENT_MARKER_RE.lastIndex = 0;
+    while ((match = EVENT_MARKER_RE.exec(source)) !== null) {
+      const item = parseMemoryItem(match[1], "event");
+      if (item.content && !facts.concat(events).some((row) => row.content === item.content)) events.push(item);
+    }
+    const memories = facts.slice(0, MEMORY_FACT_LIMIT).concat(events.slice(0, MEMORY_EVENT_LIMIT));
     const cleaned = source
       .replace(MEMORY_MARKER_RE, "")
+      .replace(EVENT_MARKER_RE, "")
       .replace(SEARCH_MARKER_RE, "")
       .replace(/[ \t]+$/gm, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    // memories 是 [{topic, content}] 结构；同时也给出纯文本数组，兼容旧调用方。
-    const list = memories.slice(0, 3);
-    return { text: cleaned, memories: list.map((row) => row.content), topics: list };
+    // memories 是 [{topic, content, kind}] 结构；同时也给出纯文本数组，兼容旧调用方。
+    return { text: cleaned, memories: memories.map((row) => row.content), topics: memories };
   }
 
   /* 系统提示的"构件清单"：顺序与分隔方式就是 buildSystemPrompt 的唯一依据。
@@ -526,9 +565,11 @@
         parts.push({ kind: "blank", text: "" });
         parts.push({ kind: "book-header", text: `[Memory Book: ${book.name}]`, book: book.name });
         for (const e of used) {
-          // 剧情类记忆（剧情取向才会写进来）必须标明"这是剧情里的事"，
-          // 否则模型会把它当成玩家的事实 —— 那正是用户定的第一条底线要防的事。
-          const story = e && e.rw_source && e.rw_source.kind === "story" ? "[剧情] " : "";
+          // 剧情类记忆（剧情取向才会写进来）与事件类记忆（模型用 [[事件: …]] 标的）
+          // 都必须标明"这是故事里的事"，否则模型会把它当成玩家的现实信息 ——
+          // 那正是用户定的第一条底线要防的事。事件是"此前发生"，剧情是"故事线"。
+          const kind = e && e.rw_source ? e.rw_source.kind : "";
+          const story = kind === "story" ? "[剧情] " : (kind === "event" ? "[此前发生] " : "");
           parts.push({ kind: "memory-book", label: `记忆书 · ${book.name}`, text: `[${e.uid}] ${story}${e.content}` });
         }
       }
@@ -543,7 +584,7 @@
     if (line) parts.push({ kind: "card-language", label: "语言要求", text: line });
     if (options && options.autoMemory === true) {
       parts.push({ kind: "blank", text: "" });
-      parts.push({ kind: "memory-instruction", label: "记忆指令", text: memoryInstruction(cardField(card, "name")) });
+      parts.push({ kind: "memory-instruction", label: "记忆指令", text: memoryInstruction(cardField(card, "name"), { events: options.autoEventMemory !== false }) });
     }
     return parts;
   }

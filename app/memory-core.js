@@ -60,7 +60,8 @@
       topic: cleanText(source.topic, 40),
       // 类型与"用户确认过"这两个标记必须原样带出去 —— 它们是挤占顺序与注入前缀的依据，
       // 归一化时丢掉的话，剧情就会当成事实、确认过的条目也会被挤掉（真踩过）。
-      kind: source.kind === "story" ? "story" : "fact",
+      // 事件（event）同样要带出去：注入时靠它加 [此前发生]。
+      kind: source.kind === "story" ? "story" : (source.kind === "event" ? "event" : "fact"),
       confirmed: source.confirmed === true,
     };
     return normalized;
@@ -140,10 +141,15 @@
    *   ③ 有明显事实句式 / 玩家属性句式 → 收；
    *   ④ 短句（没有剧情特征）→ 收：真实记忆常常就是"考拉""住在杭州"这种短名词短语，
    *      按句式卡会把它们误杀，而剧情至少要有个动作或场景才成立；
-   *   ⑤ 其余 → 拒（长句又没有事实句式，多半是叙述）。 */
-  function classifyMemory(content) {
+   *   ⑤ 其余 → 拒（长句又没有事实句式，多半是叙述）。
+   *
+   * 例外：模型**显式用 `[[事件: …]]` 标记**的内容（options.kind === "event"）直接收，
+   * 并且永远带 kind=event 存 —— 用户要的是"角色记得之前发生了什么"（2026-09-12），
+   * 但它绝不能混进"关于你的事实"里：注入时写成 [此前发生]，面板上单独一类。 */
+  function classifyMemory(content, options) {
     const text = cleanText(content, 500);
     if (!text) return { keep: false, reason: "empty" };
+    if (options && options.kind === "event") return { keep: true, reason: "event" };
     if (looksLikeStory(text)) return { keep: false, reason: "story" };
     if (FACT_HINT_RE.test(text) || PLAYER_ATTR_RE.test(text)) return { keep: true, reason: "fact" };
     if (text.length <= 16) return { keep: true, reason: "short-fact" };
@@ -340,8 +346,8 @@
         topic: entryTopic(entry),
         // 这条替换掉的旧内容（如果有），用于解释"为什么这条变了"。
         replacedContent: cleanText(sourceInfo.replacedContent, 200),
-        // 剧情取向记下来的剧情条目：面板单独一块，注入时会带 [剧情] 前缀。
-        kind: sourceInfo.kind === "story" ? "story" : "fact",
+        // 剧情取向记下来的剧情条目 / 模型标的事件条目：面板单独归类，注入时带前缀。
+        kind: sourceInfo.kind === "story" ? "story" : (sourceInfo.kind === "event" ? "event" : "fact"),
         // 用户在面板上点过「这条说得对」：永不被上限挤掉。
         confirmed: sourceInfo.confirmed === true,
         constant: entry.constant !== false,
@@ -405,6 +411,7 @@
       const sourceInfo = normalizeSource(entry.rw_source);
       if (sourceInfo.confirmed === true) return 4;          // 你确认过的：最后才轮到它
       if (sourceInfo.kind === "story") return 0;            // 剧情：最先走
+      if (sourceInfo.kind === "event") return 1;            // 事件：其次（它是"经过"，不是你是谁）
       if (orientation !== ORIENTATIONS.COMPANION) return 2;  // 平衡/剧情：按新旧
       const topic = canonicalTopic(entryTopic(entry));
       if (!topic) return 1;                                  // 说不清主题的碎事件
@@ -455,21 +462,23 @@
 
     (Array.isArray(items) ? items : []).forEach((raw) => {
       const item = raw && typeof raw === "object"
-        ? { topic: normalizeTopic(raw.topic), content: cleanText(raw.content, 500) }
-        : { topic: "", content: cleanText(raw, 500) };
+        ? { topic: normalizeTopic(raw.topic), content: cleanText(raw.content, 500), kind: raw.kind === "event" ? "event" : "fact" }
+        : { topic: "", content: cleanText(raw, 500), kind: "fact" };
       let topic = item.topic;
       const text = item.content;
       if (!text) return;
       // 底线一：剧情不是用户事实。判断在纯逻辑层做，不靠模型自觉。
       // 剧情取向是**用户显式选的**：这时剧情可以进，但会带 kind=story 的标记，
       // 注入时写成 [剧情]，面板里也单独一块 —— 存归存，绝不冒充用户的事实。
-      const verdict = classifyMemory(text);
+      // 事件（模型用 [[事件: …]] 标的）同理：存，但带 kind=event，注入时写 [此前发生]。
+      const verdict = classifyMemory(text, { kind: item.kind });
       const isStory = !verdict.keep && verdict.reason === "story";
+      const isEvent = verdict.keep && item.kind === "event";
       if (!verdict.keep && !(isStory && allowStory)) {
         rejected.push({ content: text, reason: verdict.reason });
         return;
       }
-      const kind = isStory ? "story" : "fact";
+      const kind = isEvent ? "event" : (isStory ? "story" : "fact");
       if (!topic) topic = inferTopicOrEmpty(text);
 
       // 内容完全一样：跳过，不重复记。
@@ -477,8 +486,10 @@
       if (duplicateKey) { skipped += 1; return; }
 
       // 同一件事：替换旧的，而不是并存。
+      // 事件是**一次性的经过**，不做"同主题替换" —— 昨天去了图书馆、今天又去了，
+      // 那是两件事，合成一条等于把历史抹掉。事实才需要改口语义。
       let replaceKey = null;
-      if (topic) {
+      if (topic && kind !== "event") {
         replaceKey = Object.keys(next).find((key) => isSameTopic(next[key], topic, text)) || null;
       }
       if (replaceKey) {
@@ -578,6 +589,9 @@
     return { ok: true, confirmed: confirmed !== false, entries: next };
   }
 
+  /** 事件类记忆在面板里的分组名（也用于 sort 时排最后）。 */
+  const EVENT_GROUP_LABEL = "事件（此前发生）";
+
   /**
    * 按主题分组，供记忆面板折叠显示。
    * 没有主题的条目归到「未分类」（固定排在最后），组内按 uid 排序。
@@ -587,8 +601,9 @@
     const groups = new Map();
     for (const row of rows) {
       const topic = row.topic || "";
-      const key = topic || "未分类";
-      if (!groups.has(key)) groups.set(key, { topic: topic, label: topic || "未分类", rows: [] });
+      // 事件是"一次经过"，不是"某件关于你的事"：单独归一类，别混进「未分类」。
+      const key = row.kind === "event" ? EVENT_GROUP_LABEL : (topic || "未分类");
+      if (!groups.has(key)) groups.set(key, { topic: row.kind === "event" ? EVENT_GROUP_LABEL : topic, label: key, rows: [] });
       groups.get(key).rows.push(row);
     }
     return Array.from(groups.values()).sort((a, b) => {
@@ -616,6 +631,7 @@
     isSameTopic,
     listEntries,
     entryTitle,
+    EVENT_GROUP_LABEL,
     groupByTopic,
     nextUid,
     trim,

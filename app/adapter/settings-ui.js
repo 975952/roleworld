@@ -92,6 +92,9 @@
     pick("auto-memory").forEach((node) => {
       node.checked = settings.auto_memory !== false;
     });
+    pick("event-memory").forEach((node) => {
+      node.checked = settings.auto_event_memory !== false;
+    });
     pick("price-input").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.price_input) > 0 ? settings.price_input : "";
     });
@@ -171,6 +174,8 @@
     if (thinkingNode) patch.thinking = thinkingNode.checked === true;
     const autoMemoryNode = first("auto-memory");
     if (autoMemoryNode) patch.auto_memory = autoMemoryNode.checked === true;
+    const eventMemoryNode = first("event-memory");
+    if (eventMemoryNode) patch.auto_event_memory = eventMemoryNode.checked === true;
     const priceIn = first("price-input");
     const priceOut = first("price-output");
     if (priceIn) patch.price_input = Math.max(0, Number(priceIn.value) || 0);
@@ -285,6 +290,10 @@
     }));
     pick("auto-memory").forEach((node) => node.addEventListener("change", () => {
       notify({ auto_memory: node.checked === true });
+      saveAll();
+    }));
+    pick("event-memory").forEach((node) => node.addEventListener("change", () => {
+      notify({ auto_event_memory: node.checked === true });
       saveAll();
     }));
     // 端点留空时用所选服务商的默认地址做占位提示，减少"不知道该填什么"的困惑。

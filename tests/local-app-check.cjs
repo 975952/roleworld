@@ -119,6 +119,9 @@ let truncateNext = false;
         // 系统提示里是否带上了那条合成记忆：用来断言"删掉的记忆不再出现"。
         systemHasMemory: Array.isArray(body.messages)
           && body.messages.some((m) => m && m.role === "system" && String(m.content || "").indexOf("玩家叫小林") >= 0),
+        // 事件记忆：注入时必须带 [此前发生]，否则模型会把剧情经过当成玩家的现实信息。
+        systemHasEvent: Array.isArray(body.messages)
+          && body.messages.some((m) => m && m.role === "system" && String(m.content || "").indexOf("[此前发生]") >= 0),
         // 被替换掉的旧说法不该再出现（"玩家喜欢咖啡" 会误匹配新说法，所以用更精确的判断）
         systemHasStaleMemory: Array.isArray(body.messages)
           && body.messages.some((m) => m && m.role === "system"
@@ -928,6 +931,63 @@ async function main() {
     const sent = requests.filter((row) => row.stream === true);
     const lastSystem = sent[sent.length - 1];
     assert(lastSystem && lastSystem.systemHasStaleMemory !== true, "被替换掉的旧记忆还发给了模型");
+  });
+
+  await check("事件记忆：角色记得之前发生了什么，注入时标明「此前发生」", async () => {
+    // 用户 2026-09-12：「我是要让哈利等小说人物记得之前发生了什么」。
+    await fetch(base + "/__reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "好，那就周六下午。\n[[事件: 两人约好周六下午在球场学飞行]]" }),
+    });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '那我们周六下午去球场学飞行吧';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+
+    // ① 事件真的写进了记忆，而且标成 event（不是事实）
+    const stored = await evaluate(`(async () => {
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      return Object.keys(world.entries || {}).map((key) => ({
+        content: String(world.entries[key].content || ''),
+        kind: (world.entries[key].rw_source || {}).kind || '',
+      }));
+    })()`);
+    const eventRow = stored.find((row) => row.content === "两人约好周六下午在球场学飞行");
+    assert(eventRow, "事件没有写进记忆：" + JSON.stringify(stored));
+    assert(eventRow.kind === "event", "事件被当成了别的东西：" + JSON.stringify(eventRow));
+
+    // ② 标记不能漏到界面上
+    const visible = await evaluate("document.querySelector('#dynamicMessages').textContent");
+    assert(visible.indexOf("[[事件") < 0, "事件标记漏到界面上了");
+    assert(visible.indexOf("周六下午") >= 0, "这轮回复的内容没显示出来");
+
+    // ③ 下一轮请求里，这条事件必须带 [此前发生] 前缀
+    await fetch(base + "/__reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: "嗯。" }) });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '那周六见';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const last = sent[sent.length - 1];
+    assert(last && last.systemHasEvent === true, "事件没有带 [此前发生] 前缀就发给了模型");
+    assert(last.systemText.indexOf("[此前发生] 两人约好周六下午在球场学飞行") >= 0,
+      "事件前缀或内容不对：" + JSON.stringify(last.systemText.slice(-320)));
+
+    // ④ 面板上单独一类，用户能看出"这是发生过的事"
+    const grouped = await evaluate(`(async () => {
+      const rows = window.ROLEWORLD_MEMORY_CORE.listEntries((await window.STApi.getWorld('MB Harry — 自动记忆')).entries);
+      return rows.filter((row) => row.kind === 'event').map((row) => row.content);
+    })()`);
+    assert(grouped.length === 1 && grouped[0] === "两人约好周六下午在球场学飞行", "面板读不出这条事件：" + JSON.stringify(grouped));
   });
 
   await check("剧情不算你的事实：模型想把剧情写进记忆会被拦下", async () => {
@@ -2312,10 +2372,14 @@ async function main() {
     assert(state.characters.length === 6, "应装入 6 个角色，实际 " + state.characters.length + "：" + JSON.stringify(state.characters) + " / 书：" + JSON.stringify(state.books));
     assert(state.characters.indexOf("Harry Potter (EN).png") >= 0, "缺少默认角色 Harry Potter (EN).png");
     // 2026-09-12：包里原来那 3 本整本都是"别人的存档"（原 SillyTavern 存档的玩家角色 Lin），
-    // 已从包里删除；只留角色锁定书（世界观设定）。示例内容的去向见
-    // runs/2026-09-12-lin-sample-memories-removed/README.md。
-    assert(state.books.length === 1, "应装入 1 本记忆书，实际 " + state.books.length + "：" + JSON.stringify(state.books));
+    // 已从包里删除；示例内容的去向见 runs/2026-09-12-lin-sample-memories-removed/README.md。
+    // 现在带的是：世界观设定 1 本 + **每个角色一本「原著剧情」**（用户要的"真实小说的剧情"）。
+    assert(state.books.length === 7, "应装入 7 本记忆书，实际 " + state.books.length + "：" + JSON.stringify(state.books));
     assert(state.books.indexOf("MB Harry — role lock (EN)") >= 0, "缺少记忆书：MB Harry — role lock (EN)");
+    ["MB Harry — 原著剧情", "MB Ron — 原著剧情", "MB Hermione — 原著剧情",
+      "MB Ginny — 原著剧情", "MB Luna — 原著剧情", "MB Tom — 原著剧情"].forEach((name) => {
+      assert(state.books.indexOf(name) >= 0, "缺少原著剧情书：" + name);
+    });
     ["MB Harry — fact clips (EN)", "MB Harry — relationship tracker (EN)",
       "MB Harry — scene memories (EN)"].forEach((name) => {
       assert(state.books.indexOf(name) < 0, "这本是别人的存档，不该再装进新存档：" + name);
@@ -2324,6 +2388,49 @@ async function main() {
     assert(state.pickerHidden === false, "角色选择器没有显示出来");
     assert(state.pickerName.indexOf("Harry Potter") === 0, "默认角色选择错了：" + state.pickerName);
     assert(state.composer, "装了内置包之后输入框仍然不可用");
+  });
+
+  await check("原著剧情：每个内置角色一本，且都写明了知识截止点（不会预知未来）", async () => {
+    const data = await evaluate(`(async () => {
+      const worlds = await window.STApi.listWorlds();
+      const out = [];
+      for (const world of worlds.filter((row) => row.name.indexOf('原著剧情') >= 0)) {
+        const full = await window.STApi.getWorld(world.name);
+        const entries = Object.values(full.entries || {});
+        out.push({
+          name: world.name,
+          count: entries.length,
+          // 每本都必须有一条「他知道什么、不知道什么」，否则角色会顺着玩家的话编未来。
+          cutoff: entries.some((e) => /不知道|知识停在|界限|边界|截止/.test(String(e.content || ''))),
+          future: entries.some((e) => /不知道|不会假装|不会当成/.test(String(e.content || ''))),
+        });
+      }
+      return out;
+    })()`);
+    assert(data.length === 6, "应当有 6 本原著剧情，实际 " + data.length + "：" + JSON.stringify(data.map((row) => row.name)));
+    for (const row of data) {
+      assert(row.count >= 5, row.name + " 的条目太少：" + row.count);
+      assert(row.cutoff, row.name + " 没有写明知识截止点");
+      assert(row.future, row.name + " 没有写明未来不可知");
+    }
+
+    // 书要归到对的人身上：哈利的书归哈利，罗恩的归罗恩。
+    const owner = await evaluate(`(() => {
+      const core = window.TASK29_CHARACTER_CORE;
+      const books = ${JSON.stringify(data.map((row) => ({ __name: row.name })))};
+      const avatars = ["Harry Potter (EN)", "Ron Weasley (Triwizard Year)", "Hermione Granger (Triwizard Year)",
+        "Ginny Weasley (Triwizard Year)", "Luna Lovegood (Triwizard Year)", "Tom Riddle (Adult)"];
+      return avatars.map((avatar) => ({
+        avatar,
+        books: core.memoryBooksFor({ avatar: avatar + ".png", charName: avatar }, books).map((book) => book.__name),
+      }));
+    })()`);
+    for (const row of owner) {
+      assert(row.books.length === 1, row.avatar + " 对应的原著剧情书不是正好一本：" + JSON.stringify(row.books));
+    }
+    // 哈利的书归哈利（防止"前缀匹配"把 Ron 的书也匹给 Harry 之类的错位）。
+    const harry = owner.find((row) => row.avatar === "Harry Potter (EN)");
+    assert(harry.books[0].indexOf("MB Harry") === 0, "哈利的书对错了：" + JSON.stringify(harry.books));
   });
 
   await check("内容包自带卡：升级时会刷新卡内容，但不碰对话与记忆", async () => {

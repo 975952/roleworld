@@ -407,6 +407,70 @@ async function main() {
   });
 
   console.log("");
+  console.log("== 事件记忆（角色要记得之前发生了什么）==");
+
+  const EVENT_LINE = "两人约好周六下午在球场学飞行";
+
+  await test("模型显式标成事件的内容收下，并带 kind=event", () => {
+    // 剧情句子不标记时会被拒；标成事件就收下 —— 这是"角色要记得之前发生了什么"的入口。
+    const storyLine = "他拔出魔杖，把玩家推进了密室";
+    assert.equal(Memory.classifyMemory(storyLine).keep, false, "不标记时应当被当成剧情拒收");
+    assert.equal(Memory.classifyMemory(storyLine, { kind: "event" }).keep, true, "标成事件后应当收下");
+    const result = Memory.applyMemories({}, [{ topic: "", content: EVENT_LINE, kind: "event" }], {});
+    assert.equal(result.added, 1, "事件应当写入：" + JSON.stringify(result.rejected));
+    const row = Memory.listEntries(result.entries)[0];
+    assert.equal(row.kind, "event", "读出来要能认出这是事件：" + JSON.stringify(row));
+    assert.equal(row.content, EVENT_LINE);
+  });
+
+  await test("事件不冒充事实：不参与「同主题替换」", () => {
+    let entries = Memory.applyMemories({}, ["玩家怕高"], {}).entries;
+    entries = Memory.applyMemories(entries, [{ topic: "", content: "今天在球场练了一个小时飞行", kind: "event" }], {}).entries;
+    const rows = Memory.listEntries(entries);
+    assert.equal(rows.length, 2, "两条都该在：" + JSON.stringify(rows));
+    assert.equal(rows.filter((row) => row.kind === "event").length, 1);
+    assert.equal(rows.filter((row) => row.kind !== "event").length, 1);
+  });
+
+  await test("两次同类事件各留一条（经过不能被合并掉）", () => {
+    const entries = Memory.applyMemories({}, [{ topic: "", content: "周一在图书馆碰过面", kind: "event" }], {}).entries;
+    const before = Memory.listEntries(entries).length;
+    const again = Memory.applyMemories(entries, [{ topic: "", content: "周二又在图书馆碰过面", kind: "event" }], {});
+    assert.equal(again.added, 1);
+    assert.equal(again.replaced.length, 0, "事件不该替换掉上一条：" + JSON.stringify(again.replaced));
+    assert.equal(Memory.listEntries(again.entries).length, before + 1);
+    const dup = Memory.applyMemories(again.entries, [{ topic: "", content: "周二又在图书馆碰过面", kind: "event" }], {});
+    assert.equal(dup.added, 0);
+    assert.equal(dup.skipped, 1);
+  });
+
+  await test("上限满了先挤事件、再挤事实（事件是经过，事实是你是谁）", () => {
+    let entries = Memory.applyMemories({}, ["玩家住在杭州", "玩家叫小林", "玩家怕高"], {}).entries;
+    entries = Memory.applyMemories(entries, [
+      { topic: "", content: "事件甲", kind: "event" },
+      { topic: "", content: "事件乙", kind: "event" },
+    ], {}).entries;
+    const trimmed = Memory.trim(entries, 3, { orientation: "balanced" });
+    const kept = Memory.listEntries(trimmed.entries);
+    assert.equal(kept.length, 3);
+    assert.equal(kept.filter((row) => row.kind === "event").length, 0, "事件应当先被挤掉：" + JSON.stringify(kept));
+    assert.equal(trimmed.removed.length, 2);
+  });
+
+  await test("面板分组：事件单独一类，不混进未分类", () => {
+    const entries = Memory.applyMemories({}, [
+      { topic: "", content: "两人约好周六学飞行", kind: "event" },
+      "玩家喜欢咖啡",
+    ], {}).entries;
+    const groups = Memory.groupByTopic(entries);
+    const labels = groups.map((group) => group.label);
+    assert.ok(labels.indexOf(Memory.EVENT_GROUP_LABEL) >= 0, "事件没有单独分组：" + JSON.stringify(labels));
+    const eventGroup = groups.find((group) => group.label === Memory.EVENT_GROUP_LABEL);
+    assert.equal(eventGroup.rows.length, 1);
+    assert.equal(eventGroup.rows[0].kind, "event");
+  });
+
+  console.log("");
   console.log("== 记忆取向与「说得对」（P5-3）==");
 
   const STORY_LINE = "他拔出魔杖，把玩家推进了密室";

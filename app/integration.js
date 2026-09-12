@@ -1338,6 +1338,8 @@
     meta.className = "request-peek-book-source";
     const bits = [];
     if (item.kind === "story") bits.push("剧情（不是你的事实）");
+    // 事件是"此前发生"，跟事实分开标：注入时它会带 [此前发生] 前缀。
+    if (item.kind === "event") bits.push("事件（此前发生）");
     if (item.confirmed) bits.push("你确认过");
     meta.textContent = (bits.length ? bits.join(" · ") + " · " : "")
       + describeMemorySource(item.source, item.topic, item.replacedContent);
@@ -3446,6 +3448,7 @@
         modelName: liveState.modelName,
         thinking: liveState.thinking === true,
         autoMemory: liveState.autoMemory !== false,
+        autoEventMemory: liveState.eventMemory !== false,
         stream: true,
         extraSystem,
         purpose,
@@ -3514,8 +3517,10 @@
       if (liveState.autoMemory !== false) {
         const parsed = window.TASK22_CORE.extractMemory(rawText);
         finalText = parsed.text || finalText;
-        memories = parsed.memories;
-        memoryTopics = Array.isArray(parsed.topics) ? parsed.topics : parsed.memories.map((text) => ({ topic: "", content: text }));
+        // 「记住发生过的事」关掉时，事件条目不写进记忆（提示词里也不会让模型写）。
+        const items = (Array.isArray(parsed.topics) ? parsed.topics : []).filter((row) => liveState.eventMemory !== false || row.kind !== "event");
+        memories = items.map((row) => row.content);
+        memoryTopics = items;
       }
       const stopped = aborted || liveState.cancelRequested || controller.signal.aborted;
       if (!finalText) {
@@ -3804,6 +3809,9 @@
     liveState.modelName = String(settings.model || "");
     liveState.thinking = settings.thinking === true;
     liveState.autoMemory = settings.auto_memory !== false;
+    // 「记住发生过的事」：默认开 —— 用户要的是角色记得"之前发生了什么"。
+    // 关掉时既不提示模型写 [[事件: …]]，也不会把事件条目写进记忆。
+    liveState.eventMemory = settings.auto_event_memory !== false;
     liveState.localSettings = settings;
     // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
     liveState.modelMode = settings.provider === "deepseek"
@@ -4163,6 +4171,7 @@
     if (!patch) return;
     if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
     if (typeof patch.auto_memory === "boolean") liveState.autoMemory = patch.auto_memory;
+    if (typeof patch.auto_event_memory === "boolean") liveState.eventMemory = patch.auto_event_memory;
     if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
     if (patch.provider) {
       liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
