@@ -29,15 +29,18 @@ function flag(name, fallback) {
 
 const RELAY_URL = String(flag("relay", process.env.RELAY_URL || "")).replace(/\/+$/, "");
 const ADMIN_SECRET = String(flag("admin", process.env.ADMIN_SECRET || ""));
+// 同学要打开的应用地址：体验卡的「一键链接」用它来拼 #card=…
+const APP_URL = String(flag("app", process.env.APP_URL || "https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com")).replace(/\/+$/, "");
 
 function usage() {
   console.log([
     "用法：",
-    "  node scripts/card-cli.cjs issue --label 小明 --calls 200 --days 30",
+    "  node scripts/card-cli.cjs issue --label 小明 --calls 200 --days 30 [--count 5]",
     "  node scripts/card-cli.cjs list | disable <id> | enable <id> | revoke <id>",
     "  node scripts/card-cli.cjs quota <卡号> | text <卡号>",
     "",
-    "需要先设环境变量 RELAY_URL（中转地址）与 ADMIN_SECRET（发卡口令）。",
+    "需要先设环境变量 RELAY_URL（中转地址）与 ADMIN_SECRET（发卡口令）；",
+    "APP_URL 可选（默认线上网页版），只用来拼「一键体验卡链接」。",
   ].join("\n"));
 }
 
@@ -56,7 +59,12 @@ async function call(path, options) {
   return body;
 }
 
-/** 一段可以直接发给同学的话（含卡号、怎么用、隐私说明）。 */
+/** 一键链接：点开就把卡配好（应用支持 #card=卡号@中转地址）。 */
+function shareLink(token) {
+  return `${APP_URL}/#card=${token}@${RELAY_URL}`;
+}
+
+/** 一段可以直接发给同学的话（含一键链接、卡号、隐私说明）。 */
 function shareText(token, quota) {
   const limit = [];
   if (quota && Number(quota.calls) > 0) limit.push(`${quota.calls} 次`);
@@ -64,17 +72,18 @@ function shareText(token, quota) {
   return [
     "角色世界 · 体验卡",
     "",
+    "点这个链接就能直接开始（什么都不用填）：",
+    shareLink(token),
+    "",
     `卡号：${token}`,
     limit.length ? `额度：${limit.join(" / ")}` : "额度：不限（别乱用）",
     "",
-    "怎么用（三步）：",
-    "1. 打开 https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com",
-    "2. 「设置 → 模型」里把接口地址填成：" + RELAY_URL + "/v1/chat/completions",
-    "3. 「体验卡」那一栏粘贴卡号 → 保存。模型名填 deepseek-flash。",
+    "如果链接打不开，就手动三步：",
+    `1. 打开 ${APP_URL}`,
+    "2. 「设置 → 模型 → 体验卡」那一栏粘贴卡号 → 点「使用体验卡」（模型名填 deepseek-flash）",
     "",
     "说明：卡号就是你的通行证，别转发给别人；额度用完或到期会自动停。",
-    "这张卡走的是发起人自己的模型账号，所以发起人能看到「用量」，但服务端**不记录对话内容**——",
-    "聊天记录只存在你自己的浏览器里。",
+    "聊天记录只存在你自己的浏览器里（服务端只统计用量，不记录内容）。",
   ].join("\n");
 }
 
@@ -101,21 +110,40 @@ function shareText(token, quota) {
   if (!ADMIN_SECRET) { console.error("先设 ADMIN_SECRET（发卡口令）"); process.exitCode = 1; return; }
 
   if (command === "issue") {
-    const body = await call("/admin/cards", {
-      method: "POST",
-      body: {
-        label: String(flag("label", "")),
-        calls: Number(flag("calls", 0)) || 0,
-        tokens: Number(flag("tokens", 0)) || 0,
-        days: Number(flag("days", 30)) || 0,
-        note: String(flag("note", "")),
-      },
+    const count = Math.max(1, Math.min(50, Number(flag("count", 1)) || 1));
+    const label = String(flag("label", ""));
+    const issued = [];
+    for (let i = 1; i <= count; i += 1) {
+      const body = await call("/admin/cards", {
+        method: "POST",
+        body: {
+          // 一次发多张时自动编号：同学1 / 同学2 …… 便于之后对账。
+          label: count > 1 && label ? `${label}${i}` : (label || (count > 1 ? `体验卡${i}` : "")),
+          calls: Number(flag("calls", 0)) || 0,
+          tokens: Number(flag("tokens", 0)) || 0,
+          days: Number(flag("days", 30)) || 0,
+          note: String(flag("note", "")),
+        },
+      });
+      issued.push(body);
+    }
+
+    console.log(`发卡成功：${issued.length} 张（卡号只显示这一次，复制走）\n`);
+    console.log(["序".padEnd(4), "卡号".padEnd(24), "卡id".padEnd(14), "额度".padEnd(12), "到期"].join(" "));
+    issued.forEach((card, index) => {
+      console.log([
+        String(index + 1).padEnd(4),
+        card.token.padEnd(24),
+        String(card.id).padEnd(14),
+        (`${(card.quota && card.quota.calls) || 0} 次`).padEnd(12),
+        String(card.expiresAt || "不过期").slice(0, 10),
+      ].join(" "));
     });
-    console.log("发卡成功（卡号只显示这一次，复制走）：\n");
-    console.log("  卡号：" + body.token + "    卡id：" + body.id);
-    console.log("  额度：" + JSON.stringify(body.quota) + "   到期：" + (body.expiresAt || "不过期"));
-    console.log("\n----- 下面这段可以直接发给同学 -----\n");
-    console.log(shareText(body.token, body.quota));
+    console.log("\n===== 下面每段都可以直接转发给一个同学 =====");
+    issued.forEach((card, index) => {
+      console.log(`\n----- 第 ${index + 1} 张 -----`);
+      console.log(shareText(card.token, card.quota));
+    });
     return;
   }
 
