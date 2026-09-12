@@ -50,3 +50,8 @@ Thumbs.db
 # 写提交信息用的临时文件（写完就删，别跟着提交进去）
 tmp-commit-*.txt
 *.cmsg
+
+# ���鿨��������������棬�����ֿ⣩
+relay/*.local.txt
+relay-data/
+

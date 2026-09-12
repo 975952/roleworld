@@ -5,6 +5,9 @@
   "description": "角色世界「体验卡」中转服务：真 key 留在服务端，同学拿可限额、可吊销的卡号",
   "main": "index.js",
   "engines": { "node": ">=18" },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.0.0"
+  },
   "scripts": {
     "start": "node index.js",
     "test": "node ../tests/relay-check.cjs"

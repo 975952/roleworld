@@ -156,8 +156,18 @@ function createCloudBaseStore(options) {
 
 function createStore(spec) {
   const kind = String((spec && spec.kind) || process.env.CARD_STORE || "memory").toLowerCase();
+  if (kind === "cloudbase") {
+    try {
+      return createCloudBaseStore(spec || {});
+    } catch (error) {
+      // 不静默降级：把原因打出来，而且 /healthz 会显示真正在用的后端是 file。
+      // 卡在"以为存数据库、其实存临时盘"上，比启动失败更难查。
+      console.error("⚠ 云开发账本用不了（" + (error && error.message ? error.message : error) + "），改为 file 后端。");
+      console.error("  检查三件事：镜像里装了 @cloudbase/node-sdk、云数据库里已建集合 rw_cards、服务角色有读写权限。");
+      return createFileStore((spec && spec.file) || process.env.CARD_FILE || "/data/cards.json");
+    }
+  }
   if (kind === "file") return createFileStore((spec && spec.file) || process.env.CARD_FILE || "cards.json");
-  if (kind === "cloudbase") return createCloudBaseStore(spec || {});
   return createMemoryStore();
 }
 
