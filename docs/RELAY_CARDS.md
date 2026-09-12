@@ -37,25 +37,54 @@ $env:CARD_FILE="C:\novel-llm\roleworld\relay-data\cards.json"
 npm run relay                    # 默认 :8787
 ```
 
-### 云托管（推荐，有流式）
-
-云托管是容器，SSE 能原样透传（云函数不行）。先在 CloudBase 控制台开通**云托管**，然后：
+### 云托管（2026-09-12 实际走通的那条路）
 
 ```powershell
-tcb cloudrun deploy roleworld-relay --dir relay -e cyan1-d2gpky2z903b86182
+tcb cloudrun deploy --service-name roleworld-relay --source relay --port 8787 `
+  -e <envId> -r ap-shanghai --force --wait
 ```
 
-需要在服务里配置的环境变量（**不要在仓库里写**）：
+> 第一次要先开通云托管资源，CLI 没有这个命令，用 API 触发一次即可：
+> `tcb api tcb CreateCloudBaseRunResource --body '{"EnvId":"<envId>"}'`
+> （之后 `tcb api tcb DescribeCloudBaseRunResource --body '{"EnvId":"<envId>"}'` 看 `ClusterStatus` 到 `succ`）
+> 部署时如果问"是否灰度发布"，选否；如果提示"平台有部署任务在跑"，确认继续即可。
+
+服务配置里要有的环境变量：
 
 | 变量 | 说明 |
 |---|---|
-| `UPSTREAM_KEY` | 真 API Key，只有服务端知道 |
+| `UPSTREAM_KEY` | 真 API Key（服务端独有，绝不下发） |
 | `UPSTREAM_BASE` | 上游地址，默认 `https://api.deepseek.com` |
 | `UPSTREAM_CHAT_PATH` | 上游聊天路径，默认 `/v1/chat/completions`；云开发网关填 `/chat/completions` |
 | `ADMIN_SECRET` | 发卡口令，**不设就等于关闭管理接口** |
-| `CARD_STORE` | `cloudbase`（重启不丢）或 `file`（要挂持久盘） |
-| `ALLOW_MODELS` | 例如 `deepseek-flash`，防止同学用贵模型 |
+| `CARD_STORE` | `cloudbase`（推荐）/ `nosql`（老文档库环境）/ `file` |
+| `TCB_ENV` | 环境 ID，例如 `cyan1-xxxx` |
+| `ALLOW_MODELS` | 例如 `deepseek-flash`；留空 = 不限制 |
 | `PORT` | 默认 8787 |
+
+**账本需要一次授权**：云托管容器里不能用平台默认临时凭据，必须在
+「服务配置 → **API Key 设置**」里注入一把**环境级服务端 ApiKey**
+（在「**环境配置 → ApiKey 管理**」创建，不是在「AI 工具中使用 Token」那页建的网关令牌），
+注入后容器里会有 `CLOUDBASE_APIKEY`。
+
+> ⚠ 两个坑，都踩过：
+> ① **网关令牌 ≠ 服务端 ApiKey**：拿 AI 页那把去连数据库会报 `INVALID_ACCESS_TOKEN`
+>    （JWT 的 `kid` 对不上）。`/healthz` 里的 `storeAuth.apiKeyKid` 能看出容器里到底是哪把。
+> ② **新环境是 PostgreSQL，不是文档型数据库**：建集合会返回
+>    `This environment has no document database instance…`。所以账本默认走 **PG 的 Data API**：
+>    建表用 `POST /v1/rdb/exec-pgsql`（`role=cloudbase_postgres`），增删改查用
+>    `/v1/rdb/rest/{table}`（PostgREST，主键冲突走 upsert）。表名默认 `rw_cards`，**服务会自己建**。
+
+配完打两个自检就一眼看清（都不需要看 Key）：
+
+```powershell
+curl.exe -H "Authorization: Bearer <ADMIN_SECRET>" https://<relay>/healthz
+curl.exe -H "Authorization: Bearer <ADMIN_SECRET>" https://<relay>/admin/store/selftest
+curl.exe -H "Authorization: Bearer <ADMIN_SECRET>" https://<relay>/admin/upstream/selftest
+```
+
+`healthz` 会回显 `store`（真正在用的账本后端）、`storeAuth`（Key 有没有注入、`kid` 是哪把）、
+`upstream`/`upstreamChatPath`/`upstreamKeySet`/`adminEnabled`。
 
 ### 用云开发自己的大模型网关当上游（可省掉外部 Key）
 
@@ -69,10 +98,6 @@ UPSTREAM_CHAT_PATH=/chat/completions
 UPSTREAM_KEY=<那一页创建的 API Key>
 ALLOW_MODELS=            # 先留空；确认模型名后再收紧
 ```
-
-好处是一个账单（走套餐资源点）、少一处外部密钥；代价是模型清单与单价以云开发为准，
-而且**流式必须带 `Accept: text/event-stream`**（中转已自动带）。
-`/healthz` 会回显 `upstream`、`upstreamChatPath`、`upstreamKeySet`、`adminEnabled`，配完一眼就能核对。
 
 > ⚠ 账本用 `memory` 时重启会把所有卡弄丢，服务启动时会打一行大字提醒；
 > `file` 后端在容器里必须挂持久盘（否则重启一样丢）。云托管上最稳的是 `cloudbase`。
