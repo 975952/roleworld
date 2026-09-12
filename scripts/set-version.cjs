@@ -63,6 +63,29 @@ for (const relative of targets) {
   }
 }
 
+// app/about.html 兼作"机器可读状态页"，正文和状态 JSON 里各写了一次版本号。
+// 手写最容易漂：2026-09-12 从 0.1.17 升到 0.1.18 时它没跟着动，全量测试当场变红。
+{
+  const relative = "app/about.html";
+  const file = path.join(ROOT, relative);
+  const before = fs.readFileSync(file, "utf8");
+  const after = before
+    .replace(/(<script type="application\/json" id="roleworld-status">[\s\S]*?"version"\s*:\s*")[^"]+(")/, `$1${version}$2`)
+    .replace(/(<p>当前版本 <code>)[^<]+(<\/code>)/, `$1${version}$2`);
+  if (after === before) {
+    console.log(`${relative} 已是 ${version}`);
+  } else {
+    fs.writeFileSync(file, after); // 默认 utf8，无 BOM
+    const check = fs.readFileSync(file, "utf8");
+    if (check.indexOf(`"version": "${version}"`) < 0 || check.indexOf(`当前版本 <code>${version}</code>`) < 0) {
+      console.error(`${relative} 写入后校验失败，已中止`);
+      process.exit(1);
+    }
+    console.log(`${relative} → ${version}`);
+    changed += 1;
+  }
+}
+
 // tauri.conf.json 的 JSON 解析能通过不代表没有 BOM（BOM 在 Node 里会被容忍），单独查一次。
 for (const relative of targets) {
   const bytes = fs.readFileSync(path.join(ROOT, relative));

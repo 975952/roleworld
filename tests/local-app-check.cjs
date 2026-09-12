@@ -414,6 +414,46 @@ async function main() {
     assert(await evaluate("document.querySelector('#sendButton').disabled === false"), "发送按钮被禁用");
   });
 
+  // 2026-09-12：用户反馈"看不到记忆"。根因是顶栏那颗「记忆」按钮自带 hidden，
+  // 而且没有任何代码把它摘掉——右栏只能靠 window.TASK21.openMemoryPanel() 打开。
+  // 以前的用例全都是调内部函数，所以一次也没碰到这个入口。
+  await check("顶栏「记忆」按钮看得见、点得开（不是只有内部函数能开记忆栏）", async () => {
+    const hit = await evaluate(`(() => {
+      const button = document.querySelector('.topbar-actions [data-action="open-memories"]');
+      if (!button) return { problem: '顶栏里根本没有「记忆」按钮' };
+      const style = getComputedStyle(button);
+      if (button.hidden || style.display === 'none' || style.visibility === 'hidden') {
+        return { problem: '「记忆」按钮是隐藏的（hidden=' + button.hidden + '，display=' + style.display + '）' };
+      }
+      const rect = button.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 14) {
+        return { problem: '「记忆」按钮没有可点面积：' + Math.round(rect.width) + '×' + Math.round(rect.height) };
+      }
+      if (rect.top < 0 || rect.left < 0 || rect.bottom > innerHeight || rect.right > innerWidth) {
+        return { problem: '「记忆」按钮在视口外：' + JSON.stringify({ x: Math.round(rect.x), y: Math.round(rect.y) }) };
+      }
+      const cover = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      if (cover !== button && !button.contains(cover)) {
+        return { problem: '「记忆」按钮被别的元素挡住：' + (cover ? (cover.className || cover.tagName) : 'null') };
+      }
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`);
+    assert(!hit.problem, hit.problem);
+
+    // 用真鼠标点：hidden 元素用 element.click() 照样会触发事件，所以上面那组几何检查才是这条用例的关键。
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await cdp.sessionSend(session, "Input.dispatchMouseEvent", { type, x: hit.x, y: hit.y, button: "left", clickCount: 1 });
+    }
+    await waitFor("document.querySelector('.inspector-column').getAttribute('aria-hidden') === 'false'", 8000);
+    await waitFor("document.querySelectorAll('#memoryBookList .memory-book').length > 0", 8000);
+    const listed = await evaluate("document.querySelector('#memoryBookList').textContent");
+    assert(listed.indexOf("自动记忆") >= 0, "记忆栏里没列出真实记忆书：" + JSON.stringify(listed));
+
+    await evaluate("document.querySelector(\"[data-action='close-memories']\").click(); true");
+    await waitFor("document.querySelector('.inspector-column').getAttribute('aria-hidden') === 'true'", 8000);
+    reportErrors("index.html");
+  });
+
   // 每次发送后都等"这一轮彻底结束"再往下走：只看消息文本会被用户自己那句话误判成已完成。
   async function waitTurnSettled() {
     await waitFor(`(() => {

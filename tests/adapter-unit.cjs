@@ -616,6 +616,23 @@ async function main() {
     assert.ok(ids.length > 50, "id 数量看起来不对（正则失效？）：" + ids.length);
   });
 
+  await test("主要入口按钮不能带 hidden（用户点不到就等于没做）", () => {
+    // 2026-09-12：用户反馈"看不到记忆"。根因是顶栏那颗「记忆」按钮自带 hidden，
+    // 而整个前端没有任何代码把它摘掉——只有 window.TASK21.openMemoryPanel() 能开右栏。
+    // 端到端用例当时全都在调内部函数，所以一次也没碰到这个入口。这条在静态层面守着。
+    const root = path.join(__dirname, "..");
+    const html = fs.readFileSync(path.join(root, "app", "index.html"), "utf8");
+    for (const action of ["open-memories"]) {
+      const match = html.match(new RegExp('<button[^>]*data-action="' + action + '"[^>]*>'));
+      assert.ok(match, "index.html 里找不到入口按钮：" + action);
+      assert.ok(!/\shidden(\s|>)/.test(match[0]), "入口按钮带 hidden，用户点不到：" + match[0]);
+    }
+    // 能开也得能关，否则右栏一直挡着对话。
+    assert.ok(html.indexOf('data-action="close-memories"') >= 0, "记忆栏没有关闭按钮");
+    const appJs = fs.readFileSync(path.join(root, "app", "app.js"), "utf8");
+    assert.ok(appJs.indexOf('action === "open-memories"') >= 0, "app.js 里没有处理 open-memories 的动作");
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。

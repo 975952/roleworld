@@ -23,12 +23,29 @@ npx --yes --package @cloudbase/cli tcb hosting deploy app ^
 
 ### 发布后怎么核对
 
+一条命令（2026-09-12 起，替代以前手工比字节）：
+
+```powershell
+node scripts/verify-live.cjs
+```
+
+它会把本地 `app/` 下每个文件取回来，比字节数 + sha256，并额外钉三件事：
+线上 `version.json` 必须等于仓库版本、线上 `index.html` 必须有顶栏「记忆」按钮**且不带 `hidden`**、
+必须引用 PWA 清单。任何一处不一致都会以非 0 退出并列出文件名。
+
+想核别的域名：`node scripts/verify-live.cjs --host https://你的域名`。
+
+手工核对时仍然可以：
+
 1. `tcb hosting list -e cyan1-d2gpky2z903b86182`：远端应比本地多出 6 个 CloudBase 自带的
    系统文件（`__auth/*`、`cloud-admin/index.html`），其余必须与 `app/` 一一对应；
-2. 逐文件比对线上与本地字节数（带 `Cache-Control: no-cache` 绕开 CDN）；
-3. **注意**：CloudBase 边缘防护会对无头浏览器返回「风险提醒」页（HTTP 404），
-   而 `curl` / PowerShell 带同样的 User-Agent 能正常拿到 200 —— 所以
-   **自动化浏览器验收在这条链路上不可用，最终必须人眼在真实浏览器里点一次**。
+2. **注意**：CloudBase 边缘防护会对无头浏览器返回「风险提醒」页（HTTP 404），
+   而 `curl` / PowerShell / `verify-live.cjs` 能正常拿到 200 —— 所以
+   **自动化浏览器验收在这条链路上不可用，最终必须人眼在真实浏览器里点一次**；
+3. CDN 缓存通常几分钟内刷新；`verify-live.cjs` 自带 `Cache-Control: no-cache`，不必等。
+
+> 登录过期：`tcb` 的身份过期时命令会自己弹一个授权页（`tcb.cloud.tencent.com` 的 cli-auth + 用户码），
+> **这一步需要人点「同意」**；在授权完成前那条命令会以 `No valid identity information` 退出，点完重跑即可。
 
 ## 数据与模型边界
 

@@ -1,6 +1,6 @@
 {
   "name": "roleworld",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "private": true,
   "description": "角色世界 —— 本地优先的开源角色对话应用",
   "license": "MIT",
@@ -10,7 +10,8 @@
     "icons": "node scripts/make-icons.cjs",
     "desktop:prepare": "node scripts/prepare-desktop.cjs",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "verify:live": "node scripts/verify-live.cjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"
