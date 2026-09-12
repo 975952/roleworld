@@ -95,8 +95,9 @@
     pick("event-memory").forEach((node) => {
       node.checked = settings.auto_event_memory !== false;
     });
-    pick("full-chinese").forEach((node) => {
-      node.checked = settings.full_chinese !== false;
+    pick("language-mode").forEach((node) => {
+      // 默认 "auto" = 跟着角色卡自己写的语言（2026-09-12 用户改的默认值）。
+      node.value = settings.language_mode === "zh" || settings.language_mode === "en" ? settings.language_mode : "auto";
     });
     pick("price-input").forEach((node) => {
       if (document.activeElement !== node) node.value = Number(settings.price_input) > 0 ? settings.price_input : "";
@@ -268,8 +269,11 @@
     if (autoMemoryNode) patch.auto_memory = autoMemoryNode.checked === true;
     const eventMemoryNode = first("event-memory");
     if (eventMemoryNode) patch.auto_event_memory = eventMemoryNode.checked === true;
-    const fullChineseNode = first("full-chinese");
-    if (fullChineseNode) patch.full_chinese = fullChineseNode.checked === true;
+    const languageModeNode = first("language-mode");
+    if (languageModeNode) {
+      const value = languageModeNode.value;
+      patch.language_mode = value === "zh" || value === "en" ? value : "auto";
+    }
     const priceIn = first("price-input");
     const priceOut = first("price-output");
     if (priceIn) patch.price_input = Math.max(0, Number(priceIn.value) || 0);
@@ -390,9 +394,10 @@
       notify({ auto_event_memory: node.checked === true });
       saveAll();
     }));
-    // 全中文是即时开关：关掉之后下一轮就该按角色卡自己的语言来。
-    pick("full-chinese").forEach((node) => node.addEventListener("change", () => {
-      notify({ full_chinese: node.checked === true });
+    // 角色语言是即时开关：改完之后下一轮就按新语言走（单角色的覆盖在顶栏与「角色管理」里）。
+    pick("language-mode").forEach((node) => node.addEventListener("change", () => {
+      const value = node.value === "zh" || node.value === "en" ? node.value : "auto";
+      notify({ language_mode: value });
       saveAll();
     }));
     // 端点留空时用所选服务商的默认地址做占位提示，减少"不知道该填什么"的困惑。

@@ -263,11 +263,27 @@
   const REPLY_FORMAT_INSTRUCTION = `Separate narration from dialogue. NARRATION = actions, expressions, environment, and thoughts — plain text, no quotation marks. DIALOGUE = every word the character speaks out loud, ALWAYS wrapped in double quotes ("..."), including short exclamations like "What?" or "No." Never write any spoken word without double quotes. Put speech tags like "he says" or "he mutters" OUTSIDE and after the closing quote. Example: He steps back, frowning. "No. That's not right," he says, shaking his head. "Please stop." Narration and quoted dialogue may alternate in any order.`;
 
   /* ---------- 卡字段读取（兼容 V2 / V3 双形态） ---------- */
+  /** 语言档位归一：只认 "zh" / "en"，其余（"auto"、空、未设）都当"没强制"。 */
+  function normalizeLanguage(value) {
+    return value === "zh" || value === "en" ? value : null;
+  }
+
+  /** 玩家**明确选的**语言（设置里的全局默认，或某个角色的单独设置）。
+   *  没选 = null —— 那就按角色卡自己写的语言来，这也是默认行为：
+   *  哈利说英文、AI 建的中文角色说中文（2026-09-12 用户："默认应该是角色自身的语言"）。 */
+  function forcedLanguage(options) {
+    const asked = normalizeLanguage(options && options.language);
+    if (asked) return asked;
+    // 兼容旧调用点：0.1.24~0.1.26 用的是布尔 fullChinese。
+    if (options && options.fullChinese === true) return "zh";
+    return null;
+  }
+
   /** 语言要求那一行。**两处都用它**：系统提示中间一处、最后的格式指令里再强调一次。
-   *  options.fullChinese（设置里的「全中文模式」）压过角色卡自己的语言设置 ——
-   *  内置角色卡是英文的，但用的人多半只想看中文（2026-09-12 用户要求："有些人看不懂英文"）。 */
+   *  优先级：玩家在设置里选的（一律中文 / 一律英文）> 角色卡自己的语言。 */
   function languageLine(card, options) {
-    if (options && options.fullChinese === true) {
+    const forced = forcedLanguage(options);
+    if (forced === "zh") {
       // 中英各写一遍是刻意的：模型对"最后一条硬规则"最敏感，而英文那句是给
       // "整段历史都是英文、角色卡也是英文"的情况兜底的（实测只写中文时有时压不住，
       // 用户 2026-09-12 反馈"还是英文"）。
@@ -276,6 +292,15 @@
         + "即使之前的对话、开场白、角色卡都是英文，也从这一句开始换成中文；"
         + "先用中文把上一条的意思重说一遍，再继续。"
         + " (Hard requirement: reply in Simplified Chinese only — dialogue, narration and actions included — "
+        + "regardless of the character card language or the language of earlier messages.)";
+    }
+    if (forced === "en") {
+      // 与上面那条对称：中文那句是给"整段历史都是中文"的情况兜底的。
+      return "[Language] 一律用英文回复：台词、旁白、动作描写、称呼都用英文，不要夹中文句子。"
+        + "角色卡里的中文设定你自己看懂就行，不要照抄成中文原文。"
+        + "即使之前的对话、开场白、角色卡都是中文，也从这一句开始换成英文；"
+        + "先用英文把上一条的意思重说一遍，再继续。"
+        + " (Hard requirement: reply in English only — dialogue, narration and actions included — "
         + "regardless of the character card language or the language of earlier messages.)";
     }
     const language = cardLanguageOf(card);
@@ -298,6 +323,17 @@
     if (top === "zh" || top === "zh-cn" || top === "chinese") return "zh";
     if (top === "en" || top === "english") return "en";
     return null;
+  }
+
+  /** 设置 + 角色 → 玩家强制的语言（"zh" | "en" | null = 不强制、按角色卡自己写的来）。
+   *  优先级：这个角色的单独设置 > 「设置 → 模型」里的全局「角色语言」。
+   *  language_by_card 里存 "auto"（或没有这一项）都表示"跟随全局"。
+   *  2026-09-12 用户定的产品行为：默认跟着角色卡自己的语言，想一律中文/英文再自己开。 */
+  function languageFromSettings(settings, avatar) {
+    const map = (settings && settings.language_by_card) || {};
+    const own = normalizeLanguage(map[String(avatar === undefined || avatar === null ? "" : avatar)]);
+    if (own) return own;
+    return normalizeLanguage(settings && settings.language_mode);
   }
 
   function cardField(card, name) {
@@ -752,9 +788,16 @@
   }
 
   /* ---------- 组合 messages（系统提示 + 示例 + 历史 + 用户新输入） ---------- */
-  /** 全中文时贴近本轮输入的那条系统提醒（describeRequest 也要按同一份文本重建，所以抽成常量）。 */
-  const FULL_CHINESE_REMINDER = "[Language] 必须用简体中文回复：台词、旁白、动作描写都用中文，不要用英文。"
-    + "Reply ONLY in Simplified Chinese, including narration and actions.";
+  /** 玩家强制了语言时，贴近本轮输入的那条系统提醒（describeRequest 也要按同一份文本重建，所以抽成常量）。
+   *  只在"玩家自己选了语言"时插：按角色卡自己的语言说话时没有要压的东西，也就不多带这一条。 */
+  const LANGUAGE_REMINDERS = {
+    zh: "[Language] 必须用简体中文回复：台词、旁白、动作描写都用中文，不要用英文。"
+      + "Reply ONLY in Simplified Chinese, including narration and actions.",
+    en: "[Language] 必须用英文回复：台词、旁白、动作描写都用英文，不要用中文。"
+      + "Reply ONLY in English, including narration and actions.",
+  };
+  /** 0.1.24~0.1.26 只做全中文，这个名字留着给老引用用。 */
+  const FULL_CHINESE_REMINDER = LANGUAGE_REMINDERS.zh;
 
   function composeMessages(card, memoryBooks, history, userText, options) {
     const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, options) }];
@@ -763,11 +806,12 @@
       if (!h || typeof h.mes !== "string" || !h.mes) continue;
       msgs.push({ role: h.is_user ? "user" : "assistant", content: h.mes });
     }
-    // 全中文：在**用户这句话之前**再插一条系统提醒。
+    // 强制语言时：在**用户这句话之前**再插一条系统提醒。
     // 为什么非要这么近：系统提示在最前面，整段历史都是英文时，模型会跟着历史继续说英文
     // （用户 2026-09-12 连着两次反馈"还是英文"）。放在这里离当前这句最近，效果最直接。
     // 不塞进 user 消息里 —— 那会污染"用户原话"，记忆来源与改口解析都靠它。
-    if (options && options.fullChinese === true) msgs.push({ role: "system", content: FULL_CHINESE_REMINDER });
+    const reminder = LANGUAGE_REMINDERS[forcedLanguage(options)] || "";
+    if (reminder) msgs.push({ role: "system", content: reminder });
     msgs.push({ role: "user", content: userText });
     return msgs;
   }
@@ -797,7 +841,7 @@
         messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
           autoMemory: opts.autoMemory === true,
           autoEventMemory: opts.autoEventMemory !== false,
-          fullChinese: opts.fullChinese === true,
+          language: opts.language,
           extraSystem: opts.extraSystem,
           purpose: profile.purpose,
         }),
@@ -819,7 +863,7 @@
       messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
         autoMemory: opts.autoMemory === true,
         autoEventMemory: opts.autoEventMemory !== false,
-        fullChinese: opts.fullChinese === true,
+        language: opts.language,
         extraSystem: opts.extraSystem,
         purpose: profile.purpose,
       }),
@@ -868,8 +912,9 @@
     // 但不单独在面板里占一行，避免出现一堆没有意义的条目。
     const parts = systemPromptParts(card, memoryBooks, options.userText, {
       autoMemory,
-      // 「本次请求」面板必须和真正发出去的一致：这两个开关也要带上。
+      // 「本次请求」面板必须和真正发出去的一致：这几个开关也要带上。
       autoEventMemory: options.autoEventMemory !== false,
+      language: options.language,
       fullChinese: options.fullChinese === true,
       purpose: options.purpose,
     });
@@ -893,7 +938,7 @@
     }
     // 语言要求**两头都还有**：真正的系统提示是 `line + "\n\n" + body + … + format + "\n" + line`
     // （见 buildSystemPromptWithFormat），这里要照样补上，否则"逐字节一致"的核对会当场变红。
-    const panelLanguageLine = languageLine(card, { fullChinese: options.fullChinese === true });
+    const panelLanguageLine = languageLine(card, { language: options.language, fullChinese: options.fullChinese === true });
     if (panelLanguageLine && systemRows.length) {
       systemRows.unshift(
         { kind: "card-language", label: "语言要求", texts: [panelLanguageLine] },
@@ -953,8 +998,8 @@
     const history = (Array.isArray(options.history) ? options.history : []).filter((h) => h && typeof h.mes === "string" && h.mes);
     const exampleStart = 1;
     const historyStart = exampleStart + exampleTurns.length;
-    // 全中文时会多一条"贴近本轮输入"的语言提醒（见 composeMessages），位置也算清楚。
-    const reminderCount = options.fullChinese === true ? 1 : 0;
+    // 强制语言时会多一条"贴近本轮输入"的语言提醒（见 composeMessages），位置也算清楚。
+    const reminderCount = forcedLanguage(options) ? 1 : 0;
     const reminderStart = historyStart + history.length;
     const inputStart = reminderStart + reminderCount;
 
@@ -1626,7 +1671,12 @@
     REPLY_FORMAT_INSTRUCTION,
     cardField,
     cardLanguageOf,
+    languageFromSettings,
     languageLine,
+    forcedLanguage,
+    normalizeLanguage,
+    LANGUAGE_REMINDERS,
+    FULL_CHINESE_REMINDER,
     cardBookEntries,
     cardEntryKeywords,
     memoryEntryKeywords,

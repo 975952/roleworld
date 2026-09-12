@@ -775,48 +775,77 @@ async function main() {
     assert.equal(Card.describeCardError(200, null), null);
   });
 
-  await test("全中文模式：压过角色卡的语言设置（内置卡是英文的）", () => {
-    // 用户 2026-09-12：「再进入网站的位置加一个是否开启全中文的选项吧，有些人看不懂英文」。
+  await test("角色语言：默认跟角色卡自己，中文/英文是可开启的选项，且每个角色单独可设", () => {
+    // 用户 2026-09-12 定的两句话：
+    //   「应该是可以开启强制全部中文，默认应该是角色自身的语言」
+    //   「或者说要不每个角色都弄一个语言开关选项？」
     const Core22 = require(path.join(__dirname, "..", "app", "task22-core.js"));
     const enCard = { name: "Harry", description: "Boy.", personality: "", scenario: "", language: "en" };
     const zhCard = { name: "小明", description: "学生。", personality: "", scenario: "", language: "zh" };
-    const override = Core22.languageLine(enCard, { fullChinese: true });
-    assert.ok(override.indexOf("一律用简体中文回复") >= 0, "没给出全中文要求：" + override);
-    assert.ok(override.indexOf("English only") < 0, "开着全中文就不该再要求说英文");
-    assert.ok(override.indexOf("先用中文把上一条的意思重说一遍") >= 0, "英文开场白也要被翻过来：" + override);
-    assert.ok(override.indexOf("Hard requirement") >= 0, "要有一句英文硬要求兜底（整段历史是英文时更管用）");
+    const noLangCard = { name: "无名", description: "?", personality: "", scenario: "" };
 
-    const on = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: true });
-    const off = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: false });
-    const legacy = Core22.buildSystemPrompt(enCard, [], "你好", {});
-    assert.ok(on.indexOf("一律用简体中文回复") >= 0, "全中文没进系统提示");
-    assert.equal(on.indexOf("English only"), -1, "开着全中文却还带着英文要求");
-    // 聊天页走的是带格式指令的那份：语言要求两头都要有（中间一处 + 格式指令之后再一处），
-    // 只留一处实测会漏（"旁白英文、台词中文"）。
-    const withFormat = Core22.buildSystemPromptWithFormat(enCard, [], "你好", null, { fullChinese: true });
+    // ① 默认（什么都不设）：按角色卡自己写的语言说话 —— 英文卡要英文、中文卡要中文。
+    assert.ok(Core22.buildSystemPrompt(enCard, [], "你好", {}).indexOf("English only") >= 0, "默认应当按角色卡说英文");
+    assert.equal(Core22.buildSystemPrompt(enCard, [], "你好", {}).indexOf("一律用简体中文回复"), -1, "默认不该强制中文");
+    assert.ok(Core22.buildSystemPrompt(zhCard, [], "你好", {}).indexOf("这个角色说简体中文") >= 0, "中文卡应当要求中文");
+    assert.equal(Core22.buildSystemPrompt(noLangCard, [], "你好", {}).indexOf("[Language]"), -1,
+      "角色卡没写语言就不加语言约束（跟着玩家说）");
+
+    // ② 一律中文：压过角色卡 —— 这就是"有些人看不懂英文"那条路。
+    const zhLine = Core22.languageLine(enCard, { language: "zh" });
+    assert.ok(zhLine.indexOf("一律用简体中文回复") >= 0, "没给出全中文要求：" + zhLine);
+    assert.ok(zhLine.indexOf("English only") < 0, "开着全中文就不该再要求说英文");
+    assert.ok(zhLine.indexOf("先用中文把上一条的意思重说一遍") >= 0, "英文开场白也要被翻过来：" + zhLine);
+    assert.ok(zhLine.indexOf("Hard requirement") >= 0, "要有一句英文硬要求兜底（整段历史是英文时更管用）");
+    // 一律英文是对称的一条（中文卡也能被要求说英文）。
+    const enLine = Core22.languageLine(zhCard, { language: "en" });
+    assert.ok(enLine.indexOf("一律用英文回复") >= 0, "没有一律英文的要求：" + enLine);
+    assert.ok(enLine.indexOf("English only") >= 0, "一律英文里要有一句英文硬要求：" + enLine);
+    assert.ok(enLine.indexOf("一律用简体中文回复") < 0, "强制英文时不该再要求中文");
+
+    // ③ 语言要求**两头都要有**（中间一处 + 格式指令之后再一处）：
+    //    只留一处实测会漏（"旁白英文、台词中文"）。
+    const withFormat = Core22.buildSystemPromptWithFormat(enCard, [], "你好", null, { language: "zh" });
     assert.ok(withFormat.split("一律用简体中文回复").length - 1 >= 2, "全中文要求应当出现两次：" + withFormat.slice(-200));
     assert.ok(withFormat.lastIndexOf("一律用简体中文回复") > withFormat.indexOf(Core22.REPLY_FORMAT_INSTRUCTION),
       "结尾那处必须在格式指令之后，否则会被盖过去");
-    // 还有第三处：紧贴用户这句话之前的一条系统提醒。
-    // 整段历史都是英文时，只靠最前面那句压不住（用户 2026-09-12 连着两次反馈"还是英文"）。
+
+    // ④ 第三处：紧贴用户这句话之前的一条系统提醒 —— **只在玩家自己选了语言时**才插。
+    //    整段历史都是英文时，只靠最前面那句压不住（用户 2026-09-12 连着两次反馈"还是英文"）。
     const messages = Core22.buildGeneratePayload({
       card: enCard, memoryBooks: [], history: [{ is_user: false, mes: "Harry stares at you." }],
-      userText: "在吗", engine: "A", mode: "local", settings: {}, fullChinese: true,
+      userText: "在吗", engine: "A", mode: "local", settings: {}, language: "zh",
     }).messages;
     assert.equal(messages[messages.length - 1].role, "user", "最后一条应当是用户这句话");
     assert.equal(messages[messages.length - 2].role, "system", "用户这句话之前应当有一条语言提醒");
     assert.ok(messages[messages.length - 2].content.indexOf("必须用简体中文回复") >= 0,
       "语言提醒内容不对：" + messages[messages.length - 2].content);
-    // 关掉之后不该多出这条消息（老行为一个字都不变）。
-    const withoutFlag = Core22.buildGeneratePayload({
+    const enMessages = Core22.buildGeneratePayload({
+      card: zhCard, memoryBooks: [], history: [], userText: "在吗", engine: "A", mode: "local", settings: {}, language: "en",
+    }).messages;
+    assert.ok(enMessages[enMessages.length - 2].content.indexOf("必须用英文回复") >= 0,
+      "一律英文时也该贴一条英文提醒：" + JSON.stringify(enMessages[enMessages.length - 2]));
+    // 默认（跟着角色卡）不多这条消息：既然按角色卡说话，就没有要压的东西。
+    const byCard = Core22.buildGeneratePayload({
       card: enCard, memoryBooks: [], history: [], userText: "在吗", engine: "A", mode: "local", settings: {},
     }).messages;
-    assert.equal(withoutFlag[withoutFlag.length - 2].content.indexOf("必须用简体中文回复"), -1,
-      "没开全中文却插了语言提醒");
-    assert.ok(off.indexOf("English only") >= 0, "关掉之后应当回到角色卡自己的语言");
-    assert.ok(legacy.indexOf("English only") >= 0, "不传这个选项时保持原行为（老调用方不受影响）");
-    // 中文卡开着也不冲突：仍然是"只用中文"。
-    assert.ok(Core22.buildSystemPrompt(zhCard, [], "你好", { fullChinese: true }).indexOf("一律用简体中文回复") >= 0);
+    assert.equal(byCard.length, 2, "默认不该多出语言提醒：" + byCard.length);
+
+    // ⑤ 老调用点（0.1.24~0.1.26 的布尔 fullChinese）继续可用，等价于"一律中文"。
+    assert.ok(Core22.languageLine(enCard, { fullChinese: true }).indexOf("一律用简体中文回复") >= 0);
+    assert.ok(Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: false }).indexOf("English only") >= 0,
+      "老调用点传 false 时保持原行为");
+
+    // ⑥ 两级设置：**单个角色的设置压过全局默认** —— "每个角色一个语言开关"就是这一条。
+    const mixed = { language_mode: "auto", language_by_card: { "Harry Potter (EN).png": "zh" } };
+    assert.equal(Core22.languageFromSettings(mixed, "Harry Potter (EN).png"), "zh", "单角色设置没生效");
+    assert.equal(Core22.languageFromSettings(mixed, "Hermione Granger (EN).png"), null, "没设过的角色应当按角色卡来");
+    assert.equal(Core22.languageFromSettings({ language_mode: "zh" }, "Harry Potter (EN).png"), "zh", "全局默认没生效");
+    assert.equal(Core22.languageFromSettings({ language_mode: "zh", language_by_card: { "Harry Potter (EN).png": "en" } },
+      "Harry Potter (EN).png"), "en", "单角色设置应当压过全局");
+    assert.equal(Core22.languageFromSettings({ language_mode: "auto", language_by_card: { "x.png": "auto" } }, "x.png"), null,
+      "单角色选「跟随设置」时应当落回全局/角色卡");
+    assert.equal(Core22.languageFromSettings({}, "x.png"), null, "什么都没有时 = 不强制（默认）");
   });
 
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {

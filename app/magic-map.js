@@ -457,8 +457,9 @@
     // 以前这里只是"碰巧"没有对话页那条格式指令，现在它是显式的选择。
     var base = window.TASK22_CORE.buildSystemPrompt(card, booksFor(avatar), promptText, {
       purpose: "scene",
-      // 剧情模式页也要跟着「全中文」设置走（内置角色卡是英文的）。
-      fullChinese: runtime.fullChinese !== false,
+      // 剧情模式页也走同一套语言设置：默认跟角色卡自己的语言，
+      // 谁被单独设成"一律中文/英文"就按那个来（设置里两处都能改）。
+      language: languageFor(avatar),
     });
     var lastSpeaker = lastSpeakerBefore(avatar);
     var system = base + "\n\n" + sceneDirective(avatar, others, lastSpeaker);
@@ -688,8 +689,16 @@
       }
     } catch (_) { /* 读不到就用默认值 */ }
     runtime.modelName = String(settings.model || "");
-    runtime.fullChinese = settings.full_chinese !== false;
+    // 语言设置整份留着：每个角色一个开关，取的时候按 avatar 现算（见 languageFor）。
+    runtime.settings = settings;
     runtime.modelMode = settings.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
+  }
+
+  /** 这个角色该说什么语言："zh" | "en" | null（null = 按角色卡自己写的语言，这是默认）。 */
+  function languageFor(avatar) {
+    var core = window.TASK22_CORE;
+    if (!core || typeof core.languageFromSettings !== "function") return null;
+    return core.languageFromSettings(runtime.settings || {}, avatar);
   }
 
   async function useCardScenario() {

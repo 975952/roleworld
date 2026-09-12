@@ -527,6 +527,10 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .character-manage-avatar { width: 34px; height: 34px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--hairline); border-radius: 8px; background: var(--hover); }
 .character-manage-detail { overflow: hidden; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .character-manage-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+/* 2026-09-12 角色语言：每个角色一个开关（跟随设置 / 一律中文 / 一律英文）。
+   默认"跟随设置"= 按角色卡自己写的语言说话，所以大多数行都停在这一档。 */
+.character-manage-language { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-text); font-size: 11px; white-space: nowrap; }
+.character-manage-language select { padding: 6px 22px 6px 8px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); cursor: pointer; }
 
 
 /* Task-33A: builtin-character badge (lightweight, no bold/dark border). */
@@ -911,6 +915,8 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .card-chip[data-level="ok"] { color: var(--secondary-text); }
 .card-chip[data-level="warn"] { color: #f0b45a; border-color: rgba(240, 180, 90, .5); }
 .card-chip[data-level="bad"] { color: #ff7a7a; border-color: rgba(255, 122, 122, .55); }
+/* 顶栏「语言」：当前角色说什么语言（每个角色一个），比模型那条窄一点。 */
+.chat-language select { max-width: 104px; }
 .settings-row-key { align-items: center; }
 .key-actions { display: flex; align-items: center; gap: 8px; }
 .key-actions input { width: 220px; padding: 7px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); }

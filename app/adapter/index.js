@@ -61,9 +61,14 @@
     auto_event_memory: true,
     // 体验卡用的中转地址（用过体验卡才会写入）。卡号本身存在密钥位，不在这里、也不进导出存档。
     card_relay: "",
-    // 全中文：界面本来就是中文，这一项管的是**角色说什么语言**。
-    // 内置角色卡是英文的，但用的人多半只想看中文（"有些人看不懂英文"），所以默认开。
-    full_chinese: true,
+    // 角色语言：界面本来就是中文，这一项管的是**角色说什么语言**。
+    //   "auto"（默认）= 跟着角色卡自己写的语言走 —— 英文卡说英文、中文卡说中文。
+    //   "zh" / "en"  = 一律中文 / 一律英文（看不懂英文的人把它设成 zh）。
+    // 2026-09-12 用户定的默认："默认应该是角色自身的语言"，强制中文改成可开启的选项。
+    // （旧版那个布尔 full_chinese 已退役：不再读它，见 language_by_card 的注释。）
+    language_mode: "auto",
+    // 单个角色的语言覆盖：{ "<角色卡文件名>": "zh" | "en" }；没有这一项或 "auto" = 跟随全局。
+    language_by_card: {},
     // 每个角色最多保留多少条自动记忆（超出挤掉最旧的）。0 或未设 = 用默认 50。
     auto_memory_max: 50,
     // 旧对话最多占多少 token。**0 = 不限制**（默认）：官方上下文 1M，
@@ -148,6 +153,12 @@
   async function getLocalSettings() {
     const stored = await Store.getKV(SETTINGS_KEY, null);
     const settings = Object.assign({}, DEFAULT_LOCAL_SETTINGS, stored || {});
+    // language_by_card 是个对象：绝不能让调用方拿到和默认值同一份引用，否则"改一个角色"
+    // 会把这一整轮会话的默认值一起改掉。每次都克隆一份。
+    settings.language_by_card = Object.assign({}, (stored && stored.language_by_card) || {});
+    // 退役的旧键：0.1.24~0.1.26 的布尔 full_chinese（当时的默认值是 true，等于"没选过也是中文"）。
+    // 新默认是"跟着角色卡自己的语言"，所以这个键不再参与判断，也不再往存档里带。
+    delete settings.full_chinese;
     // Upgrade retired official aliases only; third-party model IDs remain untouched.
     if (settings.provider === "deepseek" && (!settings.endpoint || Model.providerForEndpoint(settings.endpoint) === "deepseek") &&
         ["deepseek-v4-flash", "deepseek-v4-flash-0731", "deepseek-v4-flash-vision-exp", "deepseek-v4.1-flash-expires-on-0910", "deepseek-chat", "deepseek-reasoner"].includes(settings.model)) {

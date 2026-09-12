@@ -87,7 +87,7 @@
 
   <section>
     <h2>版本与状态</h2>
-    <p>当前版本 <code>0.1.26</code>。下面这些数字来自最近一次全量测试，每次改动都会重跑。</p>
+    <p>当前版本 <code>0.1.27</code>。下面这些数字来自最近一次全量测试，每次改动都会重跑。</p>
     <pre id="status-json" style="overflow:auto;background:rgba(127,127,127,.12);border-radius:8px;padding:12px;font-size:12px;line-height:1.6;">加载中…</pre>
     <p class="lead" style="margin-top:10px;">机器可读的那一份在页面源码里的 <code>&lt;script type="application/json" id="roleworld-status"&gt;</code>。</p>
   </section>
@@ -165,22 +165,22 @@
 <script type="application/json" id="roleworld-status">
 {
   "name": "角色世界",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "license": "MIT",
   "updated": "2026-09-12",
   "runs": {
     "command": "npm test",
     "suites": [
-      { "name": "adapter-unit", "checks": 114, "covers": "数据层 / 模型请求 / 存档 / 草稿解析 / 记忆归属 / 语言约束（含全中文模式）/ 历史预算 / 用途档案 / 生成参数 / 上下文与输出上限 / 价格 / 仓库卫生 / 无主动提醒机制 / 无账号入口 / 重复 id / 入口按钮可见 / 内置包示例记忆清理 / 事件记忆标记与注入前缀 / 体验卡（解析 / 徽标 / 额度 / 错误文案）/ 版本号与 PWA 清单" },
+      { "name": "adapter-unit", "checks": 114, "covers": "数据层 / 模型请求 / 存档 / 草稿解析 / 记忆归属 / 角色语言（默认跟角色卡、可一律中文/英文、可按角色覆盖）/ 历史预算 / 用途档案 / 生成参数 / 上下文与输出上限 / 价格 / 仓库卫生 / 无主动提醒机制 / 无账号入口 / 重复 id / 入口按钮可见 / 内置包示例记忆清理 / 事件记忆标记与注入前缀 / 体验卡（解析 / 徽标 / 额度 / 错误文案）/ 版本号与 PWA 清单" },
       { "name": "memory-unit", "checks": 47, "covers": "记忆的来源、去重、改口替换、上限挤出、删除、记忆取向、「说得对」、条目标题（迁移痕迹不当标题）与事件记忆（不冒充事实、挤占时先走）" },
       { "name": "search-unit", "checks": 21, "covers": "关键词检索、出处、翻不到时的诚实说明、引用判定" },
       { "name": "metrics-unit", "checks": 15, "covers": "台账：延迟、用量、费用、人工标记、按用途分开统计" },
       { "name": "companion-unit", "checks": 27, "covers": "关系档案、时间感、硬规矩、内疚话术自检、上次说到" },
-      { "name": "local-app-check", "checks": 69, "covers": "真实浏览器：顶栏入口可点、体验卡链接直接可用且顶栏显示剩余次数、进门可见全中文开关、关于里显示运行版本并与线上对照、内置包示例记忆清理、原著剧情书按角色归属、事件记忆、发送、保存、记忆、检索、引用、伴侣模式、记忆取向、截断提示、生成参数、AI 写角色、设置" },
+      { "name": "local-app-check", "checks": 69, "covers": "真实浏览器：顶栏入口可点、体验卡链接直接可用且顶栏显示剩余次数、进门可见「全中文」选项（默认不勾）、角色语言默认跟角色卡且可按角色单独改、关于里显示运行版本并与线上对照、内置包示例记忆清理、原著剧情书按角色归属、事件记忆、发送、保存、记忆、检索、引用、伴侣模式、记忆取向、截断提示、生成参数、AI 写角色、设置" },
       { "name": "viewport-check", "checks": 35, "covers": "1440/1280/768/390/320 五种宽度的布局、可点区域与预估行不挤坏输入区" },
       { "name": "data-integrity", "checks": 11, "covers": "存档往返、长对话压力、隐私出口自查" },
       { "name": "offline-check", "checks": 7, "covers": "PWA 清单与图标、离线壳接管、断网后仍能打开并读到本机数据、新版提示、平台提示页不覆盖缓存" },
-      { "name": "relay-check", "checks": 20, "covers": "体验卡中转：卡校验（不存在/停用/过期/用完/吊销）、用量记账、SSE 原样透传、CORS、管理接口，以及两条硬规矩（账本只有哈希、日志没有正文）" }
+      { "name": "relay-check", "checks": 28, "covers": "体验卡中转：卡校验（不存在/停用/过期/用完/吊销）、用量记账、SSE 原样透传、CORS、管理接口，以及两条硬规矩（账本只有哈希、日志没有正文）" }
     ],
     "allGreen": true
   },

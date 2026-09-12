@@ -788,6 +788,8 @@ async function refreshCharacterManagement() {
   if (!list || !window.STApi || typeof window.STApi.listCharacters !== "function") return;
   try {
     const cards = await fetchCharacterCards();
+    // 每个角色那一行要显示"当前是什么语言"，所以先把设置读出来（读不到就全按"跟随设置"）。
+    await loadLanguageSettings();
     renderCharacterManagement(cards);
     if (count) count.textContent = `${cards.length} 个角色`;
   } catch (error) {
@@ -824,6 +826,49 @@ function setSidebarCharacter(avatar, visible) {
   updateCharacterManageHint();
   // 立刻刷新侧栏，不用退出设置再进来。
   if (window.TASK21 && typeof window.TASK21.renderChatList === "function") window.TASK21.renderChatList();
+}
+
+// ---- 角色语言（每个角色一个开关）----
+// 默认"跟随设置"：按角色卡自己写的语言说话（内置英文卡说英文、中文卡说中文）。
+// 单角色的覆盖存在设置的 language_by_card 里，和对话页顶栏那个下拉是同一份数据。
+let languageSettings = { language_mode: "auto", language_by_card: {} };
+
+async function loadLanguageSettings() {
+  try {
+    if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
+      const settings = await window.RoleWorld.getLocalSettings();
+      languageSettings = {
+        language_mode: settings.language_mode === "zh" || settings.language_mode === "en" ? settings.language_mode : "auto",
+        language_by_card: Object.assign({}, settings.language_by_card || {}),
+      };
+    }
+  } catch (_) { /* 读不到就都按"跟随设置"显示 */ }
+  return languageSettings;
+}
+
+function characterLanguageValue(avatar) {
+  const own = (languageSettings.language_by_card || {})[String(avatar || "")];
+  return own === "zh" || own === "en" ? own : "auto";
+}
+
+async function setCharacterLanguage(avatar, value) {
+  const key = String(avatar || "");
+  if (!key || !window.RoleWorld) return;
+  const next = Object.assign({}, languageSettings.language_by_card || {});
+  // 选「跟随设置」就把这一项删掉（存成 "auto" 也算对，但留着空记录只会让数据变脏）。
+  if (value === "zh" || value === "en") next[key] = value;
+  else delete next[key];
+  languageSettings = Object.assign({}, languageSettings, { language_by_card: next });
+  await window.RoleWorld.saveLocalSettings({ language_by_card: next });
+  // 对话页顶栏那个下拉与下一轮请求读的是同一份设置，广播一下让它立刻跟上。
+  window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { language_by_card: next } }));
+}
+
+/** 别处改了语言（顶栏下拉 /「设置 → 模型 → 角色语言」）之后，把这一列下拉同步过来。 */
+function syncCharacterLanguageSelects() {
+  document.querySelectorAll("[data-character-language]").forEach((node) => {
+    node.value = characterLanguageValue(node.dataset.characterLanguage);
+  });
 }
 
 function updateCharacterManageHint() {
@@ -896,6 +941,26 @@ function renderCharacterManagement(cards) {
     row.appendChild(copy);
     const actions = document.createElement("div");
     actions.className = "character-manage-actions";
+    // 语言开关：**每个角色一个**（2026-09-12 用户要求）。
+    // 默认"跟随设置" = 按角色卡自己写的语言说话；也可以只给这一个角色改成一律中文/英文。
+    const langWrap = document.createElement("label");
+    langWrap.className = "character-manage-language";
+    langWrap.title = "这个角色说什么语言。默认跟着角色卡自己写的语言；全局默认在「设置 → 模型 → 角色语言」。";
+    const langLabel = document.createElement("span");
+    langLabel.textContent = "语言";
+    const langSelect = document.createElement("select");
+    langSelect.dataset.characterLanguage = card.avatar;
+    langSelect.setAttribute("aria-label", `${card.name || card.avatar} 说什么语言`);
+    for (const [value, text] of [["auto", "跟随设置"], ["zh", "一律中文"], ["en", "一律英文"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      langSelect.appendChild(option);
+    }
+    langSelect.value = characterLanguageValue(card.avatar);
+    langSelect.addEventListener("change", () => { setCharacterLanguage(card.avatar, langSelect.value).catch(() => {}); });
+    langWrap.append(langLabel, langSelect);
+    actions.appendChild(langWrap);
     // 侧栏开关：每个角色一个，状态本机持久化；关掉只影响侧栏展示。
     const sidebarToggle = document.createElement("label");
     sidebarToggle.className = "character-manage-sidebar";
@@ -1287,6 +1352,11 @@ window.addEventListener("roleworld:nickname-changed", (event) => {
   const value = event && event.detail ? event.detail.nickname : "";
   if (value && accountCore) state.preferences = Object.assign({}, state.preferences, { nickname: accountCore.nicknameValue(value) });
   applyPreferences();
+});
+
+// 语言设置在别处改了（对话页顶栏 /「设置 → 模型」）：「角色管理」里那一列下拉要同步。
+window.addEventListener("roleworld:settings-changed", () => {
+  loadLanguageSettings().then(syncCharacterLanguageSelects).catch(() => {});
 });
 
 window.TASK25C_UI = {

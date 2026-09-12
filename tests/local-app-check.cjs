@@ -310,6 +310,8 @@ async function main() {
       } catch (_) {}
       window.__ROLEWORLD_FIXTURE__ = {
         characters: [
+          // 这张卡**故意不写语言标记**：没有语言约束就是"跟着玩家说"，
+          // 也是伴侣段落走中文那条路的唯一现场（英文标记的卡下面 Hermione 有，那条路另有用例）。
           { avatar: "Harry Potter (EN).png", name: "Harry Potter", description: "被选中的男孩。",
             personality: "勇敢", scenario: "霍格沃茨", first_mes: "你好。", mes_example: "",
             spec: "chara_card_v3", spec_version: "3.0",
@@ -2328,8 +2330,9 @@ async function main() {
     }
   });
 
-  await check("全中文：进门默认就是中文，关掉之后回到角色卡自己的语言", async () => {
-    // 用户 2026-09-12：「有些人看不懂英文」——所以默认开，且开关一改下一轮就生效。
+  await check("角色语言：默认跟角色卡自己（英文卡说英文），每个角色可以在顶栏单独开成中文", async () => {
+    // 用户 2026-09-12 的两句话定了这件事：
+    //   「应该是可以开启强制全部中文，默认应该是角色自身的语言」+「每个角色都弄一个语言开关选项」。
     const streamedCount = () => requests.filter((row) => row.stream === true).length;
     const waitForNewTurn = async (minCount) => {
       for (let i = 0; i < 80; i += 1) {
@@ -2351,39 +2354,106 @@ async function main() {
       assert(await waitForNewTurn(before + 1), "这一句没有真的发出去");
       await waitTurnSettled();
     };
+    const lastTurn = () => {
+      const sent = requests.filter((row) => row.stream === true);
+      return sent[sent.length - 1];
+    };
 
+    // ① 默认：不强制任何语言（这张卡的卡面没写语言 → 跟着玩家说），更没有那条"贴近本轮输入"的提醒。
+    //    上一版（0.1.24~0.1.26）默认是"一律中文"，现在改成"角色自己的语言"。
     await send("在吗？");
-    let sent = requests.filter((row) => row.stream === true);
-    const firstTurn = sent[sent.length - 1];
-    assert(firstTurn.systemText.indexOf("一律用简体中文回复") >= 0,
-      "默认没有要求全中文：" + firstTurn.systemText.slice(-200));
-    // 语言提醒必须**紧贴用户这句话**（整段历史是英文时，只有最前面那句压不住）。
-    assert(firstTurn.tailMessages[0].role === "system"
-      && firstTurn.tailMessages[0].text.indexOf("必须用简体中文回复") >= 0,
-      "最后一条系统提醒不在用户这句话之前：" + JSON.stringify(firstTurn.tailMessages));
-    assert(firstTurn.tailMessages[1].role === "user", "用户那句话应当紧跟其后：" + JSON.stringify(firstTurn.tailMessages));
+    const firstTurn = lastTurn();
+    assert(firstTurn.systemText.indexOf("一律用简体中文回复") < 0,
+      "默认不该强制中文：" + firstTurn.systemText.slice(-200));
+    assert(firstTurn.systemText.indexOf("[Language]") < 0,
+      "卡面没写语言时不加语言约束（跟着玩家说）：" + firstTurn.systemText.slice(-200));
+    assert(firstTurn.tailMessages[0].role !== "system" && firstTurn.tailMessages[1].role === "user",
+      "默认不该插语言提醒（尾巴应当是上一条回复 + 这句话）：" + JSON.stringify(firstTurn.tailMessages));
 
-    // 在设置里关掉这个开关（即时生效，不用刷新）
+    // ② 顶栏那个「语言」下拉＝**这个角色**的开关：改成"一律中文"，下一轮就生效（不刷新、不重开对话）。
+    const lang = await evaluate(`(() => {
+      const select = document.querySelector('#chatLangSelect');
+      if (!select) return { exists: false };
+      const box = select.getBoundingClientRect();
+      const before = select.value;
+      select.value = 'zh';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { exists: true, before: before, w: Math.round(box.width), h: Math.round(box.height) };
+    })()`);
+    assert(lang.exists, "顶栏没有「语言」开关（每个角色一个语言开关就靠它）");
+    assert(lang.before === "auto", "默认这一档应当是「跟随设置」，实际是 " + lang.before);
+    assert(lang.w > 0 && lang.h > 0, "「语言」开关点了没用（看不见/不占位置）：" + JSON.stringify(lang));
+    await waitFor("(async () => (await RoleWorld.getLocalSettings()).language_by_card['Harry Potter (EN).png'] === 'zh')()", 8000);
+
+    await send("再说一句");
+    const zhTurn = lastTurn();
+    assert(zhTurn.systemText.indexOf("一律用简体中文回复") >= 0,
+      "改成中文之后没有要求中文：" + zhTurn.systemText.slice(-200));
+    // 语言提醒必须**紧贴用户这句话**（整段历史是英文时，只有最前面那句压不住）。
+    assert(zhTurn.tailMessages[0].role === "system"
+      && zhTurn.tailMessages[0].text.indexOf("必须用简体中文回复") >= 0,
+      "最后一条系统提醒不在用户这句话之前：" + JSON.stringify(zhTurn.tailMessages));
+    assert(zhTurn.tailMessages[1].role === "user", "用户那句话应当紧跟其后：" + JSON.stringify(zhTurn.tailMessages));
+    // 只记在这一个角色上（别的角色不受影响）。
+    const langMap = await evaluate("(async () => (await RoleWorld.getLocalSettings()).language_by_card)()");
+    assert(Object.keys(langMap).length === 1 && langMap["Harry Potter (EN).png"] === "zh",
+      "语言开关应当只记在这一个角色上：" + JSON.stringify(langMap));
+
+    // 改回「跟随设置」= 不再覆盖这个角色（存的记录要清掉，不留空记录）。
+    await evaluate(`(() => {
+      const select = document.querySelector('#chatLangSelect');
+      select.value = 'auto';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(async () => Object.keys((await RoleWorld.getLocalSettings()).language_by_card).length === 0)()", 8000);
+
+    // ③ 全局那一档（「设置 → 模型 → 角色语言」）管所有没单独设过的角色。
     await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
     await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
     await evaluate(`(() => {
-      const box = document.querySelector('[data-roleworld="full-chinese"]');
-      box.checked = false;
+      const box = document.querySelector('[data-roleworld="language-mode"]');
+      if (!box) return false;
+      box.value = 'zh';
       box.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor("(async () => (await RoleWorld.getLocalSettings()).full_chinese === false)()", 8000);
+    await waitFor("(async () => (await RoleWorld.getLocalSettings()).language_mode === 'zh')()", 8000);
     await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
     await waitFor("document.querySelector('#settingsSurface').hidden === true", 6000);
+    await send("第三句");
+    assert(lastTurn().systemText.indexOf("一律用简体中文回复") >= 0,
+      "全局「角色语言 = 一律简体中文」没生效：" + lastTurn().systemText.slice(-200));
 
-    await send("再说一句");
-    sent = requests.filter((row) => row.stream === true);
-    assert(sent[sent.length - 1].systemText.indexOf("一律用简体中文回复") < 0,
-      "关掉之后不该还在要求全中文：" + sent[sent.length - 1].systemText.slice(-200));
+    // ④「设置 → 角色管理」里每个角色都有一份同样的开关（和顶栏那份是同一份设置）。
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
+    await evaluate("window.TASK25C_UI.setSettingsSection('characters'); true");
+    await waitFor("!!document.querySelector('[data-character-language]')", 8000);
+    const rows = await evaluate("(() => Array.from(document.querySelectorAll('[data-character-language]'))"
+      + ".map((n) => ({ avatar: n.dataset.characterLanguage, value: n.value })))()");
+    assert(rows.length >= 2, "角色管理里每个角色都该有语言开关：" + JSON.stringify(rows));
+    assert(rows.every((row) => row.value === "auto"), "没单独设过的角色应当显示「跟随设置」：" + JSON.stringify(rows));
 
-    // 恢复默认，别影响后面的用例。
-    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ full_chinese: true }); return true; })()");
-    await evaluate("window.dispatchEvent(new CustomEvent('roleworld:settings-changed', { detail: { full_chinese: true } })); true");
+    // 在这一行把 Harry 改成「一律英文」：全局仍是中文，但它单独压过全局。
+    await evaluate(`(() => {
+      const node = document.querySelector('[data-character-language="Harry Potter (EN).png"]');
+      node.value = 'en';
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(async () => (await RoleWorld.getLocalSettings()).language_by_card['Harry Potter (EN).png'] === 'en')()", 8000);
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 6000);
+    await send("第四句");
+    assert(lastTurn().systemText.indexOf("一律用英文回复") >= 0,
+      "单个角色改成英文没生效：" + lastTurn().systemText.slice(-200));
+    assert(lastTurn().systemText.indexOf("一律用简体中文回复") < 0,
+      "单个角色的设置应当压过全局中文：" + lastTurn().systemText.slice(-200));
+
+    // 恢复默认（全局 auto、没有单角色覆盖），别影响后面的用例。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ language_mode: 'auto', language_by_card: {} }); return true; })()");
+    await evaluate("window.dispatchEvent(new CustomEvent('roleworld:settings-changed', { detail: { language_mode: 'auto', language_by_card: {} } })); true");
   });
 
   await check("账号相关入口不可见", async () => {
@@ -2418,13 +2488,14 @@ async function main() {
     const first = await evaluate("document.querySelector('.rw-ob h2').textContent");
     assert(first.indexOf("欢迎") >= 0, "引导首页标题是：" + first);
     assert(await evaluate("document.querySelector('[data-ob=\"skip\"]') === null"), "不该有「跳过」按钮");
-    // 进门就要能看到「全中文」这个选项（有人看不懂英文），而且默认是勾上的。
+    // 进门就能看到「全中文」这个选项（有人看不懂英文），但**默认不勾** ——
+    // 默认是"角色说自己的语言"（2026-09-12 用户改的默认值）。
     const chineseBox = await evaluate(`(() => {
-      const box = document.querySelector('[data-ob="full-chinese"]');
+      const box = document.querySelector('[data-ob="language-zh"]');
       return box ? { exists: true, checked: box.checked === true, text: box.parentElement.textContent.trim() } : { exists: false };
     })()`);
     assert(chineseBox.exists, "引导首页没有「全中文」选项");
-    assert(chineseBox.checked, "「全中文」应当默认勾上：" + JSON.stringify(chineseBox));
+    assert(!chineseBox.checked, "「全中文」不该默认勾上（默认跟角色卡自己的语言）：" + JSON.stringify(chineseBox));
     assert(chineseBox.text.indexOf("简体中文") >= 0, "选项文案要说清楚管的是角色说什么语言：" + chineseBox.text);
 
     // 之前出现过「黑字压在深色背景上完全看不见」，这里直接算对比度。

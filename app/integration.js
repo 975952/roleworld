@@ -395,6 +395,8 @@
     if (title) title.textContent = full;
     const brand = document.querySelector("#sidebarBrandName");
     if (brand) brand.textContent = "角色世界";
+    // 语言是"每个角色一个"的：换了角色，顶栏那个下拉也要跟着换（同一个函数，别处不用再管）。
+    syncChatLanguageControl();
   }
 
   function setChatListStatus(message, canRetry = false) {
@@ -1626,8 +1628,12 @@
     return next;
   }
 
-  /** 卡片语言：英文卡要拿英文的伴侣段落，否则整段中文会把角色带跑。 */
+  /** 伴侣段落的语言：**跟这个角色这一轮实际说的语言一致**。
+   *  玩家强制了中文/英文就用那个（否则整段中文规则会被英文段落带跑，反过来也一样）；
+   *  没强制就看卡片语言 —— 英文卡要拿英文的伴侣段落。 */
   function companionLangFor(entry) {
+    const forced = languageForAvatar(entry && entry.avatar);
+    if (forced === "zh" || forced === "en") return forced;
     const card = (liveState.cardCache && entry && liveState.cardCache.get(entry.avatar)) || null;
     try {
       return window.TASK22_CORE.cardLanguageOf(card) === "en" ? "en" : "zh";
@@ -3449,8 +3455,8 @@
         thinking: liveState.thinking === true,
         autoMemory: liveState.autoMemory !== false,
         autoEventMemory: liveState.eventMemory !== false,
-        // 全中文模式：压过角色卡自己的语言设置（内置卡是英文的）。
-        fullChinese: liveState.fullChinese !== false,
+        // 语言：没强制就传 null，模型就按角色卡自己写的语言说话（默认）。
+        language: languageForAvatar(entry.avatar),
         stream: true,
         extraSystem,
         purpose,
@@ -3479,7 +3485,7 @@
           userText: text,
           autoMemory: liveState.autoMemory !== false,
           autoEventMemory: liveState.eventMemory !== false,
-          fullChinese: liveState.fullChinese !== false,
+          language: languageForAvatar(entry.avatar),
           messages: payload.messages,
           extraSystem,
           purpose,
@@ -3821,8 +3827,8 @@
     // 「记住发生过的事」：默认开 —— 用户要的是角色记得"之前发生了什么"。
     // 关掉时既不提示模型写 [[事件: …]]，也不会把事件条目写进记忆。
     liveState.eventMemory = settings.auto_event_memory !== false;
-    // 全中文：默认开（内置卡是英文的，用的人多半只想看中文）。
-    liveState.fullChinese = settings.full_chinese !== false;
+    // 角色语言：默认"跟着角色卡自己的语言"（2026-09-12 用户定），
+    // 全局与单角色的开关都在 settings.language_mode / settings.language_by_card 里，见 languageForAvatar()。
     liveState.localSettings = settings;
     // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
     liveState.modelMode = settings.provider === "deepseek"
@@ -3845,7 +3851,69 @@
     if (badge) badge.classList.toggle("is-warning", !String(liveState.modelName || "").trim());
     const thinking = document.querySelector("#chatThinkingToggle");
     if (thinking) thinking.checked = liveState.thinking === true;
+    syncChatLanguageControl();
     renderCostLine();
+  }
+
+  /* ---------- 角色语言：每个角色一个开关 ----------
+   * 2026-09-12 用户定的产品行为：**默认跟着角色卡自己的语言**（英文卡说英文、中文卡说中文），
+   * 「一律中文 / 一律英文」是想开才开的选项 —— 看不懂英文的人把它开成中文。
+   * 两级：全局在「设置 → 模型 → 角色语言」，单个角色的覆盖在顶栏这个下拉里
+   * （和「设置 → 角色管理」里那一行是同一份设置）。 */
+  function languageForAvatar(avatar) {
+    const core = window.TASK22_CORE;
+    const settings = liveState.localSettings || {};
+    if (core && typeof core.languageFromSettings === "function") return core.languageFromSettings(settings, avatar);
+    return null;
+  }
+
+  /** 下拉里显示的是**这个角色自己的设置**（没设过 = 跟随全局），
+   *  提示语里说清楚最终会用哪种语言，免得"跟随设置"看不出效果。 */
+  function syncChatLanguageControl() {
+    const select = document.querySelector("#chatLangSelect");
+    if (!select) return;
+    const entry = activeCharacterEntry();
+    const avatar = String((entry && entry.avatar) || "");
+    if (!avatar) return;
+    const settings = liveState.localSettings || {};
+    const own = (settings.language_by_card || {})[avatar];
+    const value = own === "zh" || own === "en" ? own : "auto";
+    if (select.value !== value) select.value = value;
+    const effective = languageForAvatar(avatar);
+    const core = window.TASK22_CORE;
+    // 卡面语言优先从缓存里按 avatar 取：切角色的那一刻 liveState.card 可能还是上一个人的。
+    const card = (liveState.cardCache && liveState.cardCache.get(avatar)) || liveState.card || null;
+    const ownOnCard = core && typeof core.cardLanguageOf === "function" ? core.cardLanguageOf(card) : null;
+    const what = effective === "zh" ? "一律用简体中文回复"
+      : effective === "en" ? "一律用英文回复"
+        : (ownOnCard === "zh" ? "按角色卡自己的语言：中文" : ownOnCard === "en" ? "按角色卡自己的语言：英文" : "角色卡没写语言，跟着你说");
+    const name = (entry && (entry.charName || entry.avatar)) || "";
+    select.title = `当前角色「${name}」：${what}。这里改只影响这个角色；全局默认在「设置 → 模型 → 角色语言」。`;
+  }
+
+  async function chooseChatLanguage(value) {
+    const entry = activeCharacterEntry();
+    const avatar = String((entry && entry.avatar) || "");
+    if (!avatar) return;
+    const current = (liveState.localSettings && liveState.localSettings.language_by_card) || {};
+    const next = Object.assign({}, current);
+    // 选「跟随设置」就把这一项删掉（存成 "auto" 也算对，但留着空记录只会让数据变脏）。
+    if (value === "zh" || value === "en") next[avatar] = value;
+    else delete next[avatar];
+    // 先让本轮就按新值走（不等落盘），再写设置。
+    liveState.localSettings = Object.assign({}, liveState.localSettings || {}, { language_by_card: next });
+    syncChatLanguageControl();
+    try {
+      await window.RoleWorld.saveLocalSettings({ language_by_card: next });
+      window.dispatchEvent(new window.CustomEvent("roleworld:settings-changed", { detail: { language_by_card: next } }));
+    } catch (_) { /* 存不下也不影响本次会话 */ }
+  }
+
+  function bindChatLanguageControl() {
+    const select = document.querySelector("#chatLangSelect");
+    if (!select) return;
+    select.addEventListener("change", (event) => { chooseChatLanguage(event.target.value).catch(() => {}); });
+    syncChatLanguageControl();
   }
 
   // 密钥与思考模式都在「设置 → 模型」里配置了，这里只保留跳转；模型可以直接在顶栏切换。
@@ -3918,6 +3986,7 @@
     updateComposerLive();
     await loadBooks();
     bindChatModelControls();
+    bindChatLanguageControl();
     await loadChatModelSettings();
     liveState.templateError = false;
     setChatTemplateGate("ready");
@@ -4231,7 +4300,15 @@
     if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
     if (typeof patch.auto_memory === "boolean") liveState.autoMemory = patch.auto_memory;
     if (typeof patch.auto_event_memory === "boolean") liveState.eventMemory = patch.auto_event_memory;
-    if (typeof patch.full_chinese === "boolean") liveState.fullChinese = patch.full_chinese;
+    // 语言设置改了（顶栏下拉 / 设置里改的）：立刻按新值走，不用等重读落盘。
+    if (patch.language_mode === "auto" || patch.language_mode === "zh" || patch.language_mode === "en") {
+      liveState.localSettings = Object.assign({}, liveState.localSettings || {}, { language_mode: patch.language_mode });
+    }
+    if (patch.language_by_card && typeof patch.language_by_card === "object") {
+      liveState.localSettings = Object.assign({}, liveState.localSettings || {}, {
+        language_by_card: Object.assign({}, (liveState.localSettings && liveState.localSettings.language_by_card) || {}, patch.language_by_card),
+      });
+    }
     if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
     if (patch.provider) {
       liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
