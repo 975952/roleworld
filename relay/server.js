@@ -286,6 +286,15 @@ function createRelay(options) {
     }
 
     const target = new URL(upstreamBase + upstreamChatPath);
+    // 流式时上游默认不回 usage（OpenAI 兼容的约定）：不带上它，卡的 token 额度就永远是 0。
+    // 只在流式、调用方没自己指定、且上游是 DeepSeek 官方或显式打开开关时才加这一项 ——
+    // 免得给不认识这个字段的服务商塞参数导致请求失败。
+    if (body.stream === true && !body.stream_options) {
+      const deepseekUpstream = /(^|\.)api\.deepseek\.com$/.test(target.hostname);
+      if (deepseekUpstream || String(process.env.RELAY_INCLUDE_USAGE || "") === "1") {
+        body.stream_options = { include_usage: true };
+      }
+    }
     const payload = Buffer.from(JSON.stringify(body), "utf8");
     const headers = {
       "Content-Type": "application/json",

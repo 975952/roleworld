@@ -170,6 +170,21 @@ async function main() {
     assert.equal(body.tokensLeft, 5000 - 18);
   });
 
+  await check("流式请求会自动带上 include_usage（否则 token 额度永远记不到）", async () => {
+    // 上游地址是本地假端点，不属于"DeepSeek 官方"，所以这里靠开关显式打开，
+    // 顺便验证开关这条路径；线上指向 api.deepseek.com 时是自动带的。
+    process.env.RELAY_INCLUDE_USAGE = "1";
+    // 用一张新卡，别把主用例那张卡的次数吃掉。
+    const fresh = await server.relay.createCard({ label: "include_usage", quota: { calls: 2, tokens: 0 } });
+    const res = await chat(fresh.token, { model: "deepseek-flash", stream: true, messages: [{ role: "user", content: "再算一次" }] });
+    assert.equal(res.status, 200);
+    await res.text();
+    const last = upstream.seen[upstream.seen.length - 1].body;
+    assert.equal(last.stream_options && last.stream_options.include_usage, true,
+      "流式请求应当带上 stream_options.include_usage：" + JSON.stringify(last.stream_options));
+    delete process.env.RELAY_INCLUDE_USAGE;
+  });
+
   await check("非流式也通", async () => {
     const res = await chat(cardToken, { model: "deepseek-flash", messages: [{ role: "user", content: "在吗" }] });
     assert.equal(res.status, 200);
