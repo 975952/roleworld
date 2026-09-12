@@ -152,10 +152,13 @@ async function main() {
   await test("硬规矩里写明了不许内疚、不许索取、不许编回忆、要承认是程序", () => {
     const rules = Companion.RULES.zh.join("\n");
     assert.ok(rules.indexOf("不编造共同经历") >= 0);
-    assert.ok(rules.indexOf("不用内疚或冷淡留人") >= 0);
+    assert.ok(rules.indexOf("不用内疚") >= 0, "内疚那条不能少：" + rules);
+    assert.ok(rules.indexOf("不威胁") >= 0, "威胁那条不能少");
     assert.ok(rules.indexOf("不索取陪伴") >= 0);
     assert.ok(rules.indexOf("承认自己是程序") >= 0);
     assert.ok(rules.indexOf("不劝对方疏远现实里的人") >= 0);
+    // 2026-09-12 起"可以有情绪"是明写的（不许有情绪的老规矩已经作废）。
+    assert.ok(rules.indexOf("可以有情绪") >= 0, "要明写允许有情绪");
   });
 
   await test("英文卡拿到的是一整段英文，不会中英混着来", () => {
@@ -180,11 +183,13 @@ async function main() {
     console.log("        固定部分 " + block.length + " 字");
   });
 
-  await test("段落要短：一份满配档案也不超过 800 字", () => {
+  await test("段落要短：一份满配档案也不超过 840 字", () => {
+    // 2026-09-12 起上限从 800 放到 840：伴侣模式 v2 多带三行（亲近度 / 冷落语气 / 「像真人」），
+    // 那是这个模式**独有**的内容，而且伴侣模式默认关着、每轮只多这几十字。
     const shared = [];
     for (let i = 0; i < Companion.SHARED_MAX; i += 1) shared.push({ text: "第 " + i + " 件" + "啊".repeat(55) });
     const block = Companion.buildCompanionBlock(profileOf({ shared: shared }), { now: NOW, lang: "zh" });
-    assert.ok(block.length <= 800, "段落太长了，每轮都要带：" + block.length + " 字");
+    assert.ok(block.length <= 840, "段落太长了，每轮都要带：" + block.length + " 字");
     console.log("        满配 " + block.length + " 字（其中 "
       + shared.reduce((sum, row) => sum + row.text.length + 3, 0) + " 字是用户自己写的共同经历）");
   });
@@ -301,6 +306,111 @@ async function main() {
     assert.equal(hits[0].index, 1);
     assert.equal(hits[0].phrase, "你都不理我");
     assert.deepEqual(Companion.lintGuiltIn(null), []);
+  });
+
+  console.log("== 伴侣模式 v2：亲近度 / 冷落反应 / 主动消息（2026-09-12 用户拍板）==");
+
+  await test("亲近度：算出来的，不是模型打的分（共同经历 + 认识时长 − 冷落）", () => {
+    const base = profileOf({ lastChatAt: new Date(NOW.getTime() - 3600000).toISOString() });
+    const plain = Companion.suggestAffinity(base, NOW);
+    const richer = Companion.suggestAffinity(profileOf({
+      shared: [{ text: "a" }, { text: "b" }, { text: "c" }],
+      lastChatAt: new Date(NOW.getTime() - 3600000).toISOString(),
+    }), NOW);
+    assert.ok(richer > plain, "共同经历更多，亲近度应当更高：" + plain + " → " + richer);
+    // 确定性：同样的输入永远同样的值（不然就成了"看模型心情"）。
+    assert.equal(Companion.suggestAffinity(base, NOW), plain, "同一个档案算出了不同的亲近度");
+    // 冷落会扣，但有下限 —— 不搞"清零惩罚"。
+    const neglected = Companion.suggestAffinity(profileOf({ lastChatAt: "2025-01-01T10:00:00" }), NOW);
+    assert.ok(neglected >= Companion.AFFINITY_FLOOR, "掉到下限以下了：" + neglected);
+    assert.ok(neglected < plain, "很长时间没聊居然没扣：" + neglected + " vs " + plain);
+  });
+
+  await test("亲近度：用户可以自己拉（manual），也可以交回系统（auto）", () => {
+    const manual = Companion.affinityOf(profileOf({ affinityMode: "manual", affinity: 88 }), NOW);
+    assert.equal(manual.value, 88, "用户拉的值没生效");
+    assert.equal(manual.tier, "devoted");
+    const auto = Companion.affinityOf(profileOf({ affinityMode: "auto", affinity: 88 }), NOW);
+    assert.notEqual(auto.value, 88, "auto 模式不该用用户那个数");
+    // 超出范围要夹住，不能出现 120 分或负数。
+    assert.equal(Companion.normalizeProfile({ affinity: 999 }).affinity, 100);
+    assert.equal(Companion.normalizeProfile({ affinity: -5 }).affinity, 0);
+  });
+
+  await test("冷落反应：分档、可以关、只说态度不惩罚", () => {
+    const fresh = Companion.neglectInfo(profileOf({ lastChatAt: NOW.toISOString() }), NOW, {});
+    assert.equal(fresh.tier, "fresh");
+    assert.equal(fresh.tone, "", "刚聊过不该有多余语气提示");
+    const week = Companion.neglectInfo(profileOf({ lastChatAt: "2026-09-04T10:00:00" }), NOW, {});
+    assert.equal(week.tier, "sulky");
+    assert.ok(week.tone.indexOf("说开") >= 0, "闹别扭那档要写明「把话说开而不是惩罚」：" + week.tone);
+    const off = Companion.neglectInfo(profileOf({ lastChatAt: "2025-01-01T10:00:00", neglect: "off" }), NOW, {});
+    assert.equal(off.tier, "off");
+    assert.equal(off.tone, "", "关掉冷落反应之后不该有任何语气提示");
+    // 关掉时亲近度也不该被扣。
+    const withOff = Companion.suggestAffinity(profileOf({ lastChatAt: "2025-01-01T10:00:00", neglect: "off" }), NOW);
+    const withSoft = Companion.suggestAffinity(profileOf({ lastChatAt: "2025-01-01T10:00:00", neglect: "soft" }), NOW);
+    assert.ok(withOff > withSoft, "关掉冷落之后不该还被扣分");
+  });
+
+  await test("主动消息：默认关、有间隔与每日上限、伴侣模式关着就不发", () => {
+    const gapGood = { lastChatAt: "2026-09-09T10:00:00" };
+    assert.equal(Companion.PROACTIVE_DEFAULTS.enabled, false, "主动消息必须默认关");
+    assert.ok(Companion.PROACTIVE_DEFAULTS.maxPerDay <= 3, "每天条数要有上限");
+    assert.ok(Companion.PROACTIVE_DEFAULTS.minGapHours >= 4, "最短间隔不能太短");
+    // 默认关 → 不发
+    assert.equal(Companion.proactiveDecision(profileOf(gapGood), NOW, {}).reason, "proactive-off");
+    // 开着、隔得够久 → 发
+    const on = profileOf(Object.assign({ proactive: { enabled: true } }, gapGood));
+    assert.equal(Companion.proactiveDecision(on, NOW, {}).ok, true);
+    // 刚聊过 → 不发
+    const tooSoon = profileOf({ proactive: { enabled: true }, lastChatAt: new Date(NOW.getTime() - 3600000).toISOString() });
+    assert.equal(Companion.proactiveDecision(tooSoon, NOW, {}).reason, "too-soon");
+    // 今天已经发够 → 不发（上限是按天的）
+    const capped = profileOf(Object.assign({ proactive: { enabled: true }, proactiveLog: Companion.isoDay(NOW) + "|1" }, gapGood));
+    assert.equal(Companion.proactiveDecision(capped, NOW, {}).reason, "daily-cap");
+    // 隔天自动归零
+    const nextDay = profileOf(Object.assign({ proactive: { enabled: true }, proactiveLog: "2026-09-10|1" }, gapGood));
+    assert.equal(Companion.proactiveDecision(nextDay, NOW, {}).ok, true);
+    // 伴侣模式关着 → 一律不发
+    assert.equal(Companion.proactiveDecision(profileOf(Object.assign({ enabled: false, proactive: { enabled: true } }, gapGood)), NOW, {}).reason, "companion-off");
+  });
+
+  await test("主动开口的那条指令：像真人、且明写不许内疚与催促", () => {
+    const profile = profileOf({ proactive: { enabled: true }, lastChatAt: "2026-09-04T10:00:00" });
+    const zh = Companion.proactiveInstruction(profile, { now: NOW, lang: "zh" });
+    assert.ok(zh.indexOf("你先开口") >= 0, zh);
+    assert.ok(zh.indexOf("像真人") >= 0, "要写明像真人那样发消息");
+    assert.ok(zh.indexOf("不要问他为什么这么久没来") >= 0, "要明写不许追问/内疚");
+    assert.ok(zh.indexOf("亲近程度") >= 0, "要把当前亲近程度带上");
+    const en = Companion.proactiveInstruction(profile, { now: NOW, lang: "en" });
+    assert.ok(/speak first/i.test(en), en);
+    assert.ok(/never guilt them/i.test(en), en);
+  });
+
+  await test("提示词段落：带上亲近程度与冷落语气，并明写「像真人」", () => {
+    const block = Companion.buildCompanionBlock(profileOf({ lastChatAt: "2026-09-04T10:00:00" }), { now: NOW, lang: "zh" });
+    assert.ok(block.indexOf("亲近度：") >= 0, "提示词里没有亲近度");
+    assert.ok(block.indexOf("像真人") >= 0, "提示词里没有「像真人」那条");
+    assert.ok(block.indexOf("别扭") >= 0 || block.indexOf("生分") >= 0, "冷落语气没进提示词");
+    // 关掉伴侣模式 → 一个字符都不多发（老规矩不变）
+    assert.equal(Companion.buildCompanionBlock(profileOf({ enabled: false }), { now: NOW, lang: "zh" }), "");
+  });
+
+  await test("三类话术自检：内疚 / 威胁 / 排他（允许有情绪，不许拿情绪当绳子）", () => {
+    const guilt = Companion.lintManipulation("你都不理我了");
+    assert.equal(guilt[0].kind, "guilt");
+    const threat = Companion.lintManipulation("你再不来我就消失了");
+    assert.equal(threat[0].kind, "threat");
+    const exclusive = Companion.lintManipulation("只有我最懂你，别跟他们说");
+    assert.ok(exclusive.some((hit) => hit.kind === "exclusive"), JSON.stringify(exclusive));
+    // 允许的表达：闹别扭但不威胁、不内疚 —— 这些不该被误判。
+    for (const line of ["今天不太想说话，但没什么大事。", "你上周答应我的事还记得吗？", "有点生气，不过我想听你怎么说。"]) {
+      assert.deepEqual(Companion.lintManipulation(line), [], "误判了：" + line);
+    }
+    // 多条的版本要带上第几条
+    const many = Companion.lintManipulationIn(["没事。", "最后一次了，别怪我。"]);
+    assert.ok(many.length >= 1 && many[0].index === 1, JSON.stringify(many));
   });
 
   console.log("");
