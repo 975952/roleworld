@@ -198,7 +198,7 @@ function createRelay(options) {
       if (!upstreamKey) return sendJson(res, 503, { ok: false, error: "服务端没有配置 UPSTREAM_KEY" }, corsHeaders());
       const model = String(url.searchParams.get("model") || allowModels[0] || "deepseek-flash");
       const target = new URL(upstreamBase + upstreamChatPath);
-      const payload = Buffer.from(JSON.stringify({ model, messages: [{ role: "user", content: "只回复两个字：可用" }], max_tokens: 16, stream: false }), "utf8");
+      const payload = Buffer.from(JSON.stringify({ model, messages: [{ role: "user", content: "只回复两个字：可用" }], max_tokens: 64, stream: false }), "utf8");
       const startedAt = Date.now();
       const result = await new Promise((resolve) => {
         const request = agentFor(target).request({
