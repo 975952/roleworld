@@ -134,7 +134,10 @@ async function main() {
                     scenario: "测试场景", first_mes: "你好。", mes_example: "", tags: [] } }
         ],
         worlds: [],
-        settings: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", model: "deepseek-flash" }
+        settings: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", model: "deepseek-flash",
+                    // 引导浮层（.rw-ob）是固定定位、盖满整屏的：不跳过它，量到的是"被盖住的界面"，
+                    // 真人那时候什么都点不到。布局回归要量真正能用的那一层。
+                    tutorial_seen: true }
       };
     })();
   `;

@@ -633,6 +633,54 @@ async function main() {
     assert.ok(appJs.indexOf('action === "open-memories"') >= 0, "app.js 里没有处理 open-memories 的动作");
   });
 
+  await test("内置包里那些「别人的存档」条目能被精准清掉，且不碰用户改过的条目", () => {
+    // 2026-09-12 用户原话「我又不是 Lin」：内置包以前带着原 SillyTavern 存档的记忆书，
+    // 里面 Lin 是那份存档的玩家角色，其中 3 条还是 constant（每条消息都注入）。
+    const Cleanup = require(path.join(__dirname, "..", "app", "adapter", "pack-cleanup.js"));
+    const spec = Cleanup.SAMPLE_MEMORIES.find((row) => row.world === "MB Harry — fact clips (EN)");
+    assert.ok(spec, "示例表里应当登记 fact clips 这本");
+    const entries = {
+      "mb-fact-home": { uid: "mb-fact-home", content: "Lin's home city is Shanghai, China. She grew up there before coming to Hogwarts." },
+      "mb-fact-heights": { uid: "mb-fact-heights", content: "我自己改成了：玩家怕高。" },
+      "0": { uid: 0, content: "合成记忆内容" },
+    };
+    const result = Cleanup.stripSampleEntries(entries, spec);
+    assert.deepEqual(result.removed.map((row) => row.key), ["mb-fact-home"], "只该删掉那条原样的示例");
+    assert.deepEqual(Object.keys(result.keep).sort(), ["0", "mb-fact-heights"], "改过的与用户自己的都要留");
+  });
+
+  await test("一次性清理：整本都是示例的书删掉、还有用户条目的书保留、表外的书一律不碰", async () => {
+    const Cleanup = require(path.join(__dirname, "..", "app", "adapter", "pack-cleanup.js"));
+    const store = {
+      data: {
+        "MB Harry — scene memories (EN)": { entries: {
+          "mb-scene-meeting": { uid: "mb-scene-meeting", content: "Lin, a new Muggle-born student from Shanghai, nervously asked Harry Potter for directions to the Gryffindor common room." },
+        } },
+        "MB Harry — fact clips (EN)": { entries: {
+          "mb-fact-home": { uid: "mb-fact-home", content: "Lin's home city is Shanghai, China." },
+          "1": { uid: 1, content: "用户自己写的" },
+        } },
+        "MB Harry — role lock (EN)": { entries: {
+          "mb-role-shared-lin": { uid: "mb-role-shared-lin", content: "Lin is a new student at Hogwarts who grew up in Shanghai, China." },
+          "mb-role-timeline": { uid: "mb-role-timeline", content: "乌姆里奇上任，魔法部否认去年夏天的事。" },
+        } },
+        "我自己的书": { entries: { 0: { uid: 0, content: "Lin's home city is Shanghai, China." } } },
+      },
+      deleted: [],
+      async getWorld(name) { return this.data[name] || null; },
+      async putWorld(name, value) { this.data[name] = value; },
+      async deleteWorld(name) { this.deleted.push(name); delete this.data[name]; },
+    };
+    const report = await Cleanup.cleanupSampleMemories(store);
+    assert.equal(report.removed, 3, "应当清掉 3 条示例，实际 " + report.removed);
+    assert.deepEqual(store.deleted, ["MB Harry — scene memories (EN)"], "整本都是示例的书应当删掉");
+    assert.deepEqual(Object.keys(store.data["MB Harry — fact clips (EN)"].entries), ["1"], "用户条目要留下");
+    assert.deepEqual(Object.keys(store.data["MB Harry — role lock (EN)"].entries), ["mb-role-timeline"], "世界观设定那条要留");
+    assert.ok(store.data["我自己的书"], "表里没登记的书一律不碰（哪怕正文里也写着同样的话）");
+    const again = await Cleanup.cleanupSampleMemories(store);
+    assert.equal(again.removed, 0, "再跑一次不该再删任何东西");
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。

@@ -100,6 +100,18 @@ async function fetchRemote(relative) {
   else if (/\shidden(\s|>)/.test(button[0])) problems.push("index.html：线上那颗「记忆」按钮又带上 hidden 了：" + button[0]);
   if (indexText.indexOf("manifest.webmanifest") < 0) problems.push("index.html：线上没有引用 PWA 清单");
 
+  // 内置包里"别人的存档"（原 SillyTavern 存档的玩家角色 Lin）已经删掉，
+  // 线上也不许再留着这几个文件 —— 部署只上传、不清理远端旧文件，旧的那几份得单独删。
+  const mustBeGone = [
+    "packs/harry-potter/worlds/MB Harry — fact clips (EN).json",
+    "packs/harry-potter/worlds/MB Harry — relationship tracker (EN).json",
+    "packs/harry-potter/worlds/MB Harry — scene memories (EN).json",
+  ];
+  for (const relative of mustBeGone) {
+    const res = await fetchRemote(relative);
+    if (res.status === 200) problems.push("线上还留着已经删除的示例内容：" + relative);
+  }
+
   if (problems.length) {
     console.error(`\n✗ ${problems.length} 处问题（核对了 ${checked} 个文件）：`);
     for (const row of problems) console.error("  - " + row);

@@ -3862,6 +3862,17 @@
     // 此处摘除不会引入主题闪烁。
     document.documentElement.classList.remove("theme-pending");
     showToast("已准备好。");
+    // 一次性提示：内置包以前带着"别人的存档"（原 SillyTavern 存档里的玩家角色 Lin），
+    // 启动时已被 adapter/pack-cleanup.js 清掉。这里读一次、报一次、把这个键清空。
+    // 放在"已准备好"**之后**：toast 是同一个元素，先说的会被后说的盖掉。
+    try {
+      const store = window.RoleWorld && window.RoleWorld.store;
+      const notice = store ? await store.getKV("packs:sample-cleanup-notice", null) : null;
+      if (notice && Number(notice.removed) > 0) {
+        await store.setKV("packs:sample-cleanup-notice", null);
+        showToast(`已清掉内置包自带的示例记忆 ${notice.removed} 条（那是原存档里的玩家角色，不是你）`);
+      }
+    } catch (_) { /* 提示失败不影响启动 */ }
     // 启动完成的唯一可靠信号：theme-pending 在第 2 步（身份落定）就会摘掉，
     // 不能拿它当"准备好了"，自动化测试与扩展都靠这个标志。
     window.TASK21_READY = true;

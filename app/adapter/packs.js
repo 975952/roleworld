@@ -77,6 +77,31 @@
     if (installing) return installing;
     installing = (async () => {
       const report = { installed: [], skipped: [], errors: [] };
+      // 先做一次性清理：内置包以前带过"别人的存档"（Lin 的示例记忆），
+      // 已装过旧包的存档不会因为包内容变化而变干净，这里补一刀。见 adapter/pack-cleanup.js。
+      try {
+        const cleanup = global.RoleWorldPackCleanup;
+        if (cleanup && typeof cleanup.cleanupSampleMemories === "function") {
+          report.cleaned = await cleanup.cleanupSampleMemories(Store);
+          if (report.cleaned.removed > 0) {
+            // 提示只给一次：界面启动后读这个键并弹一条，读完就清空。
+            await Store.setKV("packs:sample-cleanup-notice", {
+              removed: report.cleaned.removed,
+              books: report.cleaned.books.length,
+              at: new Date().toISOString(),
+            });
+            // 另外留一份不会被清掉的记录：出问题时能查"到底清了什么、什么时候清的"。
+            await Store.setKV("packs:last-sample-cleanup", {
+              removed: report.cleaned.removed,
+              entries: report.cleaned.removedEntries,
+              deletedBooks: report.cleaned.deletedBooks,
+              at: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (error) {
+        report.errors.push("cleanup: " + (error && error.message ? error.message : error));
+      }
       let packs = [];
       try {
         packs = await listPacks();

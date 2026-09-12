@@ -273,7 +273,17 @@ async function main() {
         ],
         worlds: [
           { name: "MB Harry — fact clips (EN)", entries: {
-            "0": { uid: 0, key: ["哈利"], keysecondary: [], comment: "测试条目", content: "合成记忆内容", disable: false, constant: false } } },
+            "0": { uid: 0, key: ["哈利"], keysecondary: [], comment: "测试条目", content: "合成记忆内容", disable: false, constant: false },
+            // 内置包旧版带的"别人的存档"（原 SillyTavern 存档里的玩家角色 Lin）：
+            // 启动时应当被 adapter/pack-cleanup.js 清掉，而上面那条用户条目要留下。
+            "mb-fact-home": { uid: "mb-fact-home", key: ["Shanghai"], keysecondary: [], comment: "[STMB] 示例",
+                              content: "Lin's home city is Shanghai, China. She grew up there before coming to Hogwarts.",
+                              disable: false, constant: true } } },
+          // 整本都是示例的书：清空之后应当连书一起删掉。
+          { name: "MB Harry — scene memories (EN)", entries: {
+            "mb-scene-meeting": { uid: "mb-scene-meeting", key: [], keysecondary: [], comment: "[STMB] 示例",
+                                  content: "Lin, a new Muggle-born student from Shanghai, nervously asked Harry Potter for directions to the Gryffindor common room.",
+                                  disable: false, constant: false } } },
           // 一条合成的"自动记忆"，带来源：验证面板能显示它记了什么、来自哪句话，并能删掉。
           // comment 故意用内置包里那种迁移痕迹（[STMB] + 转换器说明）：
           // 它不该被当成标题显示到界面上（2026-09-12 用户就是这么看到一句英文的）。
@@ -302,7 +312,10 @@ async function main() {
         settings: {
           provider: "deepseek",
           endpoint: "${base}/v1/chat/completions",
-          model: "deepseek-flash"
+          model: "deepseek-flash",
+          // 主流程用例假定"引导已经走完"：否则首启导览浮层（.rw-ob）会盖住整个界面，
+          // 用户点不到顶栏那颗「记忆」。引导本身另有专门用例（清空状态后重新走一遍）。
+          tutorial_seen: true
         }
       };
     })();
@@ -386,6 +399,21 @@ async function main() {
   // 摘掉 theme-pending 是 bootLive 的最后一步，用它当"启动完成"信号最可靠。
   await waitFor("window.TASK21_READY === true", 30000);
   reportErrors("index.html");
+
+  await check("启动时清掉内置包自带的示例记忆（别人的存档），用户自己的条目一条不动", async () => {
+    const worlds = await evaluate("(async () => (await RoleWorld.store.listWorlds()).map((w) => w.name))()");
+    assert(worlds.indexOf("MB Harry — scene memories (EN)") < 0,
+      "整本都是示例的记忆书应当被删掉：" + JSON.stringify(worlds));
+    assert(worlds.indexOf("MB Harry — fact clips (EN)") >= 0, "里面还有用户条目的书不该被删：" + JSON.stringify(worlds));
+    const entries = await evaluate("(async () => Object.keys((await RoleWorld.store.getWorld('MB Harry — fact clips (EN)')).entries).sort())()");
+    assert(JSON.stringify(entries) === JSON.stringify(["0"]), "示例条目该清掉、用户条目该留下：" + JSON.stringify(entries));
+    const record = await evaluate("(async () => (await RoleWorld.store.getKV('packs:last-sample-cleanup', null)) || null)()");
+    assert(record && Number(record.removed) >= 2, "应当留下可查的清理记录：" + JSON.stringify(record));
+    const notice = await evaluate("(async () => (await RoleWorld.store.getKV('packs:sample-cleanup-notice', null)) || null)()");
+    assert(notice === null, "一次性提示键应当已被界面消费掉：" + JSON.stringify(notice));
+    const toast = await evaluate("(document.querySelector('#toast') || {}).textContent || ''");
+    assert(toast.indexOf("示例记忆") >= 0, "启动时要顺口说清楚清掉了什么：" + JSON.stringify(toast));
+  });
 
   await check("页面留在 index.html，没有跳转到登录页", async () => {
     const href = await evaluate("location.pathname");
@@ -2097,6 +2125,12 @@ async function main() {
   });
 
   await check("首次启动强制走完引导：没有跳过，先写称呼再填 Key", async () => {
+    // 主流程的 fixture 把 tutorial_seen 设成 true（否则引导浮层会盖住整个界面，
+    // 用例里那些 element.click() 照样能点，真人却点不到 —— 记忆按钮那个缺陷就是这么漏掉的）。
+    // 这条用例要验引导本身，所以先把"第一次启动"造出来：清标记 + 刷新。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: false }); return true; })()");
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
     await waitFor("!!document.querySelector('.rw-ob')", 15000);
     const first = await evaluate("document.querySelector('.rw-ob h2').textContent");
     assert(first.indexOf("欢迎") >= 0, "引导首页标题是：" + first);
@@ -2277,10 +2311,14 @@ async function main() {
 
     assert(state.characters.length === 6, "应装入 6 个角色，实际 " + state.characters.length + "：" + JSON.stringify(state.characters) + " / 书：" + JSON.stringify(state.books));
     assert(state.characters.indexOf("Harry Potter (EN).png") >= 0, "缺少默认角色 Harry Potter (EN).png");
-    assert(state.books.length === 4, "应装入 4 本记忆书，实际 " + state.books.length);
+    // 2026-09-12：包里原来那 3 本整本都是"别人的存档"（原 SillyTavern 存档的玩家角色 Lin），
+    // 已从包里删除；只留角色锁定书（世界观设定）。示例内容的去向见
+    // runs/2026-09-12-lin-sample-memories-removed/README.md。
+    assert(state.books.length === 1, "应装入 1 本记忆书，实际 " + state.books.length + "：" + JSON.stringify(state.books));
+    assert(state.books.indexOf("MB Harry — role lock (EN)") >= 0, "缺少记忆书：MB Harry — role lock (EN)");
     ["MB Harry — fact clips (EN)", "MB Harry — relationship tracker (EN)",
-      "MB Harry — role lock (EN)", "MB Harry — scene memories (EN)"].forEach((name) => {
-      assert(state.books.indexOf(name) >= 0, "缺少记忆书：" + name);
+      "MB Harry — scene memories (EN)"].forEach((name) => {
+      assert(state.books.indexOf(name) < 0, "这本是别人的存档，不该再装进新存档：" + name);
     });
     assert(state.avatars.every((size) => size > 1000), "有角色卡丢了立绘：" + JSON.stringify(state.avatars));
     assert(state.pickerHidden === false, "角色选择器没有显示出来");
