@@ -1040,6 +1040,52 @@ async function main() {
     await waitFor("window.TASK21.activeChatFileName() === 'harry-最近聊过'", 10000);
   });
 
+  await check("「记忆」栏显示的是真实记忆书，不是写死的示例数据", async () => {
+    // 真踩过的坑：index.html 里有两个 id="memoryList"（角色记忆弹层一个、右侧记忆栏一个），
+    // querySelector 只命中文档里第一个 —— 于是真实记忆书被画进了弹层、右栏永远空白；
+    // 而 app.js 里那份「角色锁定书/场景记忆/精确事实」是写死的示例数据，一度被当成真数据渲染。
+    const ids = await evaluate("document.querySelectorAll('#memoryList').length");
+    assert(ids === 1, "文档里应当只有一个 #memoryList（弹层用），实际 " + ids);
+    assert(await evaluate("document.querySelector('#memoryPanel #memoryList') !== null"), "弹层里找不到 #memoryList");
+    assert(await evaluate("document.querySelector('.inspector-column #memoryBookList') !== null"), "右栏里找不到 #memoryBookList");
+
+    await evaluate("document.querySelector(\"[data-action='open-memories']\").click(); true");
+    await sleep(600);
+    const column = await evaluate(`(() => {
+      const list = document.querySelector('.inspector-column #memoryBookList');
+      return {
+        books: Array.from(list.querySelectorAll('.memory-book strong')).map((node) => node.textContent),
+        text: list.textContent,
+      };
+    })()`);
+    assert(column.books.length >= 1, "「记忆」栏里一本书都没有：" + JSON.stringify(column.books));
+    // 正面信号：拿本机数据库里**真实的条目内容**去对（书名是本地化的，示例书的名字和内置包撞车，
+    // 所以不能靠名字判断）。
+    const realEntries = await evaluate(`(async () => {
+      const core = window.ROLEWORLD_MEMORY_CORE;
+      const world = await window.STApi.getWorld('MB Harry — 自动记忆');
+      return core.listEntries(world.entries).map((row) => row.content);
+    })()`);
+    assert(realEntries.length >= 1, "fixture 里应当有真实记忆条目");
+    assert(realEntries.some((content) => column.text.indexOf(content) >= 0),
+      "「记忆」栏没有渲染本机数据库里的真实条目：" + JSON.stringify({ 栏里: column.books, 库里: realEntries }));
+    // 反面信号：示例书里那几句写死的内容一句都不许出现。
+    for (const fake of ["霍格沃茨五年级学生", "旧教室谈起借扫帚", "扫帚会在使用后归还", "关系状态随新会话修订"]) {
+      assert(column.text.indexOf(fake) < 0, "「记忆」栏出现了写死的示例内容：" + fake);
+    }
+
+    // 弹层里也不该混进示例数据（它只显示该角色自己的自动记忆）
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    const panelText = await evaluate("document.querySelector('#memoryPanel #memoryList').textContent");
+    for (const fake of ["霍格沃茨五年级学生", "旧教室谈起借扫帚", "扫帚会在使用后归还"]) {
+      assert(panelText.indexOf(fake) < 0, "角色记忆面板里出现了示例数据：" + fake);
+    }
+    assert(await evaluate("!!document.querySelector('#memoryPanel #memoryList #memoryOrientation')"),
+      "记忆面板里应当有记忆取向选择器");
+    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+  });
+
   await check("记忆面板按主题分组、能折叠、显示用量", async () => {
     // 先塞两条记忆（不同主题），这样才有多个分组可看。
     await evaluate(`(async () => {

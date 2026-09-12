@@ -369,7 +369,8 @@
     visible.forEach((book) => { if (typeof previousOpen.get(book.__name) === "boolean") book.open = previousOpen.get(book.__name); });
     memoryBooks.length = 0;
     memoryBooks.push(...visible);
-    renderMemoryBooks();
+    // 把**真实**记忆书交给右侧「记忆」栏的渲染器（它以前读的是 app.js 里那份写死的示例数据）。
+    if (typeof renderMemoryBooks === "function") renderMemoryBooks(visible);
 
     const total = visible.reduce((count, book) => count + book.entries.length, 0);
     const entryCount = document.querySelector("#memoryEntryCount");

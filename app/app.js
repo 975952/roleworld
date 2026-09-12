@@ -1,32 +1,9 @@
 "use strict";
 
-const memoryBooks = [
-  {
-    id: "role-lock", symbol: "◇", name: "角色锁定书", subtitle: "共享 · 常量记忆", open: true,
-    entries: [
-      { id: "role-01", title: "当前身份", content: "Harry 仍是霍格沃茨五年级学生，属于 Gryffindor。", source: "角色档案" },
-      { id: "role-02", title: "关系边界", content: "关系需要通过当前会话自然发展。", source: "角色档案" },
-    ],
-  },
-  {
-    id: "scene", symbol: "○", name: "场景记忆", subtitle: "关键词激活", open: true,
-    entries: [
-      { id: "scene-01", title: "旧教室会面", content: "两人在旧教室谈起借扫帚的事。", source: "记忆书 · 场景" },
-    ],
-  },
-  {
-    id: "facts", symbol: "□", name: "精确事实", subtitle: "关键词激活", open: false,
-    entries: [
-      { id: "fact-01", title: "借用扫帚", content: "扫帚会在使用后归还。", source: "记忆书 · 事实" },
-    ],
-  },
-  {
-    id: "relations", symbol: "△", name: "关系记录", subtitle: "持续记录", open: false,
-    entries: [
-      { id: "relation-01", title: "昵称与状态", content: "关系状态随新会话修订。", source: "记忆书 · 关系" },
-    ],
-  },
-];
+/* 记忆书列表的数据由集成层（integration.js）从本机数据库读出来传进来 ——
+ * 这里以前放了一份**写死的示例书**（角色锁定书 / 场景记忆 / 精确事实 / 关系记录），
+ * 结果是"记忆"那一栏要么空白、要么显示假数据。真实数据只有一个来源：本机数据库。 */
+const memoryBooks = [];
 
 const layoutConfig = Object.freeze({
   leftMin: 196,
@@ -259,10 +236,16 @@ function setEngine(engineId) {
   if (window.TASK21 && window.TASK21.onEngineChange) window.TASK21.onEngineChange(state.engine);
 }
 
-function renderMemoryBooks() {
-  const list = $("#memoryList");
+function renderMemoryBooks(books) {
+  // 目标元素是右侧「记忆」栏里的列表（#memoryBookList）。
+  // 以前这里查的是 #memoryList —— 那个 id 在角色记忆弹层里也有一个，
+  // querySelector 只命中文档里第一个，于是真实记忆书被画进了弹层、右栏永远空白。
+  const list = $("#memoryBookList");
   if (!list) return;
-  list.innerHTML = memoryBooks.map((book) => `
+  // 集成层把真实记忆书传进来；没传（或集成层没加载）时就渲染当前这一份，不编造内容。
+  const source = Array.isArray(books) ? books : memoryBooks;
+  if (Array.isArray(books)) { memoryBooks.length = 0; memoryBooks.push(...books); }
+  list.innerHTML = source.map((book) => `
     <section class="memory-book ${book.open ? "is-open" : ""}" data-book="${escapeHtml(book.id)}">
       <button class="memory-book-header" type="button" aria-expanded="${book.open}">
         <span class="book-emblem" aria-hidden="true">${escapeHtml(book.symbol)}</span>

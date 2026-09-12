@@ -598,6 +598,24 @@ async function main() {
     // 行为正确性（真离线打开、提示页不覆盖外壳）由 tests/offline-check.cjs 在真实浏览器里验。
   });
 
+  await test("index.html 里没有重复的 id", () => {
+    // 真踩过：两个 id="memoryList"（角色记忆弹层一个、右侧记忆栏一个）。
+    // querySelector 只会命中第一个，于是"渲染到 A、用户看的是 B"这种错很难查。
+    const html = fs.readFileSync(path.join(__dirname, "..", "app", "index.html"), "utf8");
+    const ids = [];
+    const re = /\sid="([^"]+)"/g;
+    let match;
+    while ((match = re.exec(html))) ids.push(match[1]);
+    const seen = new Set();
+    const duplicates = [];
+    for (const id of ids) {
+      if (seen.has(id)) duplicates.push(id);
+      seen.add(id);
+    }
+    assert.deepEqual(duplicates, [], "index.html 里有重复 id：" + duplicates.join(", "));
+    assert.ok(ids.length > 50, "id 数量看起来不对（正则失效？）：" + ids.length);
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。
