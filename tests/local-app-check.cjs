@@ -172,6 +172,9 @@ let truncateNext = false;
         // 系统提示全文（只给测试用，用来检查诚实规则与历史检索那段）
         systemText: (Array.isArray(body.messages) ? body.messages : [])
           .filter((m) => m && m.role === "system").map((m) => String(m.content || "")).join("\n"),
+        // 最后两条消息：用来确认"语言提醒"确实紧贴在用户这句话之前
+        tailMessages: (Array.isArray(body.messages) ? body.messages : []).slice(-2)
+          .map((m) => ({ role: m && m.role, text: String((m && m.content) || "").slice(0, 80) })),
       });
       if (isBriefCall) {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -2351,8 +2354,14 @@ async function main() {
 
     await send("在吗？");
     let sent = requests.filter((row) => row.stream === true);
-    assert(sent[sent.length - 1].systemText.indexOf("一律用简体中文回复") >= 0,
-      "默认没有要求全中文：" + sent[sent.length - 1].systemText.slice(-200));
+    const firstTurn = sent[sent.length - 1];
+    assert(firstTurn.systemText.indexOf("一律用简体中文回复") >= 0,
+      "默认没有要求全中文：" + firstTurn.systemText.slice(-200));
+    // 语言提醒必须**紧贴用户这句话**（整段历史是英文时，只有最前面那句压不住）。
+    assert(firstTurn.tailMessages[0].role === "system"
+      && firstTurn.tailMessages[0].text.indexOf("必须用简体中文回复") >= 0,
+      "最后一条系统提醒不在用户这句话之前：" + JSON.stringify(firstTurn.tailMessages));
+    assert(firstTurn.tailMessages[1].role === "user", "用户那句话应当紧跟其后：" + JSON.stringify(firstTurn.tailMessages));
 
     // 在设置里关掉这个开关（即时生效，不用刷新）
     await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");

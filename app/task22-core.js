@@ -752,6 +752,10 @@
   }
 
   /* ---------- 组合 messages（系统提示 + 示例 + 历史 + 用户新输入） ---------- */
+  /** 全中文时贴近本轮输入的那条系统提醒（describeRequest 也要按同一份文本重建，所以抽成常量）。 */
+  const FULL_CHINESE_REMINDER = "[Language] 必须用简体中文回复：台词、旁白、动作描写都用中文，不要用英文。"
+    + "Reply ONLY in Simplified Chinese, including narration and actions.";
+
   function composeMessages(card, memoryBooks, history, userText, options) {
     const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, options) }];
     for (const turn of parseExample(cardField(card, "mes_example"))) msgs.push(turn);
@@ -759,6 +763,11 @@
       if (!h || typeof h.mes !== "string" || !h.mes) continue;
       msgs.push({ role: h.is_user ? "user" : "assistant", content: h.mes });
     }
+    // 全中文：在**用户这句话之前**再插一条系统提醒。
+    // 为什么非要这么近：系统提示在最前面，整段历史都是英文时，模型会跟着历史继续说英文
+    // （用户 2026-09-12 连着两次反馈"还是英文"）。放在这里离当前这句最近，效果最直接。
+    // 不塞进 user 消息里 —— 那会污染"用户原话"，记忆来源与改口解析都靠它。
+    if (options && options.fullChinese === true) msgs.push({ role: "system", content: FULL_CHINESE_REMINDER });
     msgs.push({ role: "user", content: userText });
     return msgs;
   }
@@ -939,12 +948,15 @@
       });
     }
 
-    // ② 其余消息：按请求体里的实际位置归因（样例对话 → 旧对话 → 本轮输入）。
+    // ② 其余消息：按请求体里的实际位置归因（样例对话 → 旧对话 → 语言提醒 → 本轮输入）。
     const exampleTurns = parseExample(cardField(card, "mes_example"));
     const history = (Array.isArray(options.history) ? options.history : []).filter((h) => h && typeof h.mes === "string" && h.mes);
     const exampleStart = 1;
     const historyStart = exampleStart + exampleTurns.length;
-    const inputStart = historyStart + history.length;
+    // 全中文时会多一条"贴近本轮输入"的语言提醒（见 composeMessages），位置也算清楚。
+    const reminderCount = options.fullChinese === true ? 1 : 0;
+    const reminderStart = historyStart + history.length;
+    const inputStart = reminderStart + reminderCount;
 
     const group = (kind, label, from, to) => {
       const texts = realMessages.slice(from, to).map((m) => String(m.content === undefined ? "" : m.content));
@@ -953,13 +965,14 @@
       segments.push({ kind, label, chars: content.length, tokens: countTokens(content), items: texts.length });
     };
     group("example", "样例对话", exampleStart, historyStart);
-    group("history", `旧对话（最近 ${history.length} 条）`, historyStart, inputStart);
+    group("history", `旧对话（最近 ${history.length} 条）`, historyStart, reminderStart);
+    if (reminderCount) group("language-reminder", "语言提醒（贴近本轮输入）", reminderStart, inputStart);
     group("input", "本轮输入", inputStart, inputStart + 1);
 
     // ③ 一致性核对（两条都必须为真，否则面板显示的内容就不可信）：
     //    ① 系统提示逐字节对得上（面板上的细分加起来 == 真正发出去的系统提示）；
     //    ② 每条消息都刚好被归到一段，一条不多一条不少。
-    const covered = (exampleTurns.length ? exampleTurns.length : 0) + history.length + (options.userText ? 1 : 0) + 1;
+    const covered = (exampleTurns.length ? exampleTurns.length : 0) + history.length + reminderCount + (options.userText ? 1 : 0) + 1;
     const joined = realMessages.map((m) => String(m.content === undefined ? "" : m.content)).join("\u0000");
     const systemSegment = segments.filter((s) => s.kind === "system")[0] || null;
     const rebuiltSystem = systemSegment ? rebuildSystem() : "";

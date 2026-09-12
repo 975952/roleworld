@@ -797,6 +797,22 @@ async function main() {
     assert.ok(withFormat.split("一律用简体中文回复").length - 1 >= 2, "全中文要求应当出现两次：" + withFormat.slice(-200));
     assert.ok(withFormat.lastIndexOf("一律用简体中文回复") > withFormat.indexOf(Core22.REPLY_FORMAT_INSTRUCTION),
       "结尾那处必须在格式指令之后，否则会被盖过去");
+    // 还有第三处：紧贴用户这句话之前的一条系统提醒。
+    // 整段历史都是英文时，只靠最前面那句压不住（用户 2026-09-12 连着两次反馈"还是英文"）。
+    const messages = Core22.buildGeneratePayload({
+      card: enCard, memoryBooks: [], history: [{ is_user: false, mes: "Harry stares at you." }],
+      userText: "在吗", engine: "A", mode: "local", settings: {}, fullChinese: true,
+    }).messages;
+    assert.equal(messages[messages.length - 1].role, "user", "最后一条应当是用户这句话");
+    assert.equal(messages[messages.length - 2].role, "system", "用户这句话之前应当有一条语言提醒");
+    assert.ok(messages[messages.length - 2].content.indexOf("必须用简体中文回复") >= 0,
+      "语言提醒内容不对：" + messages[messages.length - 2].content);
+    // 关掉之后不该多出这条消息（老行为一个字都不变）。
+    const withoutFlag = Core22.buildGeneratePayload({
+      card: enCard, memoryBooks: [], history: [], userText: "在吗", engine: "A", mode: "local", settings: {},
+    }).messages;
+    assert.equal(withoutFlag[withoutFlag.length - 2].content.indexOf("必须用简体中文回复"), -1,
+      "没开全中文却插了语言提醒");
     assert.ok(off.indexOf("English only") >= 0, "关掉之后应当回到角色卡自己的语言");
     assert.ok(legacy.indexOf("English only") >= 0, "不传这个选项时保持原行为（老调用方不受影响）");
     // 中文卡开着也不冲突：仍然是"只用中文"。
