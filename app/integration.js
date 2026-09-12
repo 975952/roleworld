@@ -309,7 +309,11 @@
   function mapEntry(bookIdx, entry) {
     return {
       id: `live-${bookIdx}-${entry.uid}`,
-      title: String(entry.comment || (entry.key || []).join("、") || `条目 #${entry.uid}`).replace(/^\[STMB\]\s*/, ""),
+      // 标题口径见 memory-core.entryTitle：comment 里若是迁移工具留下的说明（[STMB] …），
+      // 不能当标题显示 —— 内置包里那条 "Human confirmation edit: …" 就这么冒到过界面上。
+      title: (window.ROLEWORLD_MEMORY_CORE && window.ROLEWORLD_MEMORY_CORE.entryTitle)
+        ? window.ROLEWORLD_MEMORY_CORE.entryTitle(entry)
+        : String(entry.comment || (entry.key || []).join("、") || `条目 #${entry.uid}`).replace(/^\[STMB\]\s*/, ""),
       content: String(entry.content || ""),
       source: "角色记忆",
       superseded: !!entry.disable,

@@ -356,6 +356,27 @@
     return rows;
   }
 
+  /* 条目标题：SillyTavern 的 Memory Books 把"这条是什么"记在 comment 里，界面拿它当标题。
+   * 但导进来的书里混着**转换器说明**——内置包里就有一条：
+   *   "[STMB] Human confirmation edit: correction narrative removed so no superseded value
+   *    appears in prompt context."
+   * 那是迁移痕迹，不是标题；照原样显示，用户会以为记忆坏了（2026-09-12 用户就是这么问的）。
+   * 这类注释一律丢掉，退回"正文开头 24 字"（跟自动记忆自己写 comment 的口径一致），
+   * 再没有才用关键词、最后才是条目号。 */
+  const CONVERTER_NOTE_RE = /^(?:\[?stmb\]?\s*)?(?:human confirmation edit|correction narrative|automated conversion|converter note|imported from)\b/i;
+
+  function entryTitle(entry) {
+    const row = entry && typeof entry === "object" ? entry : {};
+    const comment = cleanText(row.comment, 200).replace(/^\s*\[STMB\]\s*/i, "").trim();
+    if (comment && !CONVERTER_NOTE_RE.test(comment)) return comment;
+    const content = cleanText(row.content, 2000);
+    if (content) return content.slice(0, 24);
+    const rawKeys = Array.isArray(row.key) ? row.key : (Array.isArray(row.keys) ? row.keys : []);
+    const joined = rawKeys.map((key) => cleanText(key, 40)).filter(Boolean).join("、");
+    if (joined) return joined;
+    return row.uid === undefined || row.uid === null ? "记忆条目" : `条目 #${row.uid}`;
+  }
+
   function nextUid(entries) {
     let max = 0;
     Object.keys(entries || {}).forEach((key) => {
@@ -594,6 +615,7 @@
     entryTopic,
     isSameTopic,
     listEntries,
+    entryTitle,
     groupByTopic,
     nextUid,
     trim,

@@ -376,6 +376,36 @@ async function main() {
     assert.equal(result.entries["0"].probability, 100);
   });
 
+  await test("条目标题：正常的 comment 直接当标题，[STMB] 前缀剥掉", () => {
+    assert.equal(Memory.entryTitle({ comment: "[STMB] Lin's fear of heights and flying" }), "Lin's fear of heights and flying");
+    assert.equal(Memory.entryTitle({ comment: "玩家喜欢的饮料" }), "玩家喜欢的饮料");
+  });
+
+  await test("条目标题：迁移工具留下的说明不当标题（内置包里真有一条这样的）", () => {
+    // 2026-09-12：用户在记忆面板里看到一句英文
+    // "Human confirmation edit: correction narrative removed so no superseded value
+    //  appears in prompt context." —— 那是 STMB 转换器写进 comment 的说明，不是标题。
+    const note = "[STMB] Human confirmation edit: correction narrative removed so no superseded value appears in prompt context.";
+    const title = Memory.entryTitle({
+      comment: note,
+      content: "Lin's home city is Shanghai, China. She grew up there before coming to Hogwarts.",
+      key: ["Shanghai", "Lin"],
+    });
+    assert.ok(title.indexOf("Human confirmation") < 0, "转换器说明不该当标题：" + title);
+    assert.ok(title.indexOf("Lin's home city") === 0, "应当退回正文开头：" + title);
+  });
+
+  await test("条目标题：没有 comment 就用正文开头（和自动记忆自己写 comment 的口径一致）", () => {
+    const title = Memory.entryTitle({ content: "玩家养了一只猫叫团子，是三花，怕生" });
+    assert.equal(title, "玩家养了一只猫叫团子，是三花，怕生".slice(0, 24));
+  });
+
+  await test("条目标题：什么都没有时退回关键词，再退回条目号，不编造", () => {
+    assert.equal(Memory.entryTitle({ content: "", key: ["团子", "猫"] }), "团子、猫");
+    assert.equal(Memory.entryTitle({ uid: 7 }), "条目 #7");
+    assert.equal(Memory.entryTitle(null), "记忆条目");
+  });
+
   console.log("");
   console.log("== 记忆取向与「说得对」（P5-3）==");
 

@@ -275,8 +275,10 @@ async function main() {
           { name: "MB Harry — fact clips (EN)", entries: {
             "0": { uid: 0, key: ["哈利"], keysecondary: [], comment: "测试条目", content: "合成记忆内容", disable: false, constant: false } } },
           // 一条合成的"自动记忆"，带来源：验证面板能显示它记了什么、来自哪句话，并能删掉。
+          // comment 故意用内置包里那种迁移痕迹（[STMB] + 转换器说明）：
+          // 它不该被当成标题显示到界面上（2026-09-12 用户就是这么看到一句英文的）。
           { name: "MB Harry — 自动记忆", entries: {
-            "1": { uid: 1, key: [], keysecondary: [], comment: "玩家叫小林", content: "玩家叫小林",
+            "1": { uid: 1, key: [], keysecondary: [], comment: "[STMB] Human confirmation edit: correction narrative removed so no superseded value appears in prompt context.", content: "玩家叫小林",
                    constant: true, disable: false, displayIndex: 1,
                    rw_source: { file: "harry-task26a-合成.jsonl", messageIndex: 4, at: "2026-09-11T02:00:00.000Z", origin: "model" } } } }
         ],
@@ -448,6 +450,16 @@ async function main() {
     await waitFor("document.querySelectorAll('#memoryBookList .memory-book').length > 0", 8000);
     const listed = await evaluate("document.querySelector('#memoryBookList').textContent");
     assert(listed.indexOf("自动记忆") >= 0, "记忆栏里没列出真实记忆书：" + JSON.stringify(listed));
+    // 迁移工具留在 comment 里的说明不许当标题（fixture 那条就是内置包里那种）。
+    assert(listed.indexOf("Human confirmation") < 0,
+      "面板把迁移痕迹当标题显示了：" + JSON.stringify(listed.slice(0, 160)));
+    const firstTitle = await evaluate(`(() => {
+      const entry = document.querySelector('#memoryBookList .memory-entry');
+      const strong = entry && entry.querySelector('strong');
+      return strong ? strong.textContent : '';
+    })()`);
+    assert(firstTitle && firstTitle.indexOf("Human confirmation") < 0,
+      "第一条记忆的标题不对：" + JSON.stringify(firstTitle));
 
     await evaluate("document.querySelector(\"[data-action='close-memories']\").click(); true");
     await waitFor("document.querySelector('.inspector-column').getAttribute('aria-hidden') === 'true'", 8000);
