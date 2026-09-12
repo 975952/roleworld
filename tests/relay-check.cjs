@@ -322,6 +322,89 @@ async function main() {
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => upstream.server.close(resolve));
 
+  /* ---------------- 云开发 HTTP 账本（假网关） ---------------- */
+
+  console.log("");
+  console.log("== 云开发 HTTP 账本（不用 SDK，直接走官方 HTTP API）==");
+
+  const { createHttpStore, createStore } = require(path.join(RELAY, "store.js"));
+  const fakeDocs = new Map();
+  let collectionCreated = 0;
+  const gateway = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://gw.local");
+    const send = (status, payload) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+    if (req.headers.authorization !== "Bearer fake-apikey") return send(401, { code: "DATABASE_PERMISSION_DENIED" });
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+      if (url.pathname === "/v1/database/instances/(default)/databases/(default)/collections") {
+        collectionCreated += 1;
+        return send(fakeDocs.collection ? 409 : 201, {});
+      }
+      const listMatch = url.pathname.match(/\/collections\/([^/]+)\/documents$/);
+      const oneMatch = url.pathname.match(/\/collections\/([^/]+)\/documents\/([^/]+)$/);
+      if (listMatch && req.method === "GET") {
+        const rows = Array.from(fakeDocs.values());
+        const query = JSON.parse(url.searchParams.get("query") || "{}");
+        const filtered = rows.filter((row) => Object.keys(query).every((key) => row[key] === query[key]));
+        return send(200, { offset: 0, limit: 500, list: filtered });
+      }
+      if (listMatch && req.method === "POST") {
+        const doc = body.data[0];
+        fakeDocs.set(doc._id, doc);
+        return send(201, { insertedIds: [doc._id] });
+      }
+      if (oneMatch && req.method === "GET") {
+        const doc = fakeDocs.get(decodeURIComponent(oneMatch[2]));
+        return doc ? send(200, doc) : send(404, { code: "DOCUMENT_NOT_FOUND" });
+      }
+      if (oneMatch && req.method === "PATCH") {
+        const key = decodeURIComponent(oneMatch[2]);
+        const doc = fakeDocs.get(key);
+        if (!doc) return send(404, { code: "DOCUMENT_NOT_FOUND" });
+        fakeDocs.set(key, Object.assign({}, doc, body.data.$set || {}));
+        return send(200, { updated: 1, matched: 1 });
+      }
+      if (oneMatch && req.method === "DELETE") {
+        const key = decodeURIComponent(oneMatch[2]);
+        return fakeDocs.delete(key) ? send(200, { deleted: 1 }) : send(404, { code: "DOCUMENT_NOT_FOUND" });
+      }
+      return send(404, { code: "NOT_FOUND", path: url.pathname });
+    });
+  });
+  const gatewayPort = await listen(gateway);
+
+  await check("HTTP 账本：自建集合（409 也算成功）、写入、按卡号查、改、删", async () => {
+    const store = createHttpStore({ gatewayBase: "http://127.0.0.1:" + gatewayPort, apiKey: "fake-apikey", env: "cyan1-test" });
+    assert.equal(store.kind, "cloudbase-http");
+    const created = await store.save({ id: "card-1", tokenHash: hashToken("RW-TEST1-TEST2-TEST3"), label: "小明", quota: { calls: 5, tokens: 0 }, used: { calls: 0, tokens: 0 } });
+    assert.equal(created.id, "card-1");
+    assert.equal(collectionCreated, 1, "应当建一次集合");
+    const found = await store.findByToken("RW-TEST1-TEST2-TEST3");
+    assert.ok(found && found.label === "小明", "按卡号查不到：" + JSON.stringify(found));
+    // 再保存一次走更新分支（$set），集合不该被重复创建。
+    await store.save(Object.assign({}, found, { used: { calls: 1, tokens: 12 } }));
+    assert.equal(collectionCreated, 1, "不该重复建集合");
+    const again = await store.get("card-1");
+    assert.equal(again.used.calls, 1);
+    assert.equal(await store.remove("card-1"), true);
+    assert.equal(await store.get("card-1"), null);
+  });
+
+  await check("HTTP 账本：缺 Key / 缺环境时明确报错，并退到 file 而不是假装成功", async () => {
+    let message = "";
+    try { createHttpStore({ env: "cyan1-test", apiKey: "" }); } catch (error) { message = error.message; }
+    assert.ok(message.indexOf("CLOUDBASE_APIKEY") >= 0, "应当说清缺哪一项：" + message);
+    const fallback = createStore({ kind: "cloudbase", apiKey: "fake-apikey", gatewayBase: "http://127.0.0.1:" + gatewayPort, env: "cyan1-test" });
+    assert.equal(fallback.kind, "cloudbase-http", "配好 Key 时应当直接用 HTTP 账本");
+  });
+
+  await new Promise((resolve) => gateway.close(resolve));
+
   console.log("");
   console.log(`RELAY_CHECK=${passed}/${passed + failed}`);
   if (failed) process.exitCode = 1;

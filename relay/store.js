@@ -185,8 +185,124 @@ function describeAuth() {
   };
 }
 
+/* ---------------- 云开发文档型数据库（HTTP API，推荐） ----------------
+ *
+ * 为什么不用 @cloudbase/node-sdk：官方已标注它停止维护，而且在云托管容器里用注入的
+ * 服务端 ApiKey 会报 `INVALID_ACCESS_TOKEN`（实测：同一把 Key，网关能过、旧 SDK 不过）。
+ * 官方 HTTP API 是明确的：域名 {envId}.api.tcloudbasegateway.com，
+ * 头 `Authorization: Bearer <ApiKey>`，路径 /v1/database/instances/(default)/databases/(default)。
+ * 这里就按那份文档直接走 HTTP，少一层依赖，也少一层"版本不兼容"。
+ * 文档：https://docs.cloudbase.net/http-api/nosql/nosql-restful-api
+ */
+
+function createHttpStore(options) {
+  const opts = options || {};
+  const envId = opts.env || process.env.TCB_ENV || process.env.CLOUDBASE_ENV || "";
+  const apiKey = opts.apiKey || process.env.CLOUDBASE_APIKEY || "";
+  const collection = opts.collection || process.env.CARD_COLLECTION || "rw_cards";
+  const base = String(opts.gatewayBase || process.env.CLOUDBASE_GATEWAY_BASE || (envId ? `https://${envId}.api.tcloudbasegateway.com` : "")).replace(/\/+$/, "");
+  if (!base) throw new Error("缺少环境 ID：设置 TCB_ENV（例如 cyan1-xxxx）");
+  if (!apiKey) throw new Error("缺少 CLOUDBASE_APIKEY：在云托管「API Key 设置」里注入一把服务端 ApiKey");
+  const root = `${base}/v1/database/instances/(default)/databases/(default)`;
+  const docs = `${root}/collections/${encodeURIComponent(collection)}/documents`;
+
+  async function call(method, url, body) {
+    const res = await fetch(url, {
+      method,
+      headers: Object.assign({ Authorization: "Bearer " + apiKey }, body ? { "Content-Type": "application/json" } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = { raw: text }; }
+    return { status: res.status, body: parsed };
+  }
+
+  let ensured = null;
+  /** 集合不存在就建一个（409 = 已存在，同样算成功）。 */
+  async function ensureCollection() {
+    if (!ensured) {
+      ensured = call("POST", `${root}/collections`, { collectionName: collection }).then((res) => {
+        if (res.status === 201 || res.status === 409) return true;
+        throw new Error(`建集合失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      });
+    }
+    return ensured;
+  }
+
+  const plainId = (value) => {
+    if (!value) return "";
+    if (typeof value === "object" && value.$oid) return String(value.$oid);
+    return String(value);
+  };
+  const shape = (doc) => {
+    if (!doc) return null;
+    const card = Object.assign({}, doc);
+    card.id = card.id || plainId(card._id);
+    delete card._id;
+    return card;
+  };
+
+  return {
+    kind: "cloudbase-http",
+    collection,
+    async list() {
+      await ensureCollection();
+      const res = await call("GET", `${docs}?limit=500`);
+      if (res.status !== 200) throw new Error(`查列表失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      return (res.body.list || []).map(shape);
+    },
+    async get(id) {
+      await ensureCollection();
+      const res = await call("GET", `${docs}/${encodeURIComponent(id)}`);
+      if (res.status === 404) return null;
+      if (res.status !== 200) throw new Error(`查单条失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      return shape(res.body);
+    },
+    async findByToken(token) {
+      await ensureCollection();
+      const query = JSON.stringify({ tokenHash: hashToken(token) });
+      const res = await call("GET", `${docs}?limit=1&query=${encodeURIComponent(query)}`);
+      if (res.status !== 200) throw new Error(`按卡号查失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      return shape((res.body.list || [])[0]);
+    },
+    async save(card) {
+      await ensureCollection();
+      const existing = await this.get(card.id);
+      if (existing) {
+        const data = Object.assign({}, card);
+        delete data.id;
+        const res = await call("PATCH", `${docs}/${encodeURIComponent(card.id)}`, { data: { $set: data }, returnDoc: false });
+        if (res.status !== 200) throw new Error(`更新卡失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+        return card;
+      }
+      const data = Object.assign({ _id: card.id }, card);
+      delete data.id;
+      const res = await call("POST", docs, { data: [data] });
+      if (res.status !== 201) throw new Error(`写入卡失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      return card;
+    },
+    async remove(id) {
+      await ensureCollection();
+      const res = await call("DELETE", `${docs}/${encodeURIComponent(id)}`);
+      if (res.status === 404) return false;
+      if (res.status !== 200) throw new Error(`删卡失败（HTTP ${res.status}）：${JSON.stringify(res.body).slice(0, 200)}`);
+      return Number(res.body.deleted || 0) > 0;
+    },
+  };
+}
+
 function createStore(spec) {
   const kind = String((spec && spec.kind) || process.env.CARD_STORE || "memory").toLowerCase();
+  const wantCloud = kind === "cloudbase" || kind === "cloudbase-http" || kind === "http";
+  if (wantCloud && (process.env.CLOUDBASE_APIKEY || (spec && spec.apiKey))) {
+    try {
+      return createHttpStore(spec || {});
+    } catch (error) {
+      console.error("⚠ 云开发账本用不了（" + (error && error.message ? error.message : error) + "），改为 file 后端。");
+      return createFileStore((spec && spec.file) || process.env.CARD_FILE || "/data/cards.json");
+    }
+  }
   if (kind === "cloudbase") {
     try {
       return createCloudBaseStore(spec || {});
@@ -202,4 +318,4 @@ function createStore(spec) {
   return createMemoryStore();
 }
 
-module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, describeAuth, hashToken, randomToken, blankCard, nowIso };
+module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, describeAuth, hashToken, randomToken, blankCard, nowIso };
