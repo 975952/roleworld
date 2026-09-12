@@ -160,6 +160,23 @@ function createCloudBaseStore(options) {
   };
 }
 
+/**
+ * 诊断用：容器里到底拿没拿到云开发授权（只报"有没有、多长"，绝不回显值）。
+ * 云托管里最常见的一种失败是"以为注入了 API Key，其实没生效"，光看报错很难分辨。
+ */
+function describeAuth() {
+  const key = process.env.CLOUDBASE_APIKEY || "";
+  const pair = !!(process.env.TENCENTCLOUD_SECRETID && process.env.TENCENTCLOUD_SECRETKEY);
+  let sdkVersion = "未安装";
+  try { sdkVersion = require("@cloudbase/node-sdk/package.json").version; } catch (_) { sdkVersion = "未安装"; }
+  return {
+    cloudbaseApiKey: key ? "set(" + key.length + ")" : "unset",
+    tencentPair: pair ? "set" : "unset",
+    env: process.env.TCB_ENV || process.env.CLOUDBASE_ENV || "",
+    sdkVersion,
+  };
+}
+
 function createStore(spec) {
   const kind = String((spec && spec.kind) || process.env.CARD_STORE || "memory").toLowerCase();
   if (kind === "cloudbase") {
@@ -177,4 +194,4 @@ function createStore(spec) {
   return createMemoryStore();
 }
 
-module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, hashToken, randomToken, blankCard, nowIso };
+module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, describeAuth, hashToken, randomToken, blankCard, nowIso };

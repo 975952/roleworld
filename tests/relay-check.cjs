@@ -277,6 +277,26 @@ async function main() {
     await new Promise((resolve) => bare.close(resolve));
   });
 
+  await check("上游自检接口：拿服务端的 Key 打一次最小请求，成功时报出模型与回复", async () => {
+    const res = await admin("GET", "/admin/upstream/selftest?model=deepseek-flash");
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json().catch(() => ({}))));
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.model, "deepseek-flash");
+    assert.ok(body.reply.indexOf("点点头") >= 0, "应带回答的前几十个字：" + JSON.stringify(body));
+    // 上游鉴权头必须是真 Key，而且不能在返回里出现。
+    assert.equal(upstream.seen[upstream.seen.length - 1].auth, "Bearer sk-upstream-secret");
+    assert.ok(JSON.stringify(body).indexOf("sk-upstream-secret") < 0, "自检结果里不该出现 Key");
+  });
+
+  await check("上游自检：模型名写错时如实报错，不假装可用", async () => {
+    const res = await admin("GET", "/admin/upstream/selftest?model=boom");
+    assert.equal(res.status, 502);
+    const body = await res.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.status, 500, "上游状态码要原样带出来：" + JSON.stringify(body));
+  });
+
   await check("账本自检接口：能写能读能删，并报出真正的后端类型", async () => {
     const before = (await store.list()).length;
     const res = await admin("GET", "/admin/store/selftest");

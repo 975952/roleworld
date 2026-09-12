@@ -192,6 +192,38 @@ function createRelay(options) {
       }, corsHeaders());
     }
 
+    /* 上游自检：拿服务端的真 Key 打一次最小请求，把"配错了 Key / 路径不对 / 模型名不对"
+     * 和"账本坏了"这两类问题分开。回复只回前 60 个字符，不落任何日志。 */
+    if (req.method === "GET" && parts.length === 3 && parts[1] === "upstream" && parts[2] === "selftest") {
+      if (!upstreamKey) return sendJson(res, 503, { ok: false, error: "服务端没有配置 UPSTREAM_KEY" }, corsHeaders());
+      const model = String(url.searchParams.get("model") || allowModels[0] || "deepseek-flash");
+      const target = new URL(upstreamBase + upstreamChatPath);
+      const payload = Buffer.from(JSON.stringify({ model, messages: [{ role: "user", content: "只回复两个字：可用" }], max_tokens: 16, stream: false }), "utf8");
+      const startedAt = Date.now();
+      const result = await new Promise((resolve) => {
+        const request = agentFor(target).request({
+          protocol: target.protocol, hostname: target.hostname,
+          port: target.port || (target.protocol === "https:" ? 443 : 80),
+          path: target.pathname + target.search, method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + upstreamKey, "Content-Length": String(payload.length) },
+        }, (upstreamRes) => {
+          const chunks = [];
+          upstreamRes.on("data", (chunk) => chunks.push(chunk));
+          upstreamRes.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf8");
+            let reply = "";
+            try { reply = String(JSON.parse(text).choices[0].message.content || ""); } catch (_) {}
+            resolve({ status: upstreamRes.statusCode || 0, reply: reply.slice(0, 60), body: reply ? "" : text.slice(0, 300) });
+          });
+        });
+        request.on("error", (error) => resolve({ status: 0, error: error.message }));
+        request.end(payload);
+      });
+      return sendJson(res, result.status === 200 ? 200 : 502, Object.assign({
+        ok: result.status === 200, model, url: upstreamBase + upstreamChatPath, ms: Date.now() - startedAt,
+      }, result), corsHeaders());
+    }
+
     /* 账本自检：配好环境变量后调一次，就能知道"卡到底存哪、存不存得住"。
      * 这正是部署时最容易踩的坑：以为在存数据库，其实退回了容器临时盘。 */
     if (req.method === "GET" && parts.length === 3 && parts[1] === "store" && parts[2] === "selftest") {
@@ -330,7 +362,7 @@ function createRelay(options) {
     const url = new URL(req.url, "http://relay.local");
     try {
       if (req.method === "OPTIONS") { res.writeHead(204, corsHeaders()); return res.end(); }
-      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), upstreamChatPath, upstreamKeySet: !!upstreamKey, adminEnabled: !!adminSecret, at: new Date().toISOString() }, corsHeaders());
+      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, storeAuth: storeLib.describeAuth(), upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), upstreamChatPath, upstreamKeySet: !!upstreamKey, adminEnabled: !!adminSecret, at: new Date().toISOString() }, corsHeaders());
       if (url.pathname === "/card/quota") {
         const card = await store.findByToken(bearer(req));
         const verdict = checkCard(card);
