@@ -455,7 +455,11 @@
     // purpose: "scene" —— 走剧情模式页那一档：只写自己这一小段、不替别人说话，
     // 并且关掉自动历史检索（场景历史已经在下面这些消息里了）。
     // 以前这里只是"碰巧"没有对话页那条格式指令，现在它是显式的选择。
-    var base = window.TASK22_CORE.buildSystemPrompt(card, booksFor(avatar), promptText, { purpose: "scene" });
+    var base = window.TASK22_CORE.buildSystemPrompt(card, booksFor(avatar), promptText, {
+      purpose: "scene",
+      // 剧情模式页也要跟着「全中文」设置走（内置角色卡是英文的）。
+      fullChinese: runtime.fullChinese !== false,
+    });
     var lastSpeaker = lastSpeakerBefore(avatar);
     var system = base + "\n\n" + sceneDirective(avatar, others, lastSpeaker);
     var name = characterName(avatar);
@@ -684,6 +688,7 @@
       }
     } catch (_) { /* 读不到就用默认值 */ }
     runtime.modelName = String(settings.model || "");
+    runtime.fullChinese = settings.full_chinese !== false;
     runtime.modelMode = settings.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
   }
 

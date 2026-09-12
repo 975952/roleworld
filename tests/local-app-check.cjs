@@ -119,7 +119,7 @@ let truncateNext = false;
         res.end(JSON.stringify({ error: { code: "CARD_UNKNOWN", message: "这张体验卡不认识：卡号可能抄错了，或者已经被收回。" } }));
         return;
       }
-      requests.push({ path: p, stream: true, relayCard: auth.slice(-5) });
+      requests.push({ path: p, relay: true, relayCard: auth.slice(-5) });
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache",
@@ -2292,12 +2292,67 @@ async function main() {
       assert(chipAfter.indexOf("剩 3 次") >= 0, "徽标没按这一轮的响应头刷新：" + chipAfter);
     } finally {
       // 收尾：恢复 fixture 的设置，别影响后面的用例。
+      // 注意要**通知页面**（saveLocalSettings 只落盘，不会改内存里的 liveState）——
+      // 否则后面的用例还在往中转地址发请求。
       await evaluate(`(async () => {
         await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true });
         await RoleWorld.secrets.remove("api_key_custom");
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "" } }));
         return true;
       })()`).catch(() => {});
     }
+  });
+
+  await check("全中文：进门默认就是中文，关掉之后回到角色卡自己的语言", async () => {
+    // 用户 2026-09-12：「有些人看不懂英文」——所以默认开，且开关一改下一轮就生效。
+    const streamedCount = () => requests.filter((row) => row.stream === true).length;
+    const waitForNewTurn = async (minCount) => {
+      for (let i = 0; i < 80; i += 1) {
+        if (streamedCount() >= minCount) return true;
+        await sleep(200);
+      }
+      return false;
+    };
+    const send = async (text) => {
+      const before = streamedCount();
+      await waitFor("document.querySelector('#messageInput').disabled === false", 15000);
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = ${JSON.stringify(text)};
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#sendButton').click();
+        return true;
+      })()`);
+      assert(await waitForNewTurn(before + 1), "这一句没有真的发出去");
+      await waitTurnSettled();
+    };
+
+    await send("在吗？");
+    let sent = requests.filter((row) => row.stream === true);
+    assert(sent[sent.length - 1].systemText.indexOf("一律用简体中文回复") >= 0,
+      "默认没有要求全中文：" + sent[sent.length - 1].systemText.slice(-200));
+
+    // 在设置里关掉这个开关（即时生效，不用刷新）
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
+    await evaluate(`(() => {
+      const box = document.querySelector('[data-roleworld="full-chinese"]');
+      box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor("(async () => (await RoleWorld.getLocalSettings()).full_chinese === false)()", 8000);
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 6000);
+
+    await send("再说一句");
+    sent = requests.filter((row) => row.stream === true);
+    assert(sent[sent.length - 1].systemText.indexOf("一律用简体中文回复") < 0,
+      "关掉之后不该还在要求全中文：" + sent[sent.length - 1].systemText.slice(-200));
+
+    // 恢复默认，别影响后面的用例。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ full_chinese: true }); return true; })()");
+    await evaluate("window.dispatchEvent(new CustomEvent('roleworld:settings-changed', { detail: { full_chinese: true } })); true");
   });
 
   await check("账号相关入口不可见", async () => {
@@ -2332,6 +2387,14 @@ async function main() {
     const first = await evaluate("document.querySelector('.rw-ob h2').textContent");
     assert(first.indexOf("欢迎") >= 0, "引导首页标题是：" + first);
     assert(await evaluate("document.querySelector('[data-ob=\"skip\"]') === null"), "不该有「跳过」按钮");
+    // 进门就要能看到「全中文」这个选项（有人看不懂英文），而且默认是勾上的。
+    const chineseBox = await evaluate(`(() => {
+      const box = document.querySelector('[data-ob="full-chinese"]');
+      return box ? { exists: true, checked: box.checked === true, text: box.parentElement.textContent.trim() } : { exists: false };
+    })()`);
+    assert(chineseBox.exists, "引导首页没有「全中文」选项");
+    assert(chineseBox.checked, "「全中文」应当默认勾上：" + JSON.stringify(chineseBox));
+    assert(chineseBox.text.indexOf("简体中文") >= 0, "选项文案要说清楚管的是角色说什么语言：" + chineseBox.text);
 
     // 之前出现过「黑字压在深色背景上完全看不见」，这里直接算对比度。
     const contrast = await evaluate(`(() => {

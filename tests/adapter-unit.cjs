@@ -770,6 +770,33 @@ async function main() {
     assert.equal(Card.describeCardError(200, null), null);
   });
 
+  await test("全中文模式：压过角色卡的语言设置（内置卡是英文的）", () => {
+    // 用户 2026-09-12：「再进入网站的位置加一个是否开启全中文的选项吧，有些人看不懂英文」。
+    const Core22 = require(path.join(__dirname, "..", "app", "task22-core.js"));
+    const enCard = { name: "Harry", description: "Boy.", personality: "", scenario: "", language: "en" };
+    const zhCard = { name: "小明", description: "学生。", personality: "", scenario: "", language: "zh" };
+    const override = Core22.languageLine(enCard, { fullChinese: true });
+    assert.ok(override.indexOf("一律用简体中文回复") >= 0, "没给出全中文要求：" + override);
+    assert.ok(override.indexOf("English only") < 0, "开着全中文就不该再要求说英文");
+    assert.ok(override.indexOf("先用中文把意思重说一遍") >= 0, "英文开场白也要被翻过来：" + override);
+
+    const on = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: true });
+    const off = Core22.buildSystemPrompt(enCard, [], "你好", { fullChinese: false });
+    const legacy = Core22.buildSystemPrompt(enCard, [], "你好", {});
+    assert.ok(on.indexOf("一律用简体中文回复") >= 0, "全中文没进系统提示");
+    assert.equal(on.indexOf("English only"), -1, "开着全中文却还带着英文要求");
+    // 聊天页走的是带格式指令的那份：语言要求两头都要有（中间一处 + 格式指令之后再一处），
+    // 只留一处实测会漏（"旁白英文、台词中文"）。
+    const withFormat = Core22.buildSystemPromptWithFormat(enCard, [], "你好", null, { fullChinese: true });
+    assert.ok(withFormat.split("一律用简体中文回复").length - 1 >= 2, "全中文要求应当出现两次：" + withFormat.slice(-200));
+    assert.ok(withFormat.lastIndexOf("一律用简体中文回复") > withFormat.indexOf(Core22.REPLY_FORMAT_INSTRUCTION),
+      "结尾那处必须在格式指令之后，否则会被盖过去");
+    assert.ok(off.indexOf("English only") >= 0, "关掉之后应当回到角色卡自己的语言");
+    assert.ok(legacy.indexOf("English only") >= 0, "不传这个选项时保持原行为（老调用方不受影响）");
+    // 中文卡开着也不冲突：仍然是"只用中文"。
+    assert.ok(Core22.buildSystemPrompt(zhCard, [], "你好", { fullChinese: true }).indexOf("一律用简体中文回复") >= 0);
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。

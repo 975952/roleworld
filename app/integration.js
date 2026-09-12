@@ -3449,6 +3449,8 @@
         thinking: liveState.thinking === true,
         autoMemory: liveState.autoMemory !== false,
         autoEventMemory: liveState.eventMemory !== false,
+        // 全中文模式：压过角色卡自己的语言设置（内置卡是英文的）。
+        fullChinese: liveState.fullChinese !== false,
         stream: true,
         extraSystem,
         purpose,
@@ -3476,6 +3478,8 @@
           history: historyPlan.kept,
           userText: text,
           autoMemory: liveState.autoMemory !== false,
+          autoEventMemory: liveState.eventMemory !== false,
+          fullChinese: liveState.fullChinese !== false,
           messages: payload.messages,
           extraSystem,
           purpose,
@@ -3817,6 +3821,8 @@
     // 「记住发生过的事」：默认开 —— 用户要的是角色记得"之前发生了什么"。
     // 关掉时既不提示模型写 [[事件: …]]，也不会把事件条目写进记忆。
     liveState.eventMemory = settings.auto_event_memory !== false;
+    // 全中文：默认开（内置卡是英文的，用的人多半只想看中文）。
+    liveState.fullChinese = settings.full_chinese !== false;
     liveState.localSettings = settings;
     // provider 决定请求通道：DeepSeek 才带 include_reasoning 之类的参数。
     liveState.modelMode = settings.provider === "deepseek"
@@ -4225,6 +4231,7 @@
     if (typeof patch.thinking === "boolean") liveState.thinking = patch.thinking;
     if (typeof patch.auto_memory === "boolean") liveState.autoMemory = patch.auto_memory;
     if (typeof patch.auto_event_memory === "boolean") liveState.eventMemory = patch.auto_event_memory;
+    if (typeof patch.full_chinese === "boolean") liveState.fullChinese = patch.full_chinese;
     if (typeof patch.model === "string" && patch.model) liveState.modelName = patch.model;
     if (patch.provider) {
       liveState.modelMode = patch.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;

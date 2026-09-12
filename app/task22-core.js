@@ -263,8 +263,15 @@
   const REPLY_FORMAT_INSTRUCTION = `Separate narration from dialogue. NARRATION = actions, expressions, environment, and thoughts — plain text, no quotation marks. DIALOGUE = every word the character speaks out loud, ALWAYS wrapped in double quotes ("..."), including short exclamations like "What?" or "No." Never write any spoken word without double quotes. Put speech tags like "he says" or "he mutters" OUTSIDE and after the closing quote. Example: He steps back, frowning. "No. That's not right," he says, shaking his head. "Please stop." Narration and quoted dialogue may alternate in any order.`;
 
   /* ---------- 卡字段读取（兼容 V2 / V3 双形态） ---------- */
-  /** 语言要求那一行。**两处都用它**：系统提示中间一处、最后的格式指令里再强调一次。 */
-  function languageLine(card) {
+  /** 语言要求那一行。**两处都用它**：系统提示中间一处、最后的格式指令里再强调一次。
+   *  options.fullChinese（设置里的「全中文模式」）压过角色卡自己的语言设置 ——
+   *  内置角色卡是英文的，但用的人多半只想看中文（2026-09-12 用户要求："有些人看不懂英文"）。 */
+  function languageLine(card, options) {
+    if (options && options.fullChinese === true) {
+      return "[Language] 一律用简体中文回复：台词、旁白、动作描写、称呼都用中文，不要夹英文句子。"
+        + "角色卡里的英文设定你自己看懂就行，不要照抄成英文原文。"
+        + "如果你之前用英文说过话，先用中文把意思重说一遍，再继续。";
+    }
     const language = cardLanguageOf(card);
     if (language === "zh") {
       return "[Language] 这个角色说简体中文。即使玩家用别的语言说话，也用中文回答；绝不为了配合玩家切换语言。";
@@ -580,7 +587,7 @@
     // 再退回卡顶层的 language 字段 —— 内置包里就有卡把标记写在顶层，
     // 只认 extensions 会让那张卡完全没有语言约束（实测：英文卡因为玩家说中文就跟着切成中文）。
     const cardLanguage = cardLanguageOf(card);
-    const line = languageLine(card);
+    const line = languageLine(card, options);
     if (line) parts.push({ kind: "card-language", label: "语言要求", text: line });
     if (options && options.autoMemory === true) {
       parts.push({ kind: "blank", text: "" });
@@ -613,7 +620,7 @@
     // extraSystem：调用方追加的段落（诚实规则、历史检索结果等）。
     // 放在回复格式之前，属于"给模型的额外依据"，跟角色卡同一层。
     const extra = options && options.extraSystem ? String(options.extraSystem).trim() : "";
-    const line = languageLine(card);
+    const line = languageLine(card, options);
     const body = buildSystemPrompt(card, memoryBooks, promptText, options);
     // 格式指令按用途选：对话页是"旁白/台词"，剧情模式页是"只写你这一小段"。
     const profile = PURPOSE_PROFILES[normalizePurpose(options && options.purpose)];
@@ -774,6 +781,8 @@
       return {
         messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
           autoMemory: opts.autoMemory === true,
+          autoEventMemory: opts.autoEventMemory !== false,
+          fullChinese: opts.fullChinese === true,
           extraSystem: opts.extraSystem,
           purpose: profile.purpose,
         }),
@@ -794,6 +803,8 @@
     return {
       messages: composeMessages(opts.card, opts.memoryBooks, opts.history, opts.userText, {
         autoMemory: opts.autoMemory === true,
+        autoEventMemory: opts.autoEventMemory !== false,
+        fullChinese: opts.fullChinese === true,
         extraSystem: opts.extraSystem,
         purpose: profile.purpose,
       }),
@@ -840,7 +851,13 @@
     // ① 系统提示：逐块归因。
     // 空行与 [Section] 标题不能丢（丢了就对不上字节），它们跟到下一块内容前面，
     // 但不单独在面板里占一行，避免出现一堆没有意义的条目。
-    const parts = systemPromptParts(card, memoryBooks, options.userText, { autoMemory, purpose: options.purpose });
+    const parts = systemPromptParts(card, memoryBooks, options.userText, {
+      autoMemory,
+      // 「本次请求」面板必须和真正发出去的一致：这两个开关也要带上。
+      autoEventMemory: options.autoEventMemory !== false,
+      fullChinese: options.fullChinese === true,
+      purpose: options.purpose,
+    });
     const systemRows = [];
     let pending = [];
     for (const part of parts) {
@@ -859,6 +876,15 @@
       const last = systemRows[systemRows.length - 1];
       if (last) last.texts = last.texts.concat(pending);
     }
+    // 语言要求**两头都还有**：真正的系统提示是 `line + "\n\n" + body + … + format + "\n" + line`
+    // （见 buildSystemPromptWithFormat），这里要照样补上，否则"逐字节一致"的核对会当场变红。
+    const panelLanguageLine = languageLine(card, { fullChinese: options.fullChinese === true });
+    if (panelLanguageLine && systemRows.length) {
+      systemRows.unshift(
+        { kind: "card-language", label: "语言要求", texts: [panelLanguageLine] },
+        { kind: "blank", label: "", texts: [""] },
+      );
+    }
     // 调用方追加的段落（诚实规则 / 历史检索结果）也是系统提示的一部分，必须单独成段，
     // 否则面板的字节核对会对不上、也会把它错算到上一段头上。
     const extraSystem = options.extraSystem ? String(options.extraSystem).trim() : "";
@@ -874,6 +900,8 @@
       const formatProfile = PURPOSE_PROFILES[normalizePurpose(options.purpose)];
       const formatInstruction = formatProfile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION;
       systemRows.push({ kind: "reply-format", label: "回复格式要求", texts: ["[Reply format] " + formatInstruction], head: true });
+      // 结尾那处语言要求：真实文本里它跟在格式指令后面，只有一个换行。
+      if (panelLanguageLine) systemRows.push({ kind: "card-language", label: "语言要求", texts: [panelLanguageLine] });
     }
     // 重建系统提示原文：普通块用单个换行相接，head 块前面补一个空行。
     // 关键是**不能有行尾多余换行**，否则字节对不上。

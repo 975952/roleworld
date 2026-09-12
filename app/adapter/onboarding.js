@@ -69,6 +69,8 @@ html[data-theme="light"] .rw-ob{
 .rw-ob-status.is-ok{color:#3ecf8e;}
 .rw-ob-status.is-bad{color:#ff7a7a;}
 .rw-ob-hint{font-size:13px;color:var(--rw-muted);margin:10px 0 0;}
+.rw-ob-check{display:flex;gap:8px;align-items:center;margin:14px 0 0;font-size:14px;color:var(--rw-fg);cursor:pointer;}
+.rw-ob-check input{width:16px;height:16px;accent-color:var(--rw-accent);}
 `;
     document.head.appendChild(style);
   }
@@ -97,6 +99,9 @@ html[data-theme="light"] .rw-ob{
         "<p>角色卡、对话记录、记忆书、API Key 全部只存在这台设备上；发送给模型的内容只会到达你选定的云端服务。</p>",
         "<p>代价只有一条：没人替你备份，换电脑前记得自己导出。</p>",
         "<p>接下来两步：先写一个**称呼**，再填模型接口的 **API Key**（可以先准备好）。</p>",
+        // 有人看不懂英文：进门就给一个"全中文"开关。内置角色卡是英文的，
+        // 开着它角色就一律用简体中文说话（设置里随时能改）。
+        '<label class="rw-ob-check"><input type="checkbox" data-ob="full-chinese" checked> 全中文：角色一律说简体中文（推荐）</label>',
       ].join("");
     }
     if (step === "name") {
@@ -224,6 +229,16 @@ html[data-theme="light"] .rw-ob{
     if (saveButton) saveButton.addEventListener("click", onSaveKey);
     const provider = overlay.querySelector('[data-ob="provider"]');
     if (provider) provider.addEventListener("change", () => { syncKeyFields(); setStatus(""); });
+    // 「全中文」勾一下就立刻生效（不等走完引导）——有人就是看不懂英文才需要它。
+    const chinese = overlay.querySelector('[data-ob="full-chinese"]');
+    if (chinese) {
+      chinese.addEventListener("change", async () => {
+        try {
+          await global.RoleWorld.saveLocalSettings({ full_chinese: chinese.checked === true });
+          notifySettings();
+        } catch (_) { /* 存不下不影响继续 */ }
+      });
+    }
     syncKeyFields();
     if (step === "key") prefillKeyStep();
     if (step === "name") {
@@ -335,9 +350,11 @@ html[data-theme="light"] .rw-ob{
   }
 
   async function finish() {
+    const chinese = overlay && overlay.querySelector('[data-ob="full-chinese"]');
+    const fullChinese = chinese ? chinese.checked === true : null;
     close();
     try {
-      await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
+      await global.RoleWorld.saveLocalSettings(fullChinese === null ? { [SEEN_KEY]: true } : { [SEEN_KEY]: true, full_chinese: fullChinese });
     } catch (_) { /* 存不下也不能卡住用户 */ }
     notifySettings();
     global.dispatchEvent(new global.CustomEvent("roleworld:nickname-changed", { detail: { nickname } }));
