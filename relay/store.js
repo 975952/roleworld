@@ -169,8 +169,16 @@ function describeAuth() {
   const pair = !!(process.env.TENCENTCLOUD_SECRETID && process.env.TENCENTCLOUD_SECRETKEY);
   let sdkVersion = "未安装";
   try { sdkVersion = require("@cloudbase/node-sdk/package.json").version; } catch (_) { sdkVersion = "未安装"; }
+  // 只报 JWT 头里的 key id：这是"容器里到底是哪把 Key"的唯一可靠指纹（长度可能一样）。
+  // 不报 token 本体、不报任何 claim。
+  let apiKeyKid = "";
+  try {
+    const header = JSON.parse(Buffer.from(key.split(".")[0], "base64url").toString("utf8"));
+    apiKeyKid = String(header.kid || header.alg || "");
+  } catch (_) { apiKeyKid = key ? "(不是 JWT)" : ""; }
   return {
     cloudbaseApiKey: key ? "set(" + key.length + ")" : "unset",
+    apiKeyKid,
     tencentPair: pair ? "set" : "unset",
     env: process.env.TCB_ENV || process.env.CLOUDBASE_ENV || "",
     sdkVersion,
