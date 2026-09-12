@@ -97,6 +97,18 @@ let truncateNext = false;
       return;
     }
 
+    // 假中转：只实现「查额度」这一个接口，用来验证应用侧的体验卡流程。
+    if (p === "/relay/card/quota") {
+      const auth = String(req.headers.authorization || "");
+      const ok = auth === "Bearer RW-AAAAA-BBBBB-CCCCC";
+      res.writeHead(ok ? 200 : 401, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify(ok
+        ? { ok: true, id: "test-card", label: "测试", quota: { calls: 5, tokens: 5000 }, used: { calls: 1, tokens: 120 },
+            callsLeft: 4, tokensLeft: 4880, expiresAt: "2026-10-12T00:00:00.000Z" }
+        : { error: { code: "CARD_UNKNOWN", message: "这张体验卡不认识" } }));
+      return;
+    }
+
     if (p === "/v1/chat/completions") {
       let raw = "";
       for await (const chunk of req) raw += chunk;
@@ -2161,6 +2173,46 @@ async function main() {
     assert(await press("0") === "1", "Ctrl+0 没有回到 100%");
     // 设置里的下拉要跟着同步
     assert(await evaluate("document.querySelector('#scaleSelect').value") === "1", "设置下拉没有同步");
+  });
+
+  await check("体验卡：粘一条卡号就能用，界面报出剩余额度（同学不用碰 API Key）", async () => {
+    // 用户的需求原话：「像发体验卡一样…我的同学有些不会用」。
+    // 这里用一个假中转，把"粘贴 → 自动配置 → 显示额度"整条链路跑一遍。
+    const before = await evaluate("(async () => JSON.stringify(await RoleWorld.getLocalSettings()))()");
+    try {
+      await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+      await waitFor("document.querySelector('#settingsSurface').hidden === false", 6000);
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-roleworld="card"]');
+        input.value = 'RW-AAAAA-BBBBB-CCCCC@${base}/relay';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-roleworld="card-use"]').click();
+        return true;
+      })()`);
+      await waitFor("document.querySelector('[data-roleworld=\"card-status\"]').textContent.indexOf('剩 4 次') >= 0", 8000);
+
+      const settings = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
+      assert(settings.provider === "custom", "用体验卡后服务商应当变成自定义：" + settings.provider);
+      assert(settings.endpoint === base + "/relay/v1/chat/completions", "接口地址没指向中转：" + settings.endpoint);
+      assert(settings.card_relay === base + "/relay", "没记住中转地址，之后查不了额度：" + settings.card_relay);
+      const secret = await evaluate("(async () => (await RoleWorld.secrets.get('api_key_custom') || {}).value || '')()");
+      assert(secret === "RW-AAAAA-BBBBB-CCCCC", "卡号没有进密钥位：" + secret);
+      const status = await evaluate("document.querySelector('[data-roleworld=\"card-status\"]').textContent");
+      assert(status.indexOf("到期 2026-10-12") >= 0, "没显示到期时间：" + status);
+    } finally {
+      // 恢复原设置（尤其是指回假模型端点的接口地址），别影响后面的用例。
+      const original = JSON.parse(before);
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({
+          provider: ${JSON.stringify(original.provider || "deepseek")},
+          endpoint: ${JSON.stringify(original.endpoint || "")},
+          model: ${JSON.stringify(original.model || "deepseek-flash")},
+          card_relay: ""
+        });
+        return true;
+      })()`);
+      await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    }
   });
 
   await check("账号相关入口不可见", async () => {

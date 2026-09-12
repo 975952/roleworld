@@ -154,6 +154,74 @@
     pick("key-status").forEach((node) => {
       setStatus(node, saved ? "已保存到本机 · 不会上传到任何服务器" : "未保存", false);
     });
+    await refreshCardStatus(settings, saved);
+  }
+
+  /** 体验卡状态：密钥看起来像卡号时，顺手查一下还能用多少。 */
+  async function refreshCardStatus(settings, savedSecret) {
+    const card = global.RoleWorldCard;
+    const nodes = pick("card-status");
+    if (!card || !nodes.length) return;
+    let secret = savedSecret;
+    if (!secret && global.RoleWorld) {
+      secret = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor({ provider: "custom" }));
+    }
+    const value = (secret && secret.value) || "";
+    if (!card.looksLikeCard(value)) {
+      nodes.forEach((node) => setStatus(node, "没有使用体验卡", false));
+      return;
+    }
+    const relay = settings.card_relay || "";
+    if (!relay) {
+      nodes.forEach((node) => setStatus(node, "在用体验卡，但没记住中转地址：重新粘贴一次整条链接", true));
+      return;
+    }
+    nodes.forEach((node) => setStatus(node, "正在查额度…", false));
+    const info = await card.quota(relay, value);
+    nodes.forEach((node) => setStatus(node, "体验卡：" + card.formatQuota(info), !info.ok));
+  }
+
+  /** 用一张体验卡：解析 → 落盘（接口指向中转、卡号进密钥位）→ 报剩余额度。 */
+  async function useCard() {
+    const card = global.RoleWorldCard;
+    const input = first("card");
+    const nodes = pick("card-status");
+    const raw = input ? input.value.trim() : "";
+    if (!card) return;
+    if (!raw) {
+      nodes.forEach((node) => setStatus(node, "先粘贴卡号或整条体验卡链接", true));
+      return;
+    }
+    nodes.forEach((node) => setStatus(node, "正在配置…", false));
+    const result = await card.apply(raw);
+    if (!result.ok) {
+      nodes.forEach((node) => setStatus(node, result.message, true));
+      return;
+    }
+    if (input) input.value = "";
+    await refresh();
+    if (global.TASK21 && typeof global.TASK21.reloadSettings === "function") global.TASK21.reloadSettings();
+  }
+
+  async function checkCardQuota() {
+    const card = global.RoleWorldCard;
+    const nodes = pick("card-status");
+    if (!card) return;
+    const settings = await global.RoleWorld.getLocalSettings();
+    const secret = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor({ provider: "custom" }));
+    const value = (secret && secret.value) || "";
+    if (!card.looksLikeCard(value)) {
+      nodes.forEach((node) => setStatus(node, "本机没有正在使用的体验卡", true));
+      return;
+    }
+    const relay = settings.card_relay || "";
+    if (!relay) {
+      nodes.forEach((node) => setStatus(node, "没记住中转地址：重新粘贴一次整条链接", true));
+      return;
+    }
+    nodes.forEach((node) => setStatus(node, "正在查额度…", false));
+    const info = await card.quota(relay, value);
+    nodes.forEach((node) => setStatus(node, "体验卡：" + card.formatQuota(info), !info.ok));
   }
 
   function notify(patch) {
@@ -304,6 +372,19 @@
         node.placeholder = global.RoleWorldModel.endpointFor(settings);
       });
     });
+    pick("card-use").forEach((node) => node.addEventListener("click", () => { useCard().catch(() => {}); }));
+    pick("card-check").forEach((node) => node.addEventListener("click", () => { checkCardQuota().catch(() => {}); }));
+    pick("card").forEach((node) => node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); useCard().catch(() => {}); }
+    }));
+    // 同学点开的那条体验卡链接自带 #card=…：不用他手动填，直接配好并说一声。
+    const fromLink = global.RoleWorldCard && global.RoleWorldCard.cardFromLocation(global.location && global.location.href);
+    if (fromLink) {
+      global.RoleWorldCard.apply(fromLink).then((result) => {
+        pick("card-status").forEach((node) => setStatus(node, result.ok ? "体验卡已自动配好：" + result.message : result.message, !result.ok));
+        if (result.ok) refresh();
+      }).catch(() => {});
+    }
     refresh();
   }
 
@@ -313,5 +394,5 @@
     bind();
   }
 
-  global.RoleWorldSettingsUI = { refresh, saveAll, testConnection };
+  global.RoleWorldSettingsUI = { refresh, saveAll, testConnection, useCard, checkCardQuota };
 })(typeof globalThis !== "undefined" ? globalThis : this);

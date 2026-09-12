@@ -681,6 +681,47 @@ async function main() {
     assert.equal(again.removed, 0, "再跑一次不该再删任何东西");
   });
 
+  await test("体验卡：三种粘贴形式都认（卡号 / 卡号@中转 / 整条链接）", () => {
+    // 同学那边的门槛要尽量低：发卡人给什么，他就粘什么。
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const bare = Card.parseCardInput("RW-0AA71-B79FC-DCB79");
+    assert.equal(bare.ok, true);
+    assert.equal(bare.token, "RW-0AA71-B79FC-DCB79");
+    assert.equal(bare.relay, "", "只给卡号时不该编一个中转地址出来");
+
+    const withRelay = Card.parseCardInput("RW-0AA71-B79FC-DCB79@https://relay.example.com/");
+    assert.equal(withRelay.ok, true);
+    assert.equal(withRelay.relay, "https://relay.example.com", "末尾斜杠要去掉");
+
+    const link = Card.parseCardInput("https://app.example.com/index.html#card=RW-0AA71-B79FC-DCB79%40https%3A%2F%2Frelay.example.com");
+    assert.equal(link.ok, true, "整条链接要能解析：" + JSON.stringify(link));
+    assert.equal(link.token, "RW-0AA71-B79FC-DCB79");
+    assert.equal(link.relay, "https://relay.example.com");
+    assert.equal(Card.endpointFor(link.relay), "https://relay.example.com/v1/chat/completions");
+
+    const bad = Card.parseCardInput("我这就把卡号发你");
+    assert.equal(bad.ok, false);
+    assert.ok(bad.message.indexOf("RW-") >= 0, "错误提示要给出正确格式：" + bad.message);
+    assert.equal(Card.parseCardInput("").ok, false);
+  });
+
+  await test("体验卡：认得出本机正在用的是卡号（而不是普通 API Key）", () => {
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    assert.equal(Card.looksLikeCard("RW-0AA71-B79FC-DCB79"), true);
+    assert.equal(Card.looksLikeCard("sk-1234567890abcdef"), false);
+    assert.equal(Card.looksLikeCard(""), false);
+  });
+
+  await test("体验卡：额度翻成人话（次数 / token / 到期）", () => {
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const text = Card.formatQuota({ ok: true, callsLeft: 12, tokensLeft: 4980, expiresAt: "2026-10-12T11:21:59.750Z" });
+    assert.ok(text.indexOf("剩 12 次") >= 0, text);
+    assert.ok(text.indexOf("剩 4980 token") >= 0, text);
+    assert.ok(text.indexOf("到期 2026-10-12") >= 0, text);
+    assert.ok(Card.formatQuota({ ok: true, callsLeft: 3 }).indexOf("不过期") >= 0);
+    assert.ok(Card.formatQuota({ ok: false, message: "中转没回应" }).indexOf("中转没回应") >= 0);
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。
