@@ -292,25 +292,169 @@ function createHttpStore(options) {
   };
 }
 
+/* ---------------- 云开发 PostgreSQL（Data API / PostgREST） ----------------
+ *
+ * 为什么是这个：2026-09-12 实测，这个环境（个人版）**没有文档型数据库**，
+ * 平台给的是 PostgreSQL 实例（错误原文：This environment has no document database instance.
+ * It is provisioned with PostgreSQL instance [pgdb-…]）。所以账本走 PG 的 Data API：
+ *   - 建表：POST /v1/rdb/exec-pgsql（role=cloudbase_postgres，管理员才允许 DDL）
+ *   - 增删改查：/v1/rdb/rest/{table}（PostgREST），主键冲突时用 upsert 合并
+ * 鉴权一律 `Authorization: Bearer <CLOUDBASE_APIKEY>`（云托管里注入的那把服务端 ApiKey）。
+ * 文档：https://docs.cloudbase.net/http-api/pgdb/postgresql-restful-api
+ */
+
+const PG_COLUMNS = [
+  "id TEXT PRIMARY KEY",
+  "token_hash TEXT UNIQUE NOT NULL",
+  "label TEXT",
+  "note TEXT",
+  "quota_calls INTEGER NOT NULL DEFAULT 0",
+  "quota_tokens INTEGER NOT NULL DEFAULT 0",
+  "used_calls INTEGER NOT NULL DEFAULT 0",
+  "used_tokens INTEGER NOT NULL DEFAULT 0",
+  "disabled BOOLEAN NOT NULL DEFAULT FALSE",
+  "expires_at TIMESTAMPTZ",
+  "created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+  "last_used_at TIMESTAMPTZ",
+];
+
+function toRow(card) {
+  return {
+    id: card.id,
+    token_hash: card.tokenHash,
+    label: card.label || "",
+    note: card.note || "",
+    quota_calls: Number(card.quota && card.quota.calls) || 0,
+    quota_tokens: Number(card.quota && card.quota.tokens) || 0,
+    used_calls: Number(card.used && card.used.calls) || 0,
+    used_tokens: Number(card.used && card.used.tokens) || 0,
+    disabled: card.disabled === true,
+    expires_at: card.expiresAt || null,
+    created_at: card.createdAt || new Date().toISOString(),
+    last_used_at: card.lastUsedAt || null,
+  };
+}
+
+function toCard(row) {
+  return {
+    id: row.id,
+    tokenHash: row.token_hash,
+    label: row.label || "",
+    note: row.note || "",
+    quota: { calls: Number(row.quota_calls) || 0, tokens: Number(row.quota_tokens) || 0 },
+    used: { calls: Number(row.used_calls) || 0, tokens: Number(row.used_tokens) || 0 },
+    disabled: row.disabled === true,
+    expiresAt: row.expires_at || null,
+    createdAt: row.created_at || "",
+    lastUsedAt: row.last_used_at || null,
+  };
+}
+
+function createPgStore(options) {
+  const opts = options || {};
+  const envId = opts.env || process.env.TCB_ENV || process.env.CLOUDBASE_ENV || "";
+  const apiKey = opts.apiKey || process.env.CLOUDBASE_APIKEY || "";
+  const table = opts.table || process.env.CARD_TABLE || "rw_cards";
+  const base = String(opts.gatewayBase || process.env.CLOUDBASE_GATEWAY_BASE || (envId ? `https://${envId}.api.tcloudbasegateway.com` : "")).replace(/\/+$/, "");
+  if (!base) throw new Error("缺少环境 ID：设置 TCB_ENV（例如 cyan1-xxxx）");
+  if (!apiKey) throw new Error("缺少 CLOUDBASE_APIKEY：在云托管「API Key 设置」里注入一把服务端 ApiKey");
+  if (!/^[a-z_][a-z0-9_]*$/.test(table)) throw new Error("表名不合法：" + table);
+  const rest = `${base}/v1/rdb/rest/${table}`;
+
+  async function request(method, url, body, headers) {
+    const res = await fetch(url, {
+      method,
+      headers: Object.assign({ Authorization: "Bearer " + apiKey, Accept: "application/json" }, body ? { "Content-Type": "application/json" } : {}, headers || {}),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = { raw: text.slice(0, 300) }; }
+    return { status: res.status, body: parsed, range: res.headers.get("content-range") || "" };
+  }
+
+  function failure(what, res) {
+    const detail = typeof res.body === "string" ? res.body : JSON.stringify(res.body || {}).slice(0, 300);
+    return new Error(`${what}失败（HTTP ${res.status}）：${detail}`);
+  }
+
+  let ensured = null;
+  /** 建表（幂等）。DDL 只有管理员角色能做，exec-pgsql 需要 role=cloudbase_postgres。 */
+  async function ensureTable() {
+    if (!ensured) {
+      ensured = (async () => {
+        const ddl = `CREATE TABLE IF NOT EXISTS ${table} (${PG_COLUMNS.join(", ")})`;
+        const res = await request("POST", `${base}/v1/rdb/exec-pgsql`, { sql: ddl, role: "cloudbase_postgres" });
+        if (res.status !== 200) throw failure("建表", res);
+        return true;
+      })();
+    }
+    return ensured;
+  }
+
+  return {
+    kind: "cloudbase-pg",
+    table,
+    async list() {
+      await ensureTable();
+      const res = await request("GET", `${rest}?select=*&limit=500`);
+      if (res.status !== 200) throw failure("查列表", res);
+      return (Array.isArray(res.body) ? res.body : []).map(toCard);
+    },
+    async get(id) {
+      await ensureTable();
+      const res = await request("GET", `${rest}?select=*&limit=1&id=eq.${encodeURIComponent(id)}`);
+      if (res.status !== 200) throw failure("查单条", res);
+      return (Array.isArray(res.body) && res.body[0]) ? toCard(res.body[0]) : null;
+    },
+    async findByToken(token) {
+      await ensureTable();
+      const res = await request("GET", `${rest}?select=*&limit=1&token_hash=eq.${encodeURIComponent(hashToken(token))}`);
+      if (res.status !== 200) throw failure("按卡号查", res);
+      return (Array.isArray(res.body) && res.body[0]) ? toCard(res.body[0]) : null;
+    },
+    async save(card) {
+      await ensureTable();
+      // 主键/唯一键冲突就合并更新：一张卡反复保存（记用量）是常态。
+      const res = await request("POST", `${rest}?select=*`, toRow(card), { Prefer: "resolution=merge-duplicates,return=representation" });
+      if (res.status !== 201 && res.status !== 200) throw failure("写卡", res);
+      return card;
+    },
+    async remove(id) {
+      await ensureTable();
+      const res = await request("DELETE", `${rest}?id=eq.${encodeURIComponent(id)}`, null, { Prefer: "return=representation" });
+      if (res.status === 200) return (Array.isArray(res.body) ? res.body.length : 0) > 0;
+      if (res.status === 204) return true;
+      throw failure("删卡", res);
+    },
+  };
+}
+
 function createStore(spec) {
   const kind = String((spec && spec.kind) || process.env.CARD_STORE || "memory").toLowerCase();
-  const wantCloud = kind === "cloudbase" || kind === "cloudbase-http" || kind === "http";
+  const wantCloud = kind === "cloudbase" || kind === "pg" || kind === "cloudbase-pg" || kind === "cloudbase-http" || kind === "nosql";
   if (wantCloud && (process.env.CLOUDBASE_APIKEY || (spec && spec.apiKey))) {
-    try {
-      return createHttpStore(spec || {});
-    } catch (error) {
-      console.error("⚠ 云开发账本用不了（" + (error && error.message ? error.message : error) + "），改为 file 后端。");
-      return createFileStore((spec && spec.file) || process.env.CARD_FILE || "/data/cards.json");
+    const preferNoSql = kind === "cloudbase-http" || kind === "nosql";
+    const builders = preferNoSql ? [createHttpStore, createPgStore] : [createPgStore, createHttpStore];
+    const errors = [];
+    for (const build of builders) {
+      try {
+        const store = build(spec || {});
+        if (errors.length) console.error("ℹ 已改用 " + store.kind + " 账本（前一个后端不可用：" + errors.join(" / ") + "）");
+        return store;
+      } catch (error) {
+        errors.push((error && error.message) || String(error));
+      }
     }
+    console.error("⚠ 云开发账本都建不起来（" + errors.join(" / ") + "），改为 file 后端。");
+    return createFileStore((spec && spec.file) || process.env.CARD_FILE || "/data/cards.json");
   }
-  if (kind === "cloudbase") {
+  if (kind === "cloudbase" || kind === "pg") {
     try {
       return createCloudBaseStore(spec || {});
     } catch (error) {
       // 不静默降级：把原因打出来，而且 /healthz 会显示真正在用的后端是 file。
-      // 卡在"以为存数据库、其实存临时盘"上，比启动失败更难查。
       console.error("⚠ 云开发账本用不了（" + (error && error.message ? error.message : error) + "），改为 file 后端。");
-      console.error("  检查三件事：镜像里装了 @cloudbase/node-sdk、云数据库里已建集合 rw_cards、服务角色有读写权限。");
       return createFileStore((spec && spec.file) || process.env.CARD_FILE || "/data/cards.json");
     }
   }
@@ -318,4 +462,4 @@ function createStore(spec) {
   return createMemoryStore();
 }
 
-module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, describeAuth, hashToken, randomToken, blankCard, nowIso };
+module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, createPgStore, describeAuth, hashToken, randomToken, blankCard, nowIso };

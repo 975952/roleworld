@@ -327,7 +327,7 @@ async function main() {
   console.log("");
   console.log("== 云开发 HTTP 账本（不用 SDK，直接走官方 HTTP API）==");
 
-  const { createHttpStore, createStore } = require(path.join(RELAY, "store.js"));
+  const { createHttpStore, createPgStore, createStore } = require(path.join(RELAY, "store.js"));
   const fakeDocs = new Map();
   let collectionCreated = 0;
   const gateway = http.createServer((req, res) => {
@@ -399,11 +399,91 @@ async function main() {
     let message = "";
     try { createHttpStore({ env: "cyan1-test", apiKey: "" }); } catch (error) { message = error.message; }
     assert.ok(message.indexOf("CLOUDBASE_APIKEY") >= 0, "应当说清缺哪一项：" + message);
-    const fallback = createStore({ kind: "cloudbase", apiKey: "fake-apikey", gatewayBase: "http://127.0.0.1:" + gatewayPort, env: "cyan1-test" });
-    assert.equal(fallback.kind, "cloudbase-http", "配好 Key 时应当直接用 HTTP 账本");
+    // kind=cloudbase 时优先用 PG（新环境都是 PG），要强制走文档库 HTTP 得写 nosql。
+    const preferPg = createStore({ kind: "cloudbase", apiKey: "fake-apikey", gatewayBase: "http://127.0.0.1:" + gatewayPort, env: "cyan1-test" });
+    assert.equal(preferPg.kind, "cloudbase-pg", "cloudbase 应当优先 PG：" + preferPg.kind);
+    const noSql = createStore({ kind: "nosql", apiKey: "fake-apikey", gatewayBase: "http://127.0.0.1:" + gatewayPort, env: "cyan1-test" });
+    assert.equal(noSql.kind, "cloudbase-http", "kind=nosql 时应当走文档库 HTTP：" + noSql.kind);
+  });
+
+  /* ---------------- 云开发 PostgreSQL 账本（假 PostgREST 网关） ---------------- */
+
+  console.log("");
+  console.log("== 云开发 PostgreSQL 账本（Data API）==");
+
+  const pg = { rows: new Map(), ddl: 0 };
+  const pgGateway = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://pg.local");
+    const send = (status, payload, extra) => {
+      res.writeHead(status, Object.assign({ "Content-Type": "application/json" }, extra || {}));
+      res.end(payload === undefined ? "" : JSON.stringify(payload));
+    };
+    if (req.headers.authorization !== "Bearer fake-apikey") return send(401, { code: "UNAUTHORIZED" });
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null;
+      if (url.pathname === "/v1/rdb/exec-pgsql") {
+        // 只认"管理员角色 + CREATE TABLE IF NOT EXISTS"，别的一律拒绝 —— 免得真建错东西。
+        if (body.role !== "cloudbase_postgres") return send(403, { code: "ACTION_FORBIDDEN" });
+        if (!/^CREATE TABLE IF NOT EXISTS rw_cards \(/.test(String(body.sql || ""))) {
+          return send(400, { code: "INVALID_PARAM", message: "unexpected sql" });
+        }
+        pg.ddl += 1;
+        return send(200, []);
+      }
+      const table = url.pathname.match(/^\/v1\/rdb\/rest\/([a-z_]+)$/);
+      if (!table) return send(404, { code: "RESOURCE_NOT_FOUND", path: url.pathname });
+      const idFilter = (url.searchParams.get("id") || "").replace(/^eq\./, "");
+      const hashFilter = (url.searchParams.get("token_hash") || "").replace(/^eq\./, "");
+      if (req.method === "GET") {
+        let rows = Array.from(pg.rows.values());
+        if (idFilter) rows = rows.filter((row) => row.id === idFilter);
+        if (hashFilter) rows = rows.filter((row) => row.token_hash === hashFilter);
+        return send(200, rows.slice(0, Number(url.searchParams.get("limit")) || 500));
+      }
+      if (req.method === "POST") {
+        pg.rows.set(body.id, body);   // upsert（主键合并）
+        return send(201, [body], { "Content-Range": "*/1", "Preference-Applied": "resolution=merge-duplicates" });
+      }
+      if (req.method === "DELETE") {
+        const existed = pg.rows.delete(idFilter);
+        return send(existed ? 200 : 204, existed ? [{ id: idFilter }] : []);
+      }
+      return send(405, { code: "METHOD_NOT_ALLOWED" });
+    });
+  });
+  const pgPort = await listen(pgGateway);
+
+  await check("PG 账本：先建表（管理员角色）、再 upsert 一张卡、按卡号查、改、删", async () => {
+    const store = createPgStore({ gatewayBase: "http://127.0.0.1:" + pgPort, apiKey: "fake-apikey", env: "cyan1-test" });
+    assert.equal(store.kind, "cloudbase-pg");
+    await store.save({ id: "card-9", tokenHash: hashToken("RW-PG01-PG02-PG03"), label: "同学A", quota: { calls: 20, tokens: 0 }, used: { calls: 0, tokens: 0 } });
+    assert.equal(pg.ddl, 1, "应当建一次表");
+    const found = await store.findByToken("RW-PG01-PG02-PG03");
+    assert.ok(found && found.label === "同学A", "按卡号查不到：" + JSON.stringify(found));
+    assert.equal(found.quota.calls, 20);
+    // 记一次用量：同一张卡再存一次应当走 upsert 合并，而不是插出第二条。
+    await store.save(Object.assign({}, found, { used: { calls: 1, tokens: 33 } }));
+    assert.equal(pg.ddl, 1, "不该重复建表");
+    assert.equal(pg.rows.size, 1, "同一张卡不该插成两行");
+    const again = await store.get("card-9");
+    assert.equal(again.used.calls, 1);
+    assert.equal(again.used.tokens, 33);
+    assert.equal((await store.list()).length, 1);
+    assert.equal(await store.remove("card-9"), true);
+    assert.equal(await store.get("card-9"), null);
+  });
+
+  await check("PG 账本：DDL 被拒时报清楚，不假装成功", async () => {
+    const store = createPgStore({ gatewayBase: "http://127.0.0.1:" + pgPort, apiKey: "fake", env: "cyan1-test" });
+    let message = "";
+    try { await store.list(); } catch (error) { message = error.message; }
+    assert.ok(message.indexOf("建表失败") >= 0, "应当说明卡在建表这一步：" + message);
   });
 
   await new Promise((resolve) => gateway.close(resolve));
+  await new Promise((resolve) => pgGateway.close(resolve));
 
   console.log("");
   console.log(`RELAY_CHECK=${passed}/${passed + failed}`);
