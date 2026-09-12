@@ -2272,10 +2272,14 @@ async function main() {
     }
   });
 
-  await check("同学点体验卡链接：不问 API Key、直接用，顶栏一直显示剩余次数", async () => {
-    // 用户的实测反馈：「别人打开还是必须填 apikey」。这里把"第一次打开"的状态造出来，
-    // 再带着 #card= 链接进去 —— 引导不该再拦人，顶栏要有次数徽标。
-    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: false, provider: 'deepseek', endpoint: '', card_relay: '' }); await RoleWorld.secrets.remove('api_key_custom'); await RoleWorld.secrets.remove('api_key_deepseek'); return true; })()");
+  await check("同学点体验卡链接：先走「体验卡开场」（不问 API Key），走完直接能聊", async () => {
+    // 两条用户反馈叠在一起：
+    //   0.1.23「别人打开还是必须填 apikey」→ 带卡进来不能再要求 Key；
+    //   0.1.29「通过卡进入的应该也要有个正式的开始的步骤」→ 也不能直接被扔进对话：
+    //   得说明这是什么卡、还剩几次、到期没到期、角色为什么说英文、记录存在哪。
+    // 这里把"老同学的浏览器"造出来（tutorial_seen 已经是 true —— 老版本为了不弹"填 Key"那套记的），
+    // 带 #card= 链接进去，验证弹的是**体验卡开场**、且它靠 card_welcome_seen 这个新标记判重。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: true, card_welcome_seen: false, provider: 'deepseek', endpoint: '', card_relay: '' }); await RoleWorld.secrets.remove('api_key_custom'); await RoleWorld.secrets.remove('api_key_deepseek'); return true; })()");
     try {
       // 真人是"在新标签页打开这条链接"：先到带片段的地址，再整页加载一次
       // （只改片段浏览器不会重新加载，所以这里显式 reload 才是真实场景）。
@@ -2293,17 +2297,67 @@ async function main() {
       const secret = await evaluate("(async () => (await RoleWorld.secrets.get('api_key_custom') || {}).value || '')()");
       assert(secret === "RW-AAAAA-BBBBB-CCCCC", "卡号没有进密钥位：" + secret);
 
-      // ② 首启引导不该再弹（卡就是凭据，没理由再问 Key）
-      await sleep(600);
-      assert(await evaluate("document.querySelector('.rw-ob') === null"), "带体验卡进来还弹了首启引导");
-      assert(await evaluate("document.querySelector('#messageInput').disabled === false"), "输入框不可用");
+      // ② 弹的是「体验卡开场」：说明卡与额度，而且**没有 API Key 输入框**
+      await waitFor("!!document.querySelector('.rw-ob')", 15000);
+      const intro = await evaluate(`(() => ({
+        title: document.querySelector('.rw-ob h2').textContent,
+        text: document.querySelector('.rw-ob-card').textContent,
+        hasKeyInput: !!document.querySelector('[data-ob="key"]'),
+        dots: document.querySelectorAll('.rw-ob-dots i').length,
+      }))()`);
+      assert(intro.title.indexOf("体验卡") >= 0, "开场第一步不是体验卡说明：" + intro.title);
+      assert(intro.text.indexOf("不用填 API Key") >= 0, "没说明用卡不用 Key");
+      assert(!intro.hasKeyInput, "体验卡开场里不该有 API Key 输入框");
+      assert(intro.text.indexOf("剩 4 次") >= 0, "没告诉同学还剩几次：" + intro.text.slice(0, 200));
+      assert(intro.text.indexOf("只存在这台设备上") >= 0, "没说明聊天记录存在哪");
 
-      // ③ 顶栏徽标：显示剩余次数
+      // ③ 走完这四步：卡说明 → 称呼 → 语言 → 开始
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!!document.querySelector('[data-ob=\"nickname\"]')", 8000);
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-ob="nickname"]');
+        input.value = '体验卡同学';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-ob="next"]').click();
+        return true;
+      })()`);
+      await waitFor("!!document.querySelector('[data-ob=\"language-zh\"]')", 8000);
+      const langStep = await evaluate("document.querySelector('.rw-ob-card').textContent");
+      assert(langStep.indexOf("说英文") >= 0 && langStep.indexOf("简体中文") >= 0,
+        "语言这一步没把「默认说英文、可以改成中文」讲清楚：" + langStep.slice(0, 200));
+      await evaluate(`(() => {
+        const box = document.querySelector('[data-ob="language-zh"]');
+        box.checked = true;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+        document.querySelector('[data-ob="next"]').click();
+        return true;
+      })()`);
+      await waitFor("document.querySelector('.rw-ob') && document.querySelector('.rw-ob h2').textContent.indexOf('可以开始') >= 0", 8000);
+      const ready = await evaluate("document.querySelector('.rw-ob-card').textContent");
+      assert(ready.indexOf("剩 4 次") >= 0, "最后一步没再报一次额度：" + ready.slice(0, 200));
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!document.querySelector('.rw-ob')", 8000);
+
+      // ④ 开场里做的事要落盘：称呼、语言、以及"开场看过"这个标记
+      const after = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
+      assert(after.card_welcome_seen === true, "开场走完了却没记标记，下次还会弹");
+      assert(after.language_mode === "zh", "开场里勾的「一律中文」没生效：" + after.language_mode);
+      const savedNickname = await evaluate("document.getElementById('userDisplayName').textContent.trim()");
+      assert(savedNickname === "体验卡同学", "开场里填的称呼没生效：" + savedNickname);
+
+      // ⑤ 重载不再弹（这是"正式的第一次"而不是每次都来）
+      await goto(base + "/index.html");
+      await waitFor("window.TASK21_READY === true", 30000);
+      await sleep(700);
+      assert(await evaluate("document.querySelector('.rw-ob') === null"), "开场走完之后重载又弹了一次");
+      await waitFor("document.querySelector('#messageInput').disabled === false", 10000);
+
+      // ⑥ 顶栏徽标：显示剩余次数
       await waitFor("document.querySelector('#cardChip') && document.querySelector('#cardChip').hidden === false", 8000);
       const chip = await evaluate("document.querySelector('#cardChip').textContent");
       assert(chip.indexOf("剩 4 次") >= 0, "徽标没显示剩余次数：" + chip);
 
-      // ④ 真发一句：走后端中转，回复正常显示，徽标按响应头刷成 3
+      // ⑦ 真发一句：走后端中转，回复正常显示，徽标按响应头刷成 3
       await evaluate(`(() => {
         const input = document.querySelector('#messageInput');
         input.value = '我们出发吧？';
@@ -2322,9 +2376,9 @@ async function main() {
       // 注意要**通知页面**（saveLocalSettings 只落盘，不会改内存里的 liveState）——
       // 否则后面的用例还在往中转地址发请求。
       await evaluate(`(async () => {
-        await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true });
+        await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true, language_mode: "auto" });
         await RoleWorld.secrets.remove("api_key_custom");
-        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "" } }));
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", language_mode: "auto" } }));
         return true;
       })()`).catch(() => {});
     }

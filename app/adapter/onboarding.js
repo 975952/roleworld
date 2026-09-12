@@ -18,15 +18,34 @@
 (function (global) {
   const STYLE_ID = "roleworld-onboarding-style";
   const SEEN_KEY = "tutorial_seen";
+  // 用体验卡进来的人走**另一套开场**（不问 API Key），单独记一个标记：
+  // 他们已经可能是"tutorial_seen 已为 true"的老同学，不能用同一个标记。
+  const CARD_SEEN_KEY = "card_welcome_seen";
   const NICKNAME_KEY = "nickname";
   const NICKNAME_FALLBACK = "我";
 
-  const STEPS = ["welcome", "name", "key", "ready"];
+  // 两套步骤：自己配 Key 的是原来那套；拿体验卡的是"卡说明 → 称呼 → 语言 → 开始"。
+  const FULL_STEPS = ["welcome", "name", "key", "ready"];
+  const CARD_STEPS = ["card-welcome", "name", "language", "card-ready"];
 
   let overlay = null;
   let index = 0;
   let busy = false;
   let nickname = "";
+  let mode = "full";
+  let cardQuota = null;
+
+  function steps() {
+    return mode === "card" ? CARD_STEPS : FULL_STEPS;
+  }
+
+  /** 卡还能用多少 → 一句话（"剩 4 次 · 到期 2026-10-12" / "次数已用完"）。 */
+  function quotaLine() {
+    const card = global.RoleWorldCard;
+    if (!cardQuota) return "";
+    if (card && typeof card.formatQuota === "function") return card.formatQuota(cardQuota);
+    return "";
+  }
 
   /* ------------------------------------------------------------------ *
    * 样式：全部写死，明暗两套，不依赖页面变量
@@ -87,11 +106,55 @@ html[data-theme="light"] .rw-ob{
       .replace(/`(.+?)`/g, "<code>$1</code>");
   }
 
+  /** 卡片内容是**拼好的 HTML**（<p>/<label>/<input> 都在里面），不能整段 escape，
+   *  所以只把文本里的强调标记转成标签：自己的标签里不会出现 ** 或反引号，替换是安全的。
+   *  （以前 format() 根本没被调用过 —— 引导里一直字面显示 `**称呼**`，2026-09-12 顺手修掉。） */
+  function renderMarkdown(html) {
+    return String(html)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  }
+
   /* ------------------------------------------------------------------ *
    * 内容
    * ------------------------------------------------------------------ */
 
   function stepHtml(step) {
+    // ---- 体验卡开场（0.1.29）----
+    // 用户 2026-09-12：「通过卡进入的应该也要有个正式的开始的步骤」。
+    // 以前带卡进来是**直接被扔进对话**：不知道卡是什么、还剩几次、到期没到期、
+    // 角色为什么说英文、记录存在哪、用完了找谁。
+    if (step === "card-welcome") {
+      const line = quotaLine();
+      const usable = !cardQuota || cardQuota.ok !== false;
+      return [
+        "<h2>你拿到了一张体验卡</h2>",
+        "<p>这张卡是别人给你的：**不用填 API Key**，打开就能用。</p>",
+        line ? "<p>额度：" + format(line) + (usable ? "" : "（已经不能用了，找发卡的人再要一张）") + "</p>"
+          : "<p>剩余次数随时看右上角那个「体验卡」小标签。</p>",
+        "<p>卡的次数用完或到期就会停，到时候找发卡的人再要一张就行。</p>",
+        "<p>你的**聊天记录只存在这台设备上**：别人搭的中转只统计「用了多少次」，看不到你聊了什么。</p>",
+      ].join("");
+    }
+    if (step === "language") {
+      return [
+        "<h2>角色说什么语言？</h2>",
+        "<p>内置角色卡是英文的，所以默认他们**说英文**。</p>",
+        "<p>看不懂英文就勾上下面这个：所有角色都改说简体中文。</p>",
+        '<label class="rw-ob-check"><input type="checkbox" data-ob="language-zh"> 让角色一律说简体中文（看不懂英文就勾上）</label>',
+        '<p class="rw-ob-hint">以后想改：**设置 → 模型 → 角色语言**；只想让某一个角色说中文，用对话页顶栏的「语言」下拉。</p>',
+      ].join("");
+    }
+    if (step === "card-ready") {
+      const line = quotaLine();
+      return [
+        "<h2>可以开始了</h2>",
+        "<p>左侧是角色（内置 6 个），点一个直接打字就能聊。</p>",
+        "<p>**每个角色有自己的记忆**，跨对话保留；这些记录只存在这台设备上。</p>",
+        line ? "<p>你的体验卡：" + format(line) + "。用完或想再要一张，找发卡的人。</p>" : "",
+        "<p>想用自己的 API Key 也可以：**设置 → 模型** 里填上就换成你自己的额度。</p>",
+      ].join("");
+    }
     if (step === "welcome") {
       return [
         "<h2>欢迎使用角色世界</h2>",
@@ -149,8 +212,8 @@ html[data-theme="light"] .rw-ob{
   }
 
   function actionsHtml(step) {
-    const last = index === STEPS.length - 1;
-    const dots = STEPS.map((_, i) => `<i class="${i === index ? "is-on" : ""}"></i>`).join("");
+    const last = index === steps().length - 1;
+    const dots = steps().map((_, i) => `<i class="${i === index ? "is-on" : ""}"></i>`).join("");
     return `
       <div class="rw-ob-dots" aria-hidden="true">${dots}</div>
       <div class="rw-ob-actions">
@@ -228,8 +291,8 @@ html[data-theme="light"] .rw-ob{
    * ------------------------------------------------------------------ */
 
   function render() {
-    const step = STEPS[index];
-    overlay.innerHTML = `<div class="rw-ob-card" role="dialog" aria-modal="true">${stepHtml(step)}${actionsHtml(step)}</div>`;
+    const step = steps()[index];
+    overlay.innerHTML = `<div class="rw-ob-card" role="dialog" aria-modal="true">${renderMarkdown(stepHtml(step))}${actionsHtml(step)}</div>`;
     overlay.querySelector('[data-ob="prev"]').addEventListener("click", () => {
       if (index > 0) { index -= 1; render(); }
     });
@@ -376,13 +439,13 @@ html[data-theme="light"] .rw-ob{
   }
 
   async function onNext() {
-    const step = STEPS[index];
+    const step = steps()[index];
     if (step === "name") {
       const input = overlay.querySelector('[data-ob="nickname"]');
       await saveNickname(input ? input.value : nickname);
     }
     if (step === "key" && !(await keyReady())) return;
-    if (index < STEPS.length - 1) {
+    if (index < steps().length - 1) {
       index += 1;
       render();
       return;
@@ -414,11 +477,21 @@ html[data-theme="light"] .rw-ob{
 
   async function finish() {
     const chinese = overlay && overlay.querySelector('[data-ob="language-zh"]');
-    const mode = chinese ? (chinese.checked === true ? "zh" : "auto") : null;
+    const patch = { [SEEN_KEY]: true };
+    // 卡用户也记上「开场看过了」——他走的是卡那套，不该再被"填 Key"那套拦一次。
+    if (mode === "card") patch[CARD_SEEN_KEY] = true;
+    if (chinese) patch.language_mode = chinese.checked === true ? "zh" : "auto";
     close();
     try {
-      await global.RoleWorld.saveLocalSettings(
-        mode === null ? { [SEEN_KEY]: true } : { [SEEN_KEY]: true, language_mode: mode });
+      // 自己配 Key 的路上顺手用了体验卡（引导第二步那个入口）：卡说明他已经看过，
+      // 别再在下一次启动时弹一遍卡开场。
+      if (!patch[CARD_SEEN_KEY] && global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function") {
+        const card = await global.RoleWorldCard.currentState();
+        if (card && card.active) patch[CARD_SEEN_KEY] = true;
+      }
+    } catch (_) { /* 判断失败就按没看过处理 */ }
+    try {
+      await global.RoleWorld.saveLocalSettings(patch);
     } catch (_) { /* 存不下也不能卡住用户 */ }
     notifySettings();
     global.dispatchEvent(new global.CustomEvent("roleworld:nickname-changed", { detail: { nickname } }));
@@ -437,8 +510,11 @@ html[data-theme="light"] .rw-ob{
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); }
   }
 
-  function show() {
+  /** 打开引导。which = "card" 时是体验卡开场（不问 Key）；默认/其他值是原来那套完整引导
+   *  （「设置 → 关于 → 再看一次教程」走的也是这一套）。 */
+  function show(which) {
     if (overlay) return;
+    mode = which === "card" ? "card" : "full";
     injectStyle();
     index = 0;
     overlay = document.createElement("div");
@@ -459,11 +535,25 @@ html[data-theme="light"] .rw-ob{
       // ?onboarding=off 只跳过引导，方便先随便看看界面（不影响正式流程）。
       try {
         if (new URLSearchParams(global.location.search).get("onboarding") === "off") {
-          await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
+          await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true, [CARD_SEEN_KEY]: true });
           return false;
         }
       } catch (_) { /* 拿不到 URL 参数就照常走 */ }
       const settings = await global.RoleWorld.getLocalSettings();
+      const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+        ? await global.RoleWorldCard.currentState() : null;
+      // ① 用体验卡进来的：走**体验卡开场**（说明卡与额度 / 称呼 / 语言 / 开始），绝不问 API Key。
+      //    这一步必须排在下面几个"已看过就返回"的判断之前 —— 同学那边的 tutorial_seen
+      //    在他第一次打开链接时就被置成 true 了（老版本为了不弹"填 Key"那套而记的），
+      //    所以只能靠 card_welcome_seen 这个新标记来判断"开场看过没有"。
+      if (card && card.active && settings[CARD_SEEN_KEY] !== true) {
+        cardQuota = card.quota || null;
+        if (!cardQuota && card.relay) {
+          try { cardQuota = await global.RoleWorldCard.quota(card.relay, card.token); } catch (_) { cardQuota = null; }
+        }
+        show("card");
+        return true;
+      }
       if (settings[SEEN_KEY] === true) return false;
       // 已经配过 Key 的老用户（或导入过存档）不该被打扰，直接标记为已看。
       const saved = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor(settings));
@@ -471,9 +561,7 @@ html[data-theme="light"] .rw-ob{
         await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
         return false;
       }
-      // 用体验卡进来的：卡号就存在密钥位里，同样不该再问 Key。
-      const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
-        ? await global.RoleWorldCard.currentState() : null;
+      // 用体验卡进来的（开场已经看过）：卡号就存在密钥位里，同样不该再问 Key。
       if (card && card.active) {
         await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
         return false;
@@ -481,7 +569,7 @@ html[data-theme="light"] .rw-ob{
     } catch (_) {
       return false;
     }
-    show();
+    show("full");
     return true;
   }
 
@@ -503,5 +591,11 @@ html[data-theme="light"] .rw-ob{
     schedule();
   }
 
-  global.RoleWorldOnboarding = { show, maybeShow, steps: STEPS };
+  global.RoleWorldOnboarding = {
+    show,
+    maybeShow,
+    // 当前这一套的步骤名（供测试与调试看）。
+    steps: () => steps().slice(),
+    CARD_SEEN_KEY,
+  };
 })(typeof globalThis !== "undefined" ? globalThis : this);
