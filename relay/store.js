@@ -118,7 +118,13 @@ function createCloudBaseStore(options) {
   } catch (error) {
     throw new Error("云开发账本需要 @cloudbase/node-sdk（npm i @cloudbase/node-sdk）：" + error.message);
   }
-  const app = sdk.init({ env: opts.env || process.env.TCB_ENV || process.env.CLOUDBASE_ENV });
+  const app = sdk.init(Object.assign(
+    { env: opts.env || process.env.TCB_ENV || process.env.CLOUDBASE_ENV },
+    // 云托管/HTTP 函数里**不能**依赖平台默认临时凭据（会过期、间歇性 401）：
+    // 官方要求显式用"云开发服务端 API Key"授权，控制台里把 API Key 注入成 CLOUDBASE_APIKEY 即可。
+    // 这里显式传 accessKey，同时也允许 SDK 自己从环境变量读——两条路都通。
+    process.env.CLOUDBASE_APIKEY ? { accessKey: process.env.CLOUDBASE_APIKEY } : {}
+  ));
   const db = app.database();
   const collection = db.collection(opts.collection || "rw_cards");
   const shape = (doc) => {
