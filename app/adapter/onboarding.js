@@ -24,9 +24,10 @@
   const NICKNAME_KEY = "nickname";
   const NICKNAME_FALLBACK = "我";
 
-  // 两套步骤：自己配 Key 的是原来那套；拿体验卡的是"卡说明 → 称呼 → 语言 → 开始"。
-  const FULL_STEPS = ["welcome", "name", "key", "ready"];
-  const CARD_STEPS = ["card-welcome", "name", "language", "card-ready"];
+  // 两套步骤：自己配 Key 的是原来那套；拿体验卡的是"卡说明 → 称呼 → 语言 → 功能 → 开始"。
+  // 中间那步「这里能做什么」两边共用（用户 2026-09-12：「第一次进的时候也要介绍网站的功能吧」）。
+  const FULL_STEPS = ["welcome", "name", "key", "features", "ready"];
+  const CARD_STEPS = ["card-welcome", "name", "language", "features", "card-ready"];
 
   let overlay = null;
   let index = 0;
@@ -145,6 +146,20 @@ html[data-theme="light"] .rw-ob{
         '<p class="rw-ob-hint">以后想改：**设置 → 模型 → 角色语言**；只想让某一个角色说中文，用对话页顶栏的「语言」下拉。</p>',
       ].join("");
     }
+    if (step === "features") {
+      // 第一次进来的人（不管是用卡还是自己配 Key）都该知道"这里能干什么、东西在哪"。
+      // 每条都尽量写成"能做什么 + 去哪里找"，别写成说明书。
+      return [
+        "<h2>这里能做什么</h2>",
+        "<p><strong>跟角色聊天</strong>：内置 6 个角色（哈利、赫敏、罗恩、金妮、卢娜、汤姆·里德尔），左侧点一下就换人。也能**让 AI 照你的描述新建角色**，或导入别人给的角色卡。</p>",
+        "<p><strong>他们记得你</strong>：每个角色有自己的一本记忆，跨对话保留；记忆可以随时查看、改、删，还能看到它是从哪句话来的。</p>",
+        "<p><strong>剧情模式</strong>：想让好几个角色同时在同一个场景里，用左侧的「剧情模式」。</p>",
+        "<p><strong>伴侣模式</strong>（可选）：给某个角色写一份关系档案（关系、称呼、共同经历），它会照这个来；里面有「不许用内疚留人」这类硬规矩。</p>",
+        "<p><strong>语言</strong>：内置角色卡是英文的，所以默认说英文；想一律中文在**设置 → 模型 → 角色语言**里改，也可以只给某一个角色改（对话页顶栏的「语言」）。</p>",
+        "<p><strong>花的钱看得见</strong>：每轮显示 token 用量和费用估算；「本次请求」能看到这一轮到底发了什么。</p>",
+        "<p><strong>数据只在这台设备上</strong>：没有账号、不上传；换电脑用**设置 → 关于 → 导出存档**。</p>",
+      ].join("");
+    }
     if (step === "card-ready") {
       const line = quotaLine();
       return [
@@ -204,8 +219,7 @@ html[data-theme="light"] .rw-ob{
     }
     return [
       "<h2>准备就绪</h2>",
-      "<p>已经装好 **6 个角色**和 4 本记忆书，直接开始聊就行。</p>",
-      "<p>每个角色有**自己的记忆**，跨对话保留；模型还会自己记要点（可在设置里关掉）。</p>",
+      "<p>已经装好 **6 个角色**和他们的记忆书，直接开始聊就行。</p>",
       "<p>桌面版数据在 `%APPDATA%\\app.roleworld.desktop\\data\\`，都是普通文件；换电脑用「设置 → 关于 → 导出存档」。</p>",
       "<p>想换模型、调界面大小、管记忆书，都在**设置**里。</p>",
     ].join("");

@@ -2332,6 +2332,13 @@ async function main() {
         document.querySelector('[data-ob="next"]').click();
         return true;
       })()`);
+      // 语言之后是**功能导览**（用户 2026-09-12：「第一次进的时候也要介绍网站的功能吧」）
+      await waitFor("document.querySelector('.rw-ob') && document.querySelector('.rw-ob h2').textContent.indexOf('这里能做什么') >= 0", 8000);
+      const tour = await evaluate("document.querySelector('.rw-ob-card').textContent");
+      for (const topic of ["跟角色聊天", "他们记得你", "剧情模式", "伴侣模式", "语言", "花的钱看得见", "数据只在这台设备上"]) {
+        assert(tour.indexOf(topic) >= 0, "功能导览里缺少「" + topic + "」：" + tour.slice(0, 300));
+      }
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
       await waitFor("document.querySelector('.rw-ob') && document.querySelector('.rw-ob h2').textContent.indexOf('可以开始') >= 0", 8000);
       const ready = await evaluate("document.querySelector('.rw-ob-card').textContent");
       assert(ready.indexOf("剩 4 次") >= 0, "最后一步没再报一次额度：" + ready.slice(0, 200));
@@ -2429,6 +2436,9 @@ async function main() {
         document.querySelector('[data-ob="next"]').click();
         return true;
       })()`);
+      // 先过功能导览那一步，再到「准备就绪」
+      await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('这里能做什么') >= 0", 20000);
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
       await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('准备就绪') >= 0", 20000);
       const settings = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
       assert(settings.provider === "custom", "卡没把服务商切到自定义：" + settings.provider);
@@ -2697,7 +2707,12 @@ async function main() {
     assert(ok.indexOf("连接正常") >= 0, "测试连接没有通过：" + ok);
 
     await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
-    await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('准备就绪') >= 0", 5000);
+    // 自己配 Key 的这条路也要经过同一份功能导览（用户：「第一次进的时候也要介绍网站的功能吧」）
+    await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('这里能做什么') >= 0", 8000);
+    assert(await evaluate("document.querySelector('.rw-ob-card').textContent.indexOf('剧情模式') >= 0"),
+      "功能导览里没有提到剧情模式");
+    await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+    await waitFor("document.querySelector('.rw-ob h2').textContent.indexOf('准备就绪') >= 0", 8000);
     assert(await evaluate("document.querySelector('[data-ob=\"next\"]').textContent.trim() === '开始使用'"), "最后一步按钮文案不对");
     await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
     await waitFor("!document.querySelector('.rw-ob')", 5000);
