@@ -192,8 +192,29 @@ function createRelay(options) {
       }, corsHeaders());
     }
 
-    if (req.method === "POST" && parts.length === 4 && (parts[3] === "disable" || parts[3] === "enable")) {
-      const card = await store.get(parts[2]);
+    /* 账本自检：配好环境变量后调一次，就能知道"卡到底存哪、存不存得住"。
+     * 这正是部署时最容易踩的坑：以为在存数据库，其实退回了容器临时盘。 */
+    if (req.method === "GET" && parts.length === 3 && parts[1] === "store" && parts[2] === "selftest") {
+      const probe = storeLib.blankCard({ tokenHash: storeLib.hashToken("selftest-" + Date.now()), label: "自检" });
+      const result = { kind: store.kind, wrote: false, readBack: false, removed: false, error: null };
+      try {
+        await store.save(probe);
+        result.wrote = true;
+        const back = await store.get(probe.id);
+        result.readBack = !!back && back.id === probe.id;
+        result.removed = await store.remove(probe.id);
+        result.cards = (await store.list()).length;
+      } catch (error) {
+        result.error = String((error && error.message) || error);
+      }
+      result.ok = result.wrote && result.readBack && result.removed;
+      result.hint = result.ok
+        ? "账本可用；kind=cloudbase 才是「重启也不丢卡」"
+        : "账本用不了：请检查集合 rw_cards 是否存在、服务角色有没有读写权限，或改用存储挂载 + CARD_STORE=file";
+      return sendJson(res, result.ok ? 200 : 500, result, corsHeaders());
+    }
+
+    if (req.method === "POST" && parts.length === 4 && (parts[3] === "disable" || parts[3] === "enable")) {      const card = await store.get(parts[2]);
       if (!card) return sendJson(res, 404, { error: "没有这张卡" }, corsHeaders());
       card.disabled = parts[3] === "disable";
       await store.save(card);

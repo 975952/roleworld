@@ -277,11 +277,26 @@ async function main() {
     await new Promise((resolve) => bare.close(resolve));
   });
 
+  await check("账本自检接口：能写能读能删，并报出真正的后端类型", async () => {
+    const before = (await store.list()).length;
+    const res = await admin("GET", "/admin/store/selftest");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true, JSON.stringify(body));
+    assert.equal(body.kind, "memory");
+    assert.equal(body.wrote && body.readBack && body.removed, true);
+    // 自检必须自己收尾：不能往账本里留垃圾卡。
+    assert.equal((await store.list()).length, before, "自检后账本里多出了卡");
+  });
+
   await check("健康检查能看出账本类型（避免以为在存文件、其实在存内存）", async () => {
     const body = await (await fetch(base + "/healthz")).json();
     assert.equal(body.ok, true);
     assert.equal(body.store, "memory");
     assert.ok(body.upstream.indexOf("127.0.0.1") >= 0);
+    assert.equal(body.upstreamChatPath, "/v1/chat/completions");
+    assert.equal(body.upstreamKeySet, true);
+    assert.equal(body.adminEnabled, true);
   });
 
   await new Promise((resolve) => server.close(resolve));
