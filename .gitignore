@@ -51,7 +51,8 @@ Thumbs.db
 tmp-commit-*.txt
 *.cmsg
 
-# ���鿨��������������棬�����ֿ⣩
+# 体验卡发卡口令（本机保存，不进仓库）
 relay/*.local.txt
+# 控制台自己发的卡号留底（等于凭据；上面的 *.jsonl 也覆盖它）
+relay/cards.local.jsonl
 relay-data/
-

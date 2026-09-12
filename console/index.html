@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>体验卡控制台 · 角色世界</title>
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>体验卡控制台</strong>
+      <span class="muted">只在本机运行 · 口令不进浏览器</span>
+    </div>
+    <div class="topbar-right">
+      <span id="healthDot" class="dot" title="中转状态">●</span>
+      <span id="healthText" class="muted">正在连中转…</span>
+      <button type="button" class="btn" id="refreshButton">刷新</button>
+    </div>
+  </header>
+
+  <p id="bootError" class="banner bad" hidden></p>
+  <p id="secretWarning" class="banner warn" hidden></p>
+
+  <main>
+    <section class="card">
+      <div class="card-head">
+        <h2>发卡</h2>
+        <span class="muted">发完立刻给「复制给同学的那段话」，每张卡一张。</span>
+      </div>
+      <div class="form-grid">
+        <label>标签<input type="text" id="issueLabel" maxlength="60" placeholder="同学6" autocomplete="off"></label>
+        <label>次数<input type="number" id="issueCalls" value="50" min="0" max="100000" step="10"></label>
+        <label>token 上限<input type="number" id="issueTokens" value="0" min="0" step="10000" placeholder="0 = 不限"></label>
+        <label>有效天数<input type="number" id="issueDays" value="14" min="0" max="3650" step="1"></label>
+        <label>张数<input type="number" id="issueCount" value="1" min="1" max="50" step="1"></label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="issueButton">发卡</button>
+        <span class="muted">默认 50 次 / 14 天；0 次或 0 token 表示不限。</span>
+      </div>
+      <div id="issueResult" class="issue-result" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>卡列表</h2>
+        <div class="actions">
+          <input type="search" id="searchInput" placeholder="搜标签 / 卡id / 状态" autocomplete="off">
+          <select id="sortSelect">
+            <option value="expires">按到期日</option>
+            <option value="used">按已用次数</option>
+            <option value="label">按标签</option>
+          </select>
+          <label class="inline-check"><input type="checkbox" id="onlyAlive"> 只看还能用的</label>
+        </div>
+      </div>
+      <p class="muted" id="cardsSummary">正在读取…</p>
+      <div class="table-wrap">
+        <table id="cardTable">
+          <thead>
+            <tr>
+              <th>标签</th><th>卡id</th><th>已用 / 上限</th><th>token 已用</th>
+              <th>到期</th><th>最后使用</th><th>状态</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="cardRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>本机留底</h2>
+        <span class="muted">服务端只存 <code>sha256(卡号)</code>，拿不回卡号；这里是你自己电脑上的记录。</span>
+      </div>
+      <div class="actions">
+        <input type="text" id="rememberToken" placeholder="RW-XXXXX-XXXXX-XXXXX（以前发过、手里还有的卡号）" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn" id="rememberButton">登记</button>
+        <span class="muted" id="recordCount"></span>
+      </div>
+      <p class="muted" id="recordHint"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>中转自检</h2></div>
+      <div class="actions">
+        <button type="button" class="btn" id="selftestStore">账本自检</button>
+        <button type="button" class="btn" id="selftestUpstream">上游自检</button>
+        <span class="muted" id="selftestResult"></span>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="console.js"></script>
+</body>
+</html>

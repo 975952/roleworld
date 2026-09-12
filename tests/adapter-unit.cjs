@@ -731,12 +731,18 @@ async function main() {
       else globalThis.RoleWorld = previous;
     }
 
-    // 发卡文案是同学唯一会照着做的东西，静态检查（它同时是"发卡人怎么说话"的合同）。
+    // 发卡文案是同学唯一会照着做的东西 —— 静态检查它必须给"可直接粘贴的那一行"。
+    // 0.1.30 起这份文案抽到 relay/card-text.js（CLI 与控制台共用同一份，免得两边写歪）。
+    const text = fs.readFileSync(path.join(__dirname, "..", "relay", "card-text.js"), "utf8");
+    assert.ok(/function pasteLine\(token,\s*options\)/.test(text), "card-text 里应当有「可直接粘贴的那一行」");
+    const sharePart = text.split("function shareText")[1] || "";
+    assert.ok(/pasteLine\(token/.test(sharePart), "发卡文案没有把那一整行放进去");
+    assert.ok(text.indexOf("只粘卡号是不够的") >= 0, "发卡文案要说明新设备为什么必须带中转地址");
+    // CLI 与控制台都必须用这一份，不许各写一份。
     const cli = fs.readFileSync(path.join(__dirname, "..", "scripts", "card-cli.cjs"), "utf8");
-    assert.ok(/function pasteLine\(token\)/.test(cli), "card-cli 里应当有「可直接粘贴的那一行」");
-    const sharePart = cli.split("function shareText")[1] || "";
-    assert.ok(/pasteLine\(token\)/.test(sharePart), "发卡文案没有把那一整行放进去");
-    assert.ok(cli.indexOf("只粘卡号是不够的") >= 0, "发卡文案要说明新设备为什么必须带中转地址");
+    assert.ok(cli.indexOf('relay", "card-text.js"') >= 0, "card-cli 没用共用文案");
+    const consoleServer = fs.readFileSync(path.join(__dirname, "..", "scripts", "console.cjs"), "utf8");
+    assert.ok(consoleServer.indexOf('relay", "card-text.js"') >= 0, "控制台没用共用文案");
   });
 
   await test("体验卡：认得出本机正在用的是卡号（而不是普通 API Key）", () => {
@@ -938,6 +944,9 @@ async function main() {
     // 而且编辑器打不开这个文件。BOM 检查抓不到这种，必须逐个字节校验编码。
     const skip = new Set([".git", "node_modules", "target", "gen", "packs", "build"]);
     const exts = [".json", ".js", ".cjs", ".html", ".css", ".yml", ".yaml", ".toml", ".rs", ".md", ".txt"];
+    // 没有扩展名但一样是文本、一样会被写坏的根文件（2026-09-12：`.gitignore` 末尾那段
+    // 中文注释就是 GBK 坏字节，正因为扩展名不在名单里而漏过了这条守卫）。
+    const names = new Set([".gitignore", ".gitattributes", ".editorconfig", ".npmrc"]);
     const offenders = [];
     let checked = 0;
 
@@ -961,7 +970,7 @@ async function main() {
           walk(path.join(dir, entry.name));
           continue;
         }
-        if (!exts.includes(path.extname(entry.name).toLowerCase())) continue;
+        if (!exts.includes(path.extname(entry.name).toLowerCase()) && !names.has(entry.name)) continue;
         const file = path.join(dir, entry.name);
         const buffer = fs.readFileSync(file);
         checked += 1;

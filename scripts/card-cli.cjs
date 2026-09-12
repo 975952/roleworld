@@ -3,9 +3,6 @@
 /*
  * card-cli.cjs —— 在本机发卡 / 查卡 / 停卡（不碰数据库，只跟中转服务的管理接口说话）
  *
- *   set RELAY_URL=https://你的中转地址
- *   set ADMIN_SECRET=你设的那串口令
- *
  *   node scripts/card-cli.cjs issue --label 小明 --calls 200 --days 30
  *   node scripts/card-cli.cjs list
  *   node scripts/card-cli.cjs disable <卡id>
@@ -14,8 +11,14 @@
  *   node scripts/card-cli.cjs quota   RW-XXXXX-XXXXX-XXXXX     （这条不需要口令）
  *   node scripts/card-cli.cjs text    RW-XXXXX-XXXXX-XXXXX     （生成一段能直接发给同学的话）
  *
- * 卡号只在 issue 那一次返回（账本里只有哈希），发完就复制走。
+ * 凭据：口令优先读环境变量 ADMIN_SECRET，没有就读本机 relay/admin-secret.local.txt；
+ * 中转地址优先 RELAY_URL，没有就用默认线上中转（见 relay/admin-client.js）。
+ * 卡号只在 issue 那一次返回（账本里只有哈希），发完就复制走 —— 想留底就用控制台（npm run console）。
+ *
+ * 想点界面而不是敲命令：`npm run console`（只监听 127.0.0.1，口令不进浏览器）。
  */
+
+const path = require("node:path");
 
 const args = process.argv.slice(2);
 const command = String(args[0] || "").trim();
@@ -27,10 +30,12 @@ function flag(name, fallback) {
   return value === undefined ? true : value;
 }
 
-const RELAY_URL = String(flag("relay", process.env.RELAY_URL || "")).replace(/\/+$/, "");
-const ADMIN_SECRET = String(flag("admin", process.env.ADMIN_SECRET || ""));
-// 同学要打开的应用地址：体验卡的「一键链接」用它来拼 #card=…
-const APP_URL = String(flag("app", process.env.APP_URL || "https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com")).replace(/\/+$/, "");
+const admin = require(path.join(__dirname, "..", "relay", "admin-client.js"));
+const cardText = require(path.join(__dirname, "..", "relay", "card-text.js"));
+
+const RELAY_URL = admin.resolveRelayUrl(flag("relay", ""));
+const APP_URL = String(flag("app", process.env.APP_URL || cardText.DEFAULT_APP_URL)).replace(/\/+$/, "");
+const client = admin.createAdminClient({ relayUrl: RELAY_URL, adminSecret: flag("admin", "") });
 
 function usage() {
   console.log([
@@ -39,71 +44,19 @@ function usage() {
     "  node scripts/card-cli.cjs list | disable <id> | enable <id> | revoke <id>",
     "  node scripts/card-cli.cjs quota <卡号> | text <卡号>",
     "",
-    "需要先设环境变量 RELAY_URL（中转地址）与 ADMIN_SECRET（发卡口令）；",
-    "APP_URL 可选（默认线上网页版），只用来拼「一键体验卡链接」。",
+    "凭据：ADMIN_SECRET 环境变量，或本机 relay/admin-secret.local.txt（已 gitignore）；",
+    "RELAY_URL 可选（默认线上中转），APP_URL 可选（默认线上网页版，只用来拼一键链接）。",
+    "界面版：npm run console",
   ].join("\n"));
-}
-
-async function call(path, options) {
-  const opts = options || {};
-  const headers = Object.assign({ "Content-Type": "application/json" }, opts.admin === false ? {} : { Authorization: "Bearer " + ADMIN_SECRET }, opts.headers || {});
-  const res = await fetch(RELAY_URL + path, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  const text = await res.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch (_) { body = { raw: text }; }
-  if (!res.ok) throw new Error("HTTP " + res.status + "：" + (body.error && (body.error.message || body.error) || text).toString().slice(0, 200));
-  return body;
-}
-
-/** 一键链接：点开就把卡配好（应用支持 #card=卡号@中转地址）。 */
-function shareLink(token) {
-  return `${APP_URL}/#card=${token}@${RELAY_URL}`;
-}
-
-/** 能**直接粘贴**进应用的那一行：卡号 + 中转地址。
- *  只给卡号是不够的 —— 新设备 / 新浏览器不知道中转地址，会报"只有卡号还不够"
- *  （2026-09-12 用户实测："为什么我登的时候还是要输 apikey"）。 */
-function pasteLine(token) {
-  return `${token}@${RELAY_URL}`;
-}
-
-/** 一段可以直接发给同学的话（含一键链接、可直接粘贴的一行、隐私说明）。 */
-function shareText(token, quota) {
-  const limit = [];
-  if (quota && Number(quota.calls) > 0) limit.push(`${quota.calls} 次`);
-  if (quota && Number(quota.tokens) > 0) limit.push(`${quota.tokens} token`);
-  return [
-    "角色世界 · 体验卡",
-    "",
-    "点这个链接就能直接开始（什么都不用填）：",
-    shareLink(token),
-    "",
-    `卡号：${token}`,
-    limit.length ? `额度：${limit.join(" / ")}` : "额度：不限（别乱用）",
-    "",
-    "如果链接点不开、或者你换了一台设备 / 换了个浏览器，就手动两步：",
-    `1. 打开 ${APP_URL}`,
-    "2. 「设置 → 模型 → 体验卡」那一栏粘贴**下面这一整行**（连 @ 和后面的地址一起），点「使用体验卡」：",
-    "",
-    pasteLine(token),
-    "",
-    "（只粘卡号是不够的：手机和电脑互不相通，新设备必须知道中转地址。卡号别转发给别人。）",
-    "说明：额度用完或到期会自动停；聊天记录只存在你自己的浏览器里，服务端只统计用量、不记录内容。",
-  ].join("\n");
 }
 
 (async () => {
   if (!command || command === "help" || command === "-h" || command === "--help") return usage();
-  if (!RELAY_URL) { console.error("先设 RELAY_URL（例如 set RELAY_URL=https://xxx.tcloudbaseapp.com/relay）"); process.exitCode = 1; return; }
 
   if (command === "quota") {
     const token = args[1];
     if (!token) return usage();
-    const body = await call("/card/quota", { admin: false, headers: { Authorization: "Bearer " + token } });
+    const body = await client.quota(token);
     console.log(JSON.stringify(body, null, 2));
     return;
   }
@@ -111,28 +64,29 @@ function shareText(token, quota) {
   if (command === "text") {
     const token = args[1];
     if (!token) return usage();
-    const body = await call("/card/quota", { admin: false, headers: { Authorization: "Bearer " + token } });
-    console.log(shareText(token, body.quota));
+    const body = await client.quota(token);
+    console.log(cardText.shareText(token, body && body.quota, { appUrl: APP_URL, relayUrl: RELAY_URL }));
     return;
   }
 
-  if (!ADMIN_SECRET) { console.error("先设 ADMIN_SECRET（发卡口令）"); process.exitCode = 1; return; }
+  if (!client.hasSecret) {
+    console.error("没有发卡口令：设置环境变量 ADMIN_SECRET，或把口令写进 relay/admin-secret.local.txt");
+    process.exitCode = 1;
+    return;
+  }
 
   if (command === "issue") {
     const count = Math.max(1, Math.min(50, Number(flag("count", 1)) || 1));
     const label = String(flag("label", ""));
     const issued = [];
     for (let i = 1; i <= count; i += 1) {
-      const body = await call("/admin/cards", {
-        method: "POST",
-        body: {
-          // 一次发多张时自动编号：同学1 / 同学2 …… 便于之后对账。
-          label: count > 1 && label ? `${label}${i}` : (label || (count > 1 ? `体验卡${i}` : "")),
-          calls: Number(flag("calls", 0)) || 0,
-          tokens: Number(flag("tokens", 0)) || 0,
-          days: Number(flag("days", 30)) || 0,
-          note: String(flag("note", "")),
-        },
+      const body = await client.createCard({
+        // 一次发多张时自动编号：同学1 / 同学2 …… 便于之后对账。
+        label: count > 1 && label ? `${label}${i}` : (label || (count > 1 ? `体验卡${i}` : "")),
+        calls: Number(flag("calls", 0)) || 0,
+        tokens: Number(flag("tokens", 0)) || 0,
+        days: Number(flag("days", 30)) || 0,
+        note: String(flag("note", "")),
       });
       issued.push(body);
     }
@@ -151,16 +105,16 @@ function shareText(token, quota) {
     console.log("\n===== 下面每段都可以直接转发给一个同学 =====");
     issued.forEach((card, index) => {
       console.log(`\n----- 第 ${index + 1} 张 -----`);
-      console.log(shareText(card.token, card.quota));
+      console.log(cardText.shareText(card.token, card.quota, { appUrl: APP_URL, relayUrl: RELAY_URL }));
     });
     return;
   }
 
   if (command === "list") {
-    const body = await call("/admin/cards");
-    if (!body.cards.length) { console.log("还没有发过卡。"); return; }
+    const cards = await client.listCards();
+    if (!cards.length) { console.log("还没有发过卡。"); return; }
     console.log(["卡id".padEnd(14), "标签".padEnd(10), "已用/上限（次）".padEnd(18), "token 已用".padEnd(12), "到期".padEnd(12), "状态"].join(" "));
-    for (const card of body.cards) {
+    for (const card of cards) {
       const calls = `${card.used.calls}/${card.quota.calls || "∞"}`;
       console.log([
         String(card.id).padEnd(14),
@@ -177,7 +131,7 @@ function shareText(token, quota) {
   if (command === "disable" || command === "enable") {
     const id = args[1];
     if (!id) return usage();
-    const body = await call("/admin/cards/" + id + "/" + command, { method: "POST" });
+    const body = await client.setDisabled(id, command === "disable");
     console.log((body.disabled ? "已停用" : "已启用") + "：" + body.id);
     return;
   }
@@ -185,7 +139,7 @@ function shareText(token, quota) {
   if (command === "revoke") {
     const id = args[1];
     if (!id) return usage();
-    const body = await call("/admin/cards/" + id, { method: "DELETE" });
+    const body = await client.revoke(id);
     console.log(body.removed ? "已吊销：" + id : "没找到这张卡：" + id);
     return;
   }

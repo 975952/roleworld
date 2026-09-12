@@ -1,14 +1,15 @@
 {
   "name": "roleworld",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "private": true,
   "description": "角色世界 —— 本地优先的开源角色对话应用",
   "license": "MIT",
   "scripts": {
     "serve": "node scripts/serve.cjs",
-    "test": "node tests/adapter-unit.cjs && node tests/memory-unit.cjs && node tests/search-unit.cjs && node tests/metrics-unit.cjs && node tests/companion-unit.cjs && node tests/local-app-check.cjs && node tests/viewport-check.cjs && node tests/data-integrity.cjs && node tests/offline-check.cjs && node tests/relay-check.cjs",
+    "test": "node tests/adapter-unit.cjs && node tests/memory-unit.cjs && node tests/search-unit.cjs && node tests/metrics-unit.cjs && node tests/companion-unit.cjs && node tests/local-app-check.cjs && node tests/viewport-check.cjs && node tests/data-integrity.cjs && node tests/offline-check.cjs && node tests/relay-check.cjs && node tests/console-check.cjs",
     "relay": "node relay/index.js",
     "cards": "node scripts/card-cli.cjs",
+    "console": "node scripts/console.cjs",
     "icons": "node scripts/make-icons.cjs",
     "desktop:prepare": "node scripts/prepare-desktop.cjs",
     "desktop:dev": "tauri dev",

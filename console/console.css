@@ -1,0 +1,70 @@
+/* 体验卡控制台样式：自带配色，不依赖应用主题（它跟应用是两个页面）。 */
+:root {
+  --bg: #10141b; --panel: #171c25; --line: #2a3341; --fg: #e8edf5; --muted: #93a0b2;
+  --accent: #6f8cff; --on-accent: #0a0d13; --ok: #3ecf8e; --warn: #f0b45a; --bad: #ff7a7a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0 20px 40px; background: var(--bg); color: var(--fg);
+  font: 14px/1.7 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+}
+code { padding: 1px 5px; border-radius: 5px; background: rgba(127,127,127,.18); font-size: 13px; }
+.muted { color: var(--muted); font-size: 12px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand strong { font-size: 17px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dot { color: var(--muted); font-size: 15px; }
+.dot.is-ok { color: var(--ok); }
+.dot.is-bad { color: var(--bad); }
+main { display: grid; gap: 16px; max-width: 1180px; }
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 16px 18px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.card h2 { margin: 0; font-size: 15px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+input, select {
+  padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: #12161e;
+  color: var(--fg); font: inherit; font-size: 13px; min-width: 0;
+}
+input[type="search"] { min-width: 180px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.card-head .actions { margin-top: 0; }
+.inline-check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.btn {
+  padding: 8px 14px; border-radius: 9px; border: 1px solid var(--line); background: transparent;
+  color: var(--fg); font: inherit; font-size: 13px; cursor: pointer;
+}
+.btn:hover { background: rgba(127,127,127,.12); }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+.btn.danger { color: var(--bad); border-color: rgba(255,122,122,.45); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.banner { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.banner.warn { background: rgba(240,180,90,.12); color: var(--warn); border: 1px solid rgba(240,180,90,.35); }
+.banner.bad { background: rgba(255,122,122,.12); color: var(--bad); border: 1px solid rgba(255,122,122,.35); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+tbody tr.is-low { background: rgba(240,180,90,.08); }
+tbody tr.is-dead { background: rgba(255,122,122,.08); color: var(--muted); }
+td .tag { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; }
+td .tag.ok { color: var(--ok); border-color: rgba(62,207,142,.4); }
+td .tag.warn { color: var(--warn); border-color: rgba(240,180,90,.4); }
+td .tag.bad { color: var(--bad); border-color: rgba(255,122,122,.4); }
+.issue-result { margin-top: 14px; display: grid; gap: 10px; }
+.issue-item { border: 1px dashed var(--line); border-radius: 11px; padding: 10px 12px; }
+.issue-item textarea {
+  width: 100%; min-height: 132px; margin-top: 8px; padding: 9px 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: #12161e; color: var(--fg); font: 12px/1.6 ui-monospace, Consolas, monospace;
+  resize: vertical;
+}
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  padding: 9px 16px; border-radius: 999px; background: #232c3a; border: 1px solid var(--line);
+  color: var(--fg); font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+}

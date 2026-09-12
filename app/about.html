@@ -87,7 +87,7 @@
 
   <section>
     <h2>版本与状态</h2>
-    <p>当前版本 <code>0.1.29</code>。下面这些数字来自最近一次全量测试，每次改动都会重跑。</p>
+    <p>当前版本 <code>0.1.30</code>。下面这些数字来自最近一次全量测试，每次改动都会重跑。</p>
     <pre id="status-json" style="overflow:auto;background:rgba(127,127,127,.12);border-radius:8px;padding:12px;font-size:12px;line-height:1.6;">加载中…</pre>
     <p class="lead" style="margin-top:10px;">机器可读的那一份在页面源码里的 <code>&lt;script type="application/json" id="roleworld-status"&gt;</code>。</p>
   </section>
@@ -165,7 +165,7 @@
 <script type="application/json" id="roleworld-status">
 {
   "name": "角色世界",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "license": "MIT",
   "updated": "2026-09-12",
   "runs": {
@@ -180,7 +180,8 @@
       { "name": "viewport-check", "checks": 35, "covers": "1440/1280/768/390/320 五种宽度的布局、可点区域与预估行不挤坏输入区" },
       { "name": "data-integrity", "checks": 11, "covers": "存档往返、长对话压力、隐私出口自查" },
       { "name": "offline-check", "checks": 7, "covers": "PWA 清单与图标、离线壳接管、断网后仍能打开并读到本机数据、新版提示、平台提示页不覆盖缓存" },
-      { "name": "relay-check", "checks": 28, "covers": "体验卡中转：卡校验（不存在/停用/过期/用完/吊销）、用量记账、SSE 原样透传、CORS、管理接口，以及两条硬规矩（账本只有哈希、日志没有正文）" }
+      { "name": "relay-check", "checks": 28, "covers": "体验卡中转：卡校验（不存在/停用/过期/用完/吊销）、用量记账、SSE 原样透传、CORS、管理接口，以及两条硬规矩（账本只有哈希、日志没有正文）" },
+      { "name": "console-check", "checks": 12, "covers": "本机控制台（发卡用）：只监听 127.0.0.1、钥匙头与 Host 校验、页面里没有发卡口令、卡列表、发卡与「那段话」、停用启用吊销、本机卡号留底、中转自检" }
     ],
     "allGreen": true
   },
