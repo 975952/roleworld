@@ -378,13 +378,19 @@
       if (event.key === "Enter") { event.preventDefault(); useCard().catch(() => {}); }
     }));
     // 同学点开的那条体验卡链接自带 #card=…：不用他手动填，直接配好并说一声。
-    const fromLink = global.RoleWorldCard && global.RoleWorldCard.cardFromLocation(global.location && global.location.href);
-    if (fromLink) {
-      global.RoleWorldCard.apply(fromLink).then((result) => {
-        pick("card-status").forEach((node) => setStatus(node, result.ok ? "体验卡已自动配好：" + result.message : result.message, !result.ok));
+    const applyCardFromUrl = () => {
+      if (!global.RoleWorldCard || typeof global.RoleWorldCard.applyFromLocation !== "function") return;
+      if (!global.RoleWorldCard.cardFromLocation(global.location && global.location.href)) return;
+      global.RoleWorldCard.applyFromLocation(global.location.href).then((result) => {
+        pick("card-status").forEach((node) => setStatus(node, result.ok
+          ? (result.applied ? "体验卡已自动配好：" + result.message : "已在用这张体验卡：" + result.message)
+          : result.message, !result.ok));
         if (result.ok) refresh();
       }).catch(() => {});
-    }
+    };
+    applyCardFromUrl();
+    // 同一个标签页里粘链接（只改片段地址栏不会重新加载页面）时也要生效。
+    global.addEventListener("hashchange", applyCardFromUrl);
     refresh();
   }
 

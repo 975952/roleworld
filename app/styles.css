@@ -907,6 +907,10 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 /* 2026-09-09 角色对话：对话模型切换 + DeepSeek 密钥面板（密钥只写服务端 secrets） */
 .chat-model { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-text); font-size: 11px; white-space: nowrap; }
 .chat-model select { max-width: 180px; padding: 6px 24px 6px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); cursor: pointer; }
+/* 体验卡徽标：剩余次数要在界面上一直看得见；快用完变黄、用完变红。 */
+.card-chip[data-level="ok"] { color: var(--secondary-text); }
+.card-chip[data-level="warn"] { color: #f0b45a; border-color: rgba(240, 180, 90, .5); }
+.card-chip[data-level="bad"] { color: #ff7a7a; border-color: rgba(255, 122, 122, .55); }
 .settings-row-key { align-items: center; }
 .key-actions { display: flex; align-items: center; gap: 8px; }
 .key-actions input { width: 220px; padding: 7px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); }

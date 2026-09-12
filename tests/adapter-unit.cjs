@@ -722,6 +722,54 @@ async function main() {
     assert.ok(Card.formatQuota({ ok: false, message: "中转没回应" }).indexOf("中转没回应") >= 0);
   });
 
+  await test("体验卡：顶栏徽标文案与颜色档（剩几次要一眼看见）", () => {
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const state = { active: true };
+    assert.equal(Card.chipText(state, { ok: true, callsLeft: 12 }), "体验卡 · 剩 12 次");
+    assert.equal(Card.chipText(state, { ok: true, callsLeft: 2 }), "体验卡 · 只剩 2 次");
+    assert.equal(Card.chipText(state, { ok: true, callsLeft: 0 }), "体验卡 · 次数已用完");
+    assert.equal(Card.chipText(state, { ok: true, callsLeft: null }), "体验卡 · 不限次");
+    assert.equal(Card.chipText({ active: false }, null), "", "没在用体验卡就不该有文案");
+    assert.equal(Card.chipLevel(state, { ok: true, callsLeft: 12 }), "ok");
+    assert.equal(Card.chipLevel(state, { ok: true, callsLeft: 2 }), "warn");
+    assert.equal(Card.chipLevel(state, { ok: true, callsLeft: 0 }), "bad");
+    assert.equal(Card.chipLevel({ active: false }, null), "off");
+  });
+
+  await test("体验卡：从响应头刷新剩余次数（中转每轮都回，不用额外请求）", () => {
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const headers = new Headers({
+      "x-rw-card-calls-left": "3",
+      "x-rw-card-tokens-left": "4800",
+      "x-rw-card-expires": "2026-10-12T00:00:00.000Z",
+      "x-rw-card-id": "abc",
+    });
+    const quota = Card.noteQuotaFromHeaders(headers);
+    assert.equal(quota.callsLeft, 3);
+    assert.equal(quota.tokensLeft, 4800);
+    assert.equal(quota.expiresAt, "2026-10-12T00:00:00.000Z");
+    assert.equal(Card.knownQuota().callsLeft, 3);
+    // 普通 API Key 的响应没有这些头：不能瞎猜，返回 null 并保持原值。
+    assert.equal(Card.noteQuotaFromHeaders(new Headers({ "content-type": "application/json" })), null);
+    assert.equal(Card.knownQuota().callsLeft, 3);
+    // 不限次 / 不过期要能识别，别显示成"剩 null 次"。
+    const unlimited = Card.noteQuotaFromHeaders(new Headers({ "x-rw-card-calls-left": "unlimited", "x-rw-card-expires": "never" }));
+    assert.equal(unlimited.callsLeft, null);
+    assert.equal(unlimited.expiresAt, null);
+    assert.equal(Card.chipText({ active: true }, unlimited), "体验卡 · 不限次");
+  });
+
+  await test("体验卡：402/401 的错误翻成人话，普通错误不冒充体验卡问题", () => {
+    const Card = require(path.join(__dirname, "..", "app", "adapter", "card.js"));
+    const noCalls = Card.describeCardError(402, { error: { code: "CARD_NO_CALLS", message: "这张体验卡的次数用完了（上限 20 次）。" } });
+    assert.ok(noCalls.indexOf("次数用完了") >= 0, noCalls);
+    assert.ok(noCalls.indexOf("换一张") >= 0, "要告诉用户怎么办：" + noCalls);
+    const unknown = Card.describeCardError(401, { error: { code: "CARD_UNKNOWN", message: "这张体验卡不认识。" } });
+    assert.ok(unknown.indexOf("不认识") >= 0, unknown);
+    assert.equal(Card.describeCardError(500, { error: { code: "UPSTREAM_UNREACHABLE", message: "连不上模型服务" } }), null);
+    assert.equal(Card.describeCardError(200, null), null);
+  });
+
   await test("界面里没有账号相关的入口或文案（产品里已经没有账号）", () => {
     // 2026-09-12：清理过一次账号死代码（注销/改密/改名/管理员账号列表）。
     // 这条守着一件事：别再让它们长回来。

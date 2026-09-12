@@ -3676,6 +3676,11 @@
         return;
       }
       if (err && err.name === "AbortError") showToast("已停止");
+      else if (err && err.cardMessage) {
+        // 体验卡的问题（次数用完 / 被停用 / 已到期）：把中转的原话显示出来，并刷新徽标。
+        showToast(err.cardMessage);
+        renderCardChip().catch(() => {});
+      }
       else if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode) && err && err.status === 400) showToast("尚未保存 DeepSeek API Key：请到「设置 → 对话」粘贴并保存");
       else showToast("回复未保存，请重试");
     } finally {
@@ -3850,6 +3855,52 @@
     });
   }
 
+  /* ---------- 体验卡徽标：剩几次要在界面上一眼看见 ----------
+   * 数据来源有两处：① 启动时查一次 /card/quota；② 每一轮回复的响应头
+   * x-rw-card-calls-left（中转每轮都回，见 relay/server.js）。 */
+
+  async function renderCardChip() {
+    const chip = document.querySelector("#cardChip");
+    const card = window.RoleWorldCard;
+    if (!chip || !card) return null;
+    let state = null;
+    try { state = await card.currentState(); } catch (_) { state = null; }
+    if (!state || !state.active) {
+      chip.hidden = true;
+      chip.textContent = "体验卡";
+      return null;
+    }
+    let info = state.quota;
+    if (!info && state.relay) {
+      try { info = await card.quota(state.relay, state.token); } catch (_) { info = null; }
+    }
+    chip.hidden = false;
+    chip.textContent = card.chipText(state, info);
+    chip.dataset.level = card.chipLevel(state, info);
+    chip.title = "你正在用体验卡。" + (info && info.ok ? card.formatQuota(info) : "点一下去设置里查额度 / 换一张卡")
+      + "　（点这里打开设置里的「体验卡」那一栏）";
+    return info;
+  }
+
+  function bindCardChip() {
+    const chip = document.querySelector("#cardChip");
+    if (chip) {
+      chip.addEventListener("click", () => {
+        const settingsButton = document.querySelector('[data-action="open-settings"]');
+        if (settingsButton) settingsButton.click();
+        window.setTimeout(() => {
+          const row = document.querySelector('[data-roleworld="card"]');
+          if (row && typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
+          if (window.RoleWorldSettingsUI && typeof window.RoleWorldSettingsUI.checkCardQuota === "function") {
+            window.RoleWorldSettingsUI.checkCardQuota().catch(() => {});
+          }
+        }, 120);
+      });
+    }
+    window.addEventListener("roleworld:card-changed", () => { renderCardChip().catch(() => {}); });
+    window.addEventListener("roleworld:settings-changed", () => { renderCardChip().catch(() => {}); });
+  }
+
   async function bootLive() {
     await window.STApi.init();
     await updateAdminEntry();
@@ -3869,6 +3920,8 @@
     // 身份链路瞬时失败会出现"已准备好"弹出但页面灰屏；主题数据已由首帧内联脚本应用，
     // 此处摘除不会引入主题闪烁。
     document.documentElement.classList.remove("theme-pending");
+    bindCardChip();
+    renderCardChip().catch(() => {});
     showToast("已准备好。");
     // 一次性提示：内置包以前带着"别人的存档"（原 SillyTavern 存档里的玩家角色 Lin），
     // 启动时已被 adapter/pack-cleanup.js 清掉。这里读一次、报一次、把这个键清空。

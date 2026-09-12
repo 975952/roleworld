@@ -164,22 +164,41 @@
       body: JSON.stringify(buildBody(Object.assign({}, payload, { settings }))),
     };
     if (opts.signal) init.signal = opts.signal;
+    const noteCard = (response) => {
+      // 用的是体验卡时，中转每一轮都会回剩余次数：顺手记下来，顶栏徽标就是靠它刷新的。
+      try {
+        if (global.RoleWorldCard && typeof global.RoleWorldCard.noteQuotaFromHeaders === "function") {
+          global.RoleWorldCard.noteQuotaFromHeaders(response.headers);
+        }
+      } catch (_) { /* 徽标刷不到不影响对话 */ }
+      return response;
+    };
     return fetch(url, init).then((response) => {
-      if (response.ok) return response;
+      if (response.ok) return noteCard(response);
       return response.text().then(
         (text) => {
           let detail = text;
+          let parsed = null;
           try {
-            const parsed = JSON.parse(text);
+            parsed = JSON.parse(text);
             detail = (parsed.error && (parsed.error.message || parsed.error.code)) || parsed.message || text;
           } catch (_) { /* 保留原始文本 */ }
           const error = new Error("模型接口返回 HTTP " + response.status + "：" + String(detail).slice(0, 300));
           error.status = response.status;
+          // 体验卡的错误要原样给人话（"次数用完了/卡被停用/已到期"），别让用户去猜 402 是什么。
+          try {
+            if (global.RoleWorldCard && typeof global.RoleWorldCard.describeCardError === "function") {
+              const friendly = global.RoleWorldCard.describeCardError(response.status, parsed);
+              if (friendly) { error.cardMessage = friendly; error.cardCode = parsed && parsed.error && parsed.error.code; }
+            }
+          } catch (_) { /* 忽略 */ }
+          noteCard(response);
           throw error;
         },
         () => {
           const error = new Error("模型接口返回 HTTP " + response.status);
           error.status = response.status;
+          noteCard(response);
           throw error;
         }
       );

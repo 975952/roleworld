@@ -109,6 +109,36 @@ let truncateNext = false;
       return;
     }
 
+    // 假中转的聊天口：用来验证"用体验卡真的能聊"，并且逐轮回剩余次数。
+    if (p === "/relay/v1/chat/completions") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const auth = String(req.headers.authorization || "");
+      if (auth !== "Bearer RW-AAAAA-BBBBB-CCCCC") {
+        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ error: { code: "CARD_UNKNOWN", message: "这张体验卡不认识：卡号可能抄错了，或者已经被收回。" } }));
+        return;
+      }
+      requests.push({ path: p, stream: true, relayCard: auth.slice(-5) });
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "x-rw-card-calls-left,x-rw-card-tokens-left,x-rw-card-expires,x-rw-card-id",
+        "x-rw-card-calls-left": "3",
+        "x-rw-card-tokens-left": "4800",
+        "x-rw-card-expires": "2026-10-12T00:00:00.000Z",
+        "x-rw-card-id": "test-card",
+      });
+      res.write("data: " + JSON.stringify({ choices: [{ delta: { content: "好呀，" } }] }) + "\n\n");
+      await sleep(30);
+      res.write("data: " + JSON.stringify({ choices: [{ delta: { content: "我们出发吧。" } }] }) + "\n\n");
+      res.write("data: " + JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 } }) + "\n\n");
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
+
     if (p === "/v1/chat/completions") {
       let raw = "";
       for await (const chunk of req) raw += chunk;
@@ -2212,6 +2242,61 @@ async function main() {
         return true;
       })()`);
       await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    }
+  });
+
+  await check("同学点体验卡链接：不问 API Key、直接用，顶栏一直显示剩余次数", async () => {
+    // 用户的实测反馈：「别人打开还是必须填 apikey」。这里把"第一次打开"的状态造出来，
+    // 再带着 #card= 链接进去 —— 引导不该再拦人，顶栏要有次数徽标。
+    await evaluate("(async () => { await RoleWorld.saveLocalSettings({ tutorial_seen: false, provider: 'deepseek', endpoint: '', card_relay: '' }); await RoleWorld.secrets.remove('api_key_custom'); await RoleWorld.secrets.remove('api_key_deepseek'); return true; })()");
+    try {
+      // 真人是"在新标签页打开这条链接"：先到带片段的地址，再整页加载一次
+      // （只改片段浏览器不会重新加载，所以这里显式 reload 才是真实场景）。
+      await goto(base + "/index.html#card=RW-AAAAA-BBBBB-CCCCC@" + base + "/relay");
+      await cdp.sessionSend(session, "Page.reload");
+      await sleep(400);
+      await waitFor("window.TASK21_READY === true", 30000);
+
+      // ① 卡被自动用上，接口指向中转、卡号进了密钥位
+      const settings = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
+      const cardDebug = await evaluate("(window.RoleWorldCard && window.RoleWorldCard.knownResult && window.RoleWorldCard.knownResult()) || null");
+      assert(settings.provider === "custom",
+        "体验卡链接没有把服务商切到自定义：" + settings.provider + "；applyFromLocation 结果=" + JSON.stringify(cardDebug));
+      assert(settings.endpoint === base + "/relay/v1/chat/completions", "接口地址没指向中转：" + settings.endpoint);
+      const secret = await evaluate("(async () => (await RoleWorld.secrets.get('api_key_custom') || {}).value || '')()");
+      assert(secret === "RW-AAAAA-BBBBB-CCCCC", "卡号没有进密钥位：" + secret);
+
+      // ② 首启引导不该再弹（卡就是凭据，没理由再问 Key）
+      await sleep(600);
+      assert(await evaluate("document.querySelector('.rw-ob') === null"), "带体验卡进来还弹了首启引导");
+      assert(await evaluate("document.querySelector('#messageInput').disabled === false"), "输入框不可用");
+
+      // ③ 顶栏徽标：显示剩余次数
+      await waitFor("document.querySelector('#cardChip') && document.querySelector('#cardChip').hidden === false", 8000);
+      const chip = await evaluate("document.querySelector('#cardChip').textContent");
+      assert(chip.indexOf("剩 4 次") >= 0, "徽标没显示剩余次数：" + chip);
+
+      // ④ 真发一句：走后端中转，回复正常显示，徽标按响应头刷成 3
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = '我们出发吧？';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#sendButton').click();
+        return true;
+      })()`);
+      await waitTurnSettled();
+      const visible = await evaluate("document.querySelector('#dynamicMessages').textContent");
+      assert(visible.indexOf("我们出发吧") >= 0, "中转的回复没显示出来：" + visible.slice(-140));
+      assert(requests.some((row) => row.path === "/relay/v1/chat/completions"), "这轮没有走中转");
+      const chipAfter = await evaluate("document.querySelector('#cardChip').textContent");
+      assert(chipAfter.indexOf("剩 3 次") >= 0, "徽标没按这一轮的响应头刷新：" + chipAfter);
+    } finally {
+      // 收尾：恢复 fixture 的设置，别影响后面的用例。
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true });
+        await RoleWorld.secrets.remove("api_key_custom");
+        return true;
+      })()`).catch(() => {});
     }
   });
 

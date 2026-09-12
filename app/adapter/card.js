@@ -112,7 +112,9 @@
     return { ok: true, token: parsed.token, relay, quota: info, message: formatQuota(info) };
   }
 
-  /** 启动时看地址里有没有带卡（#card=… 或 ?card=…），有就自动配好。 */
+  /** 启动时看地址里有没有带卡（#card=… 或 ?card=…），有就自动配好。
+   *  这一步必须在"要不要弹首启引导"之前做完 —— 否则同学打开链接还是会被要求填 API Key
+   *  （2026-09-12 实测反馈："别人打开还是必须填 apikey"）。 */
   function cardFromLocation(href) {
     const value = String(href || "");
     const match = value.match(/[#?&]card=([^&\s]+)/);
@@ -121,12 +123,139 @@
     return parsed.ok ? parsed : null;
   }
 
+  /** 已经在用这张卡了吗（避免每次启动都重写一遍设置）。 */
+  async function alreadyUsing(parsed) {
+    const adapter = global.RoleWorld;
+    if (!adapter) return false;
+    try {
+      const settings = await adapter.getLocalSettings();
+      const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider: settings.provider || "custom" }));
+      const value = (saved && saved.value) || "";
+      return value === parsed.token && !!settings.endpoint;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 把地址里的卡直接应用掉；重复调用无副作用，失败也不抛（启动不该被一张坏卡卡死）。 */
+  async function applyFromLocation(href, options) {
+    const parsed = cardFromLocation(href);
+    if (!parsed) { lastResult = { ok: true, applied: false, reason: "no-card-in-url" }; return lastResult; }
+    try {
+      if (await alreadyUsing(parsed)) {
+        lastQuota = await quota(parsed.relay || "", parsed.token);
+        lastResult = { ok: true, applied: false, reason: "already-applied", token: parsed.token, quota: lastQuota };
+        return lastResult;
+      }
+      const result = await apply(parsed, options);
+      lastQuota = result.quota || null;
+      lastResult = Object.assign({ applied: result.ok }, result);
+      return lastResult;
+    } catch (error) {
+      lastResult = { ok: false, applied: false, message: String((error && error.message) || error) };
+      return lastResult;
+    }
+  }
+
   /** 是不是"正在用体验卡"（密钥看起来像卡号）。 */
   function looksLikeCard(value) {
     return TOKEN_RE.test(String(value || "").trim());
   }
 
-  const api = { parseCardInput, endpointFor, quota, formatQuota, apply, cardFromLocation, looksLikeCard, DEFAULT_MODEL };
+  /** 本机当前是不是在用体验卡（引导页、设置页、顶栏徽标都用它判断）。 */
+  async function currentState() {
+    const adapter = global.RoleWorld;
+    if (!adapter) return { active: false };
+    try {
+      const settings = await adapter.getLocalSettings();
+      const provider = settings.provider || "deepseek";
+      const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
+      const value = (saved && saved.value) || "";
+      if (!looksLikeCard(value)) return { active: false };
+      return { active: true, token: value, relay: settings.card_relay || "", quota: lastQuota };
+    } catch (_) {
+      return { active: false };
+    }
+  }
+
+  /* ---------------- 额度徽标：次数要在界面上一眼看得见 ---------------- */
+
+  let lastQuota = null;
+  /** 最近一次 apply/applyFromLocation 的结果：出问题时能在控制台或测试里直接看到原因。 */
+  let lastResult = null;
+
+  function knownResult() {
+    return lastResult;
+  }
+
+  /** 从这一轮响应头里读剩余次数（中转每轮都回 x-rw-card-*）。 */
+  function noteQuotaFromHeaders(headers) {
+    if (!headers || typeof headers.get !== "function") return null;
+    const callsLeft = headers.get("x-rw-card-calls-left");
+    const tokensLeft = headers.get("x-rw-card-tokens-left");
+    const expires = headers.get("x-rw-card-expires");
+    const id = headers.get("x-rw-card-id");
+    if (callsLeft === null && tokensLeft === null && expires === null && id === null) return null;
+    const toNumber = (raw) => {
+      if (raw === null || raw === undefined || raw === "unlimited") return null;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    };
+    lastQuota = {
+      ok: true,
+      callsLeft: toNumber(callsLeft),
+      tokensLeft: toNumber(tokensLeft),
+      expiresAt: expires && expires !== "never" ? expires : null,
+    };
+    try {
+      global.dispatchEvent(new global.CustomEvent("roleworld:card-changed", { detail: lastQuota }));
+    } catch (_) { /* 没有 window 就算了 */ }
+    return lastQuota;
+  }
+
+  function knownQuota() {
+    return lastQuota;
+  }
+
+  /** 把中转返回的卡错误翻成人话（402/401 时用）。 */
+  function describeCardError(status, body) {
+    const code = body && body.error ? body.error.code : "";
+    const message = body && body.error ? body.error.message : "";
+    if (!code || String(code).indexOf("CARD_") !== 0) return null;
+    const suffix = "（这张是体验卡：可以在「设置 → 模型 → 体验卡」里换一张，或填自己的 API Key）";
+    if (code === "CARD_UNKNOWN") return message + suffix;
+    if (code === "CARD_DISABLED") return message + suffix;
+    if (code === "CARD_EXPIRED") return message + suffix;
+    if (code === "CARD_NO_CALLS" || code === "CARD_NO_TOKENS") return message + suffix;
+    return (message || "体验卡暂时不可用") + suffix;
+  }
+
+  /** 徽标文案：剩多少次要一眼看见；快用完/用完要有明显区别。 */
+  function chipText(state, quota) {
+    if (!state || !state.active) return "";
+    const info = quota || state.quota;
+    if (!info || !info.ok) return "体验卡";
+    const calls = info.callsLeft;
+    if (calls === null || calls === undefined) return "体验卡 · 不限次";
+    if (calls <= 0) return "体验卡 · 次数已用完";
+    if (calls <= 3) return "体验卡 · 只剩 " + calls + " 次";
+    return "体验卡 · 剩 " + calls + " 次";
+  }
+
+  function chipLevel(state, quota) {
+    if (!state || !state.active) return "off";
+    const info = quota || state.quota;
+    if (!info || !info.ok) return "warn";
+    const calls = info.callsLeft;
+    if (calls === null || calls === undefined) return "ok";
+    if (calls <= 0) return "bad";
+    return calls <= 3 ? "warn" : "ok";
+  }
+
+  const api = {
+    parseCardInput, endpointFor, quota, formatQuota, apply, applyFromLocation, cardFromLocation,
+    currentState, looksLikeCard, noteQuotaFromHeaders, knownQuota, knownResult, describeCardError, chipText, chipLevel, DEFAULT_MODEL,
+  };
   global.RoleWorldCard = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

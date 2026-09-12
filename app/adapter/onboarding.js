@@ -321,9 +321,12 @@ html[data-theme="light"] .rw-ob{
     await finish();
   }
 
-  // 第二步必须已有对应服务商的 Key。
+  // 第二步必须已有对应服务商的 Key（体验卡也算：卡号就存在密钥位里）。
   async function keyReady() {
     const adapter = global.RoleWorld;
+    const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+      ? await global.RoleWorldCard.currentState() : null;
+    if (card && card.active) return true;
     const provider = overlay.querySelector('[data-ob="provider"]').value;
     const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
     if (saved && saved.value) return true;
@@ -367,6 +370,11 @@ html[data-theme="light"] .rw-ob{
   async function maybeShow() {
     try {
       if (!global.RoleWorld || typeof global.RoleWorld.getLocalSettings !== "function") return false;
+      // 打开的是「体验卡链接」：先把卡配好，再判断要不要引导 ——
+      // 否则同学点开链接还是会被要求填 API Key（2026-09-12 实测反馈）。
+      if (global.RoleWorldCard && typeof global.RoleWorldCard.applyFromLocation === "function") {
+        try { await global.RoleWorldCard.applyFromLocation(global.location && global.location.href); } catch (_) { /* 坏卡不挡启动 */ }
+      }
       // ?onboarding=off 只跳过引导，方便先随便看看界面（不影响正式流程）。
       try {
         if (new URLSearchParams(global.location.search).get("onboarding") === "off") {
@@ -379,6 +387,13 @@ html[data-theme="light"] .rw-ob{
       // 已经配过 Key 的老用户（或导入过存档）不该被打扰，直接标记为已看。
       const saved = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor(settings));
       if (saved && saved.value) {
+        await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
+        return false;
+      }
+      // 用体验卡进来的：卡号就存在密钥位里，同样不该再问 Key。
+      const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+        ? await global.RoleWorldCard.currentState() : null;
+      if (card && card.active) {
         await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true });
         return false;
       }

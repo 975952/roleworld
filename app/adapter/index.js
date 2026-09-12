@@ -92,6 +92,16 @@
       await Store.ready();
       await importFixtureOnce();
       await ensureProfile();
+      // 打开的是「体验卡链接」（#card=…）就先把卡配好 —— 必须赶在首启引导决定"要不要问 Key"之前。
+      // 这一步失败也不能影响启动：它自己吞异常，只把结果留在 window.RoleWorldCard 上。
+      try {
+        if (global.RoleWorldCard && typeof global.RoleWorldCard.applyFromLocation === "function") {
+          const applied = await global.RoleWorldCard.applyFromLocation(global.location && global.location.href);
+          if (applied && applied.reason && applied.reason !== "no-card-in-url") {
+            console.log("[roleworld] 体验卡：" + (applied.ok ? (applied.applied ? "已自动配好" : "已在使用") : ("没用上（" + applied.message + "）")));
+          }
+        }
+      } catch (_) { /* 启动优先 */ }
       return true;
     })();
     return booted;

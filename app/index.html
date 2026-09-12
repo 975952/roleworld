@@ -136,6 +136,9 @@
         </div>
          <div class="topbar-actions">
            <div class="chat-model" id="chatModelBadge"><span>模型</span><select id="chatModelSelect" aria-label="选择模型"></select></div>
+           <!-- 体验卡的剩余次数：用过体验卡才出现，点一下去设置里换卡/查额度。
+                每轮回复回来时会按中转回的次数刷新（x-rw-card-calls-left）。 -->
+           <button class="plain-button card-chip" type="button" id="cardChip" data-level="ok" hidden>体验卡</button>
            <!-- 这颗按钮原来带 hidden，而没有任何代码把它摘掉：右栏只能靠 TASK21.openMemoryPanel() 打开，
                 用户点不到「记忆」。2026-09-12 修。 -->
            <button class="plain-button" type="button" data-action="open-memories" aria-expanded="false">记忆</button>
