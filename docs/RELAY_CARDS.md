@@ -50,10 +50,29 @@ tcb cloudrun deploy roleworld-relay --dir relay -e cyan1-d2gpky2z903b86182
 | 变量 | 说明 |
 |---|---|
 | `UPSTREAM_KEY` | 真 API Key，只有服务端知道 |
+| `UPSTREAM_BASE` | 上游地址，默认 `https://api.deepseek.com` |
+| `UPSTREAM_CHAT_PATH` | 上游聊天路径，默认 `/v1/chat/completions`；云开发网关填 `/chat/completions` |
 | `ADMIN_SECRET` | 发卡口令，**不设就等于关闭管理接口** |
 | `CARD_STORE` | `cloudbase`（重启不丢）或 `file`（要挂持久盘） |
 | `ALLOW_MODELS` | 例如 `deepseek-flash`，防止同学用贵模型 |
 | `PORT` | 默认 8787 |
+
+### 用云开发自己的大模型网关当上游（可省掉外部 Key）
+
+控制台「AI 工具中使用 Token」页可以创建 API Key，Base URL 形如
+`https://<envId>.api.tcloudbasegateway.com/v1/ai/cloudbase`。它就是 OpenAI 兼容网关
+（官方文档：<https://docs.cloudbase.net/http-api/ai-model/call-llm>）：
+
+```
+UPSTREAM_BASE=https://<envId>.api.tcloudbasegateway.com/v1/ai/cloudbase
+UPSTREAM_CHAT_PATH=/chat/completions
+UPSTREAM_KEY=<那一页创建的 API Key>
+ALLOW_MODELS=            # 先留空；确认模型名后再收紧
+```
+
+好处是一个账单（走套餐资源点）、少一处外部密钥；代价是模型清单与单价以云开发为准，
+而且**流式必须带 `Accept: text/event-stream`**（中转已自动带）。
+`/healthz` 会回显 `upstream`、`upstreamChatPath`、`upstreamKeySet`、`adminEnabled`，配完一眼就能核对。
 
 > ⚠ 账本用 `memory` 时重启会把所有卡弄丢，服务启动时会打一行大字提醒；
 > `file` 后端在容器里必须挂持久盘（否则重启一样丢）。云托管上最稳的是 `cloudbase`。

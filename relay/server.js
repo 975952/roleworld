@@ -111,6 +111,10 @@ function createRelay(options) {
   const opts = options || {};
   const store = opts.store || storeLib.createStore({});
   const upstreamBase = String(opts.upstreamBase || process.env.UPSTREAM_BASE || DEFAULT_UPSTREAM).replace(/\/+$/, "");
+  // 上游聊天路径可配：DeepSeek 官方是 /v1/chat/completions；
+  // 云开发自己的大模型网关是 <base>/chat/completions（base 形如 …/v1/ai/cloudbase）。
+  const upstreamChatPath = String(opts.upstreamChatPath || process.env.UPSTREAM_CHAT_PATH || "/v1/chat/completions");
+  const upstreamModelsPath = String(opts.upstreamModelsPath || process.env.UPSTREAM_MODELS_PATH || "/v1/models");
   const upstreamKey = opts.upstreamKey !== undefined ? opts.upstreamKey : (process.env.UPSTREAM_KEY || "");
   const adminSecret = opts.adminSecret !== undefined ? opts.adminSecret : (process.env.ADMIN_SECRET || "");
   const allowModels = opts.allowModels || String(process.env.ALLOW_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -228,7 +232,7 @@ function createRelay(options) {
       return sendJson(res, 403, { error: { code: "MODEL_NOT_ALLOWED", message: "这张卡不能使用模型：" + model } }, corsHeaders());
     }
 
-    const target = new URL(upstreamBase + "/v1/chat/completions");
+    const target = new URL(upstreamBase + upstreamChatPath);
     const payload = Buffer.from(JSON.stringify(body), "utf8");
     const headers = {
       "Content-Type": "application/json",
@@ -305,7 +309,7 @@ function createRelay(options) {
     const url = new URL(req.url, "http://relay.local");
     try {
       if (req.method === "OPTIONS") { res.writeHead(204, corsHeaders()); return res.end(); }
-      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), at: new Date().toISOString() }, corsHeaders());
+      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), upstreamChatPath, upstreamKeySet: !!upstreamKey, adminEnabled: !!adminSecret, at: new Date().toISOString() }, corsHeaders());
       if (url.pathname === "/card/quota") {
         const card = await store.findByToken(bearer(req));
         const verdict = checkCard(card);
@@ -318,7 +322,7 @@ function createRelay(options) {
         const card = await store.findByToken(bearer(req));
         const verdict = checkCard(card);
         if (!verdict.ok) return sendJson(res, 401, { error: { code: verdict.code || "CARD_UNKNOWN", message: verdict.message } }, corsHeaders());
-        const target = new URL(upstreamBase + "/v1/models");
+        const target = new URL(upstreamBase + upstreamModelsPath);
         return await new Promise((resolve) => {
           const upstreamReq = agentFor(target).request({ protocol: target.protocol, hostname: target.hostname, port: target.port || 443, path: target.pathname, method: "GET", headers: { Authorization: "Bearer " + upstreamKey } }, (upstreamRes) => {
             const chunks = [];
