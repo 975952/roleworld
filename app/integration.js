@@ -3886,7 +3886,18 @@
           const settings = await window.RoleWorld.getLocalSettings();
           const current = String(settings.provider || "deepseek");
           const mine = ((await window.RoleWorld.secrets.get(window.RoleWorldModel.secretKeyFor({ provider: current }))) || {}).value || "";
-          if (!mine) {
+          const relay = String(settings.card_relay || "");
+          const isCardInSlot = mine && window.RoleWorldCard && window.RoleWorldCard.looksLikeCard(mine);
+          const relayHost = relay ? (() => { try { return new URL(relay).host; } catch (_) { return ""; } })() : "";
+          if (isCardInSlot && current !== "custom") {
+            // 最常见的一种："我以为把卡填进 API Key 就是登录了" —— 其实那一格是**服务商的 Key**，
+            // 卡号被当成 DeepSeek 的 Key 发出去，必然 401。
+            slots = "这看起来是**体验卡号填错了格子**：卡号被当成 " + (host || "服务商") + " 的 API Key 发出去了。"
+              + "体验卡必须走中转 —— 到「设置 → 模型 → **体验卡**」那一行，粘发卡人给你的**那一整行**"
+              + "（`卡号@中转地址`）再点「使用体验卡」"
+              + (relay ? "；你上次用的中转是 " + relayHost + "，可以直接用它。" : "；那一行里的中转地址就是发卡人搭的那个地址。")
+              + "\n";
+          } else if (!mine) {
             // 当前这一格是空的：看看别的格子有没有东西（这才是"配了却 401"的真相）。
             const others = [];
             for (const provider of ["deepseek", "custom"]) {
@@ -3899,14 +3910,14 @@
             }
             slots = others.length
               ? "注意：当前服务商是「" + (current === "custom" ? "自定义云端服务" : "DeepSeek 官方") + "」，但这一格是空的；"
-                + others.join("；") + " —— 把服务商切回去，或把凭据填到当前这一格（「设置 → 模型」）。"
-              : "两个密钥格都是空的：先去「设置 → 模型」粘一把 API Key，或用发卡人给你的那一整行体验卡。";
+                + others.join("；") + " —— 把服务商切回去，或把凭据填到当前这一格（「设置 → 模型」）。\n"
+              : "两个密钥格都是空的：先去「设置 → 模型」粘一把 API Key，或用发卡人给你的那一整行体验卡。\n";
           }
         } catch (_) { /* 查不到就不说这一段 */ }
         showToast("端点不认这份凭据（401）：" + (host || "模型接口"));
         setChatListStatus(
           `这一轮被 ${host || "模型端点"} 拒绝了（HTTP ${err.status}）：它收到的是${kindText}${tail}。`
-          + (slots ? slots + "\n" : "")
+          + (slots ? slots : "")
           + "常见原因：① 用的是体验卡 —— 到「设置 → 模型 → 体验卡」重新粘一次发卡人给你的**那一整行**（卡号@中转地址）；"
           + "② 用自己的 API Key —— 检查「设置 → 模型」里的**服务商**和 Key 是否配套；"
           + "③ Key 被停用 / 欠费 / 复制时少了字符。\n\n端点原话：" + why, true);

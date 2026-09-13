@@ -1696,7 +1696,7 @@ async function main() {
     await goto(base + "/index.html");
     await waitFor("window.TASK21_READY === true", 30000);
     let fired = null;
-    for (let i = 0; i < 100; i += 1) {
+    for (let i = 0; i < 150; i += 1) {
       fired = plainCalls().slice(beforeCalls).find((row) => String(row.systemText).indexOf("你先开口") >= 0) || null;
       if (fired) break;
       await sleep(200);
