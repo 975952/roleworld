@@ -281,6 +281,31 @@ async function main() {
       assert(probe.topbarHeight <= 120, "顶栏太高了（" + probe.topbarHeight + "px），手机上会挤掉内容");
     });
 
+    await check(`${viewport.label}：点顶栏「记忆」必须真的有反应`, async () => {
+      // 用户 2026-09-12：「记忆能点但是没有任何反应」。根因：手机上 innerWidth 小于
+      // utilityCloseWidth，setMemoryPanelOpen 里那个条件永远为假 —— 点了什么都不发生。
+      // 这条用**真点击**，然后要求"要么弹层开了、要么右侧栏真的可见"。
+      await evaluate("document.querySelector('[data-action=\"open-memories\"]').click(); true");
+      await sleep(400);
+      const opened = await evaluate(`(() => {
+        const modal = document.querySelector('#memoryPanel');
+        const column = document.querySelector('.inspector-column');
+        const modalOpen = !!modal && modal.hidden === false;
+        const columnOpen = !!column && getComputedStyle(column).display !== 'none'
+          && column.getBoundingClientRect().width > 0;
+        return { modalOpen: modalOpen, columnOpen: columnOpen };
+      })()`);
+      assert(opened.modalOpen || opened.columnOpen,
+        "点了「记忆」什么都没打开：" + JSON.stringify(opened));
+      // 收尾：把打开的东西关上，别影响后面的用例。
+      await evaluate(`(() => {
+        const close = document.querySelector("#memoryPanel [data-action='close-memory']");
+        if (close && document.querySelector('#memoryPanel').hidden === false) close.click();
+        return true;
+      })()`);
+      await sleep(300);
+    });
+
     await check(`${viewport.label}：「本次请求」弹层能开、能关、内容可滚动`, async () => {
       await evaluate("window.TASK21.openRequestPeek(); true");
       await waitFor("document.querySelector('#requestPeek').hidden === false", 8000);

@@ -489,7 +489,17 @@ function closeUtilities() {
 
 function openInspector(view) {
   state.inspector = view;
-  if (view === "memories") setMemoryPanelOpen(true);
+  if (view !== "memories") return;
+  // 窄屏（手机）上没有右侧记忆栏 —— 它是 display:none，而且 setMemoryPanelOpen 里的
+  // `innerWidth >= utilityCloseWidth` 在手机上永远为假，于是"点得到、但什么都没发生"
+  // （用户 2026-09-12 实测：「记忆能点但是没有任何反应」）。这里改成打开**记忆弹层**。
+  if (window.innerWidth < layoutConfig.utilityCloseWidth) {
+    if (window.TASK21 && typeof window.TASK21.openMemoryPanel === "function") {
+      window.TASK21.openMemoryPanel();
+      return;
+    }
+  }
+  setMemoryPanelOpen(true);
 }
 
 function setUserMenuOpen(open, options = {}) {
