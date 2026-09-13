@@ -85,6 +85,11 @@ function createAdminClient(options) {
     health: async () => (await call("/healthz")).body,
     listCards: async () => (await must("/admin/cards")).cards || [],
     createCard: async (fields) => must("/admin/cards", { method: "POST", body: fields || {} }),
+    /** 改一张已有的卡：加次数 / 加 token / 续期 / 改标签（2026-09-12）。
+     *  calls/tokens 是**新的上限**，days 是"从今天起再给几天"。 */
+    updateCard: async (id, fields) => must(`/admin/cards/${encodeURIComponent(id)}/update`, { method: "PATCH", body: fields || {} }),
+    /** 按天用量汇总（最近 N 天，最多 90）。 */
+    usage: async (days) => must("/admin/usage" + (days ? "?days=" + encodeURIComponent(days) : "")),
     setDisabled: async (id, disabled) => must(`/admin/cards/${encodeURIComponent(id)}/${disabled ? "disable" : "enable"}`, { method: "POST" }),
     revoke: async (id) => must(`/admin/cards/${encodeURIComponent(id)}`, { method: "DELETE" }),
     quota: async (token) => {

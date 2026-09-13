@@ -237,6 +237,34 @@ async function main() {
       assert.equal(upstreamTest.body.ok, true, "上游自检没过：" + JSON.stringify(upstreamTest.body));
     });
 
+    await check("加次数 / 续期 + 按天用量（2026-09-12 新增）", async () => {
+      const created = await fetch(relayUrl + "/admin/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + ADMIN_SECRET },
+        body: JSON.stringify({ label: "同学F", calls: 5, days: 3 }),
+      }).then((res) => res.json());
+      const extended = await api(base, "/api/card/" + created.id + "/extend", { method: "POST", body: { calls: 80, days: 30 } });
+      assert.equal(extended.status, 200, JSON.stringify(extended.body));
+      assert.equal(extended.body.card.quota.calls, 80, "上限没改上：" + JSON.stringify(extended.body.card));
+      const quota = await fetch(relayUrl + "/card/quota", { headers: { Authorization: "Bearer " + created.token } }).then((res) => res.json());
+      assert.equal(quota.callsLeft, 80, "改完之后剩余次数不对");
+      // 什么都不给应当明确拒绝，而不是"假装成功"。
+      const empty = await api(base, "/api/card/" + created.id + "/extend", { method: "POST", body: {} });
+      assert.equal(empty.status, 400, "什么都没给却当成功了");
+      // 按天用量：跑一轮之后今天应当有 1 次。
+      await fetch(relayUrl + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + created.token },
+        body: JSON.stringify({ model: "deepseek-flash", messages: [{ role: "user", content: "在吗" }] }),
+      }).then((res) => res.text());
+      const usage = await api(base, "/api/usage?days=7");
+      assert.equal(usage.status, 200, JSON.stringify(usage.body));
+      assert.equal(usage.body.days.length, 7, "应当返回 7 天");
+      const today = new Date().toISOString().slice(0, 10);
+      assert.equal(usage.body.days[6].day, today, "最后一行应当是今天");
+      assert(usage.body.days[6].calls >= 1, "今天的用量没算上：" + JSON.stringify(usage.body.days[6]));
+    });
+
     await check("日志里没有卡号明文、也没有口令（和中转同一条硬规矩）", async () => {
       const all = logs.map((line) => JSON.stringify(line)).join("\n");
       assert.ok(!/RW-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}/.test(all), "中转日志里出现了卡号明文");

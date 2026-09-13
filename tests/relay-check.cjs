@@ -334,6 +334,66 @@ async function main() {
     assert.equal(body.adminEnabled, true);
   });
 
+  await check("加次数 / 续期：把老卡的上限与到期日就地改掉（不用重新发卡）", async () => {
+    // 2026-09-12 新增：同学那边次数用完了，以前只能"重新发一张"（他就得重新配一次卡）。
+    const created = await fetch(base + "/admin/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ label: "同学Z", calls: 10, days: 3 }),
+    }).then((res) => res.json());
+    const before = await fetch(base + "/card/quota", { headers: { Authorization: "Bearer " + created.token } }).then((res) => res.json());
+    assert.equal(before.callsLeft, 10);
+
+    const updated = await fetch(base + "/admin/cards/" + created.id + "/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ calls: 60, days: 30 }),
+    }).then((res) => res.json());
+    assert.equal(updated.quota.calls, 60, "上限没改上：" + JSON.stringify(updated));
+    const after = await fetch(base + "/card/quota", { headers: { Authorization: "Bearer " + created.token } }).then((res) => res.json());
+    assert.equal(after.callsLeft, 60, "改完之后剩余次数不对：" + JSON.stringify(after));
+    const days = Math.round((Date.parse(after.expiresAt) - Date.now()) / 86400000);
+    assert(days >= 29 && days <= 30, "续期后的到期日不对：" + after.expiresAt);
+    // 已经用掉的不该被重置（加的是上限，不是把账抹掉）。
+    assert.equal(after.used.calls, before.used.calls, "改上限把已用次数也清了");
+
+    const missing = await fetch(base + "/admin/cards/nope/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ calls: 5 }),
+    });
+    assert.equal(missing.status, 404, "改一张不存在的卡应当 404");
+    const noAuth = await fetch(base + "/admin/cards/" + created.id + "/update", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calls: 5 }),
+    });
+    assert.equal(noAuth.status, 401, "没带口令也能改卡？");
+  });
+
+  await check("按天用量：每一轮记到当天，并汇总成「最近 N 天」", async () => {
+    const created = await fetch(base + "/admin/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ label: "同学Y", calls: 10, days: 3 }),
+    }).then((res) => res.json());
+    // 真发一轮（走假上游），用量应当同时进 used 和 daily。
+    await fetch(base + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + created.token },
+      body: JSON.stringify({ model: "deepseek-flash", messages: [{ role: "user", content: "在吗" }] }),
+    }).then((res) => res.text());
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = await store.get(created.id);
+    assert.ok(stored && stored.daily && stored.daily[today], "当天没有记上按天用量：" + JSON.stringify(stored && stored.daily));
+    assert.equal(stored.daily[today].calls, 1, "按天的次数不对：" + JSON.stringify(stored.daily[today]));
+    assert(stored.daily[today].tokens > 0, "按天的 token 没记上");
+
+    const usage = await fetch(base + "/admin/usage?days=7", { headers: { Authorization: "Bearer admin-secret-123" } }).then((res) => res.json());
+    assert.equal(usage.days.length, 7, "应当返回 7 天：" + usage.days.length);
+    assert.equal(usage.days[6].day, today, "最后一行应当是今天");
+    assert(usage.days[6].calls >= 1, "今天的汇总没算上：" + JSON.stringify(usage.days[6]));
+    assert.equal(usage.days[0].calls, 0, "7 天前不该有量");
+  });
+
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => upstream.server.close(resolve));
 
@@ -426,7 +486,7 @@ async function main() {
   console.log("");
   console.log("== 云开发 PostgreSQL 账本（Data API）==");
 
-  const pg = { rows: new Map(), ddl: 0 };
+  const pg = { rows: new Map(), ddl: 0, addedColumns: [] };
   const pgGateway = http.createServer((req, res) => {
     const url = new URL(req.url, "http://pg.local");
     const send = (status, payload, extra) => {
@@ -439,12 +499,18 @@ async function main() {
     req.on("end", () => {
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null;
       if (url.pathname === "/v1/rdb/exec-pgsql") {
-        // 只认"管理员角色 + CREATE TABLE IF NOT EXISTS"，别的一律拒绝 —— 免得真建错东西。
+        // 只认"管理员角色 + CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS"，
+        // 别的一律拒绝 —— 免得真建错东西。
+        // （ADD COLUMN 是给老库补新列的：2026-09-12 起有按天用量那一列。）
+        const sql = String(body.sql || "");
         if (body.role !== "cloudbase_postgres") return send(403, { code: "ACTION_FORBIDDEN" });
-        if (!/^CREATE TABLE IF NOT EXISTS rw_cards \(/.test(String(body.sql || ""))) {
+        const isCreate = /^CREATE TABLE IF NOT EXISTS rw_cards \(/.test(sql);
+        const isAddColumn = /^ALTER TABLE rw_cards ADD COLUMN IF NOT EXISTS [a-z_]+ /.test(sql);
+        if (!isCreate && !isAddColumn) {
           return send(400, { code: "INVALID_PARAM", message: "unexpected sql" });
         }
         pg.ddl += 1;
+        if (isAddColumn) pg.addedColumns.push(String(sql.match(/EXISTS\s+([a-z_]+)/)[1]));
         return send(200, []);
       }
       const table = url.pathname.match(/^\/v1\/rdb\/rest\/([a-z_]+)$/);
@@ -474,13 +540,16 @@ async function main() {
     const store = createPgStore({ gatewayBase: "http://127.0.0.1:" + pgPort, apiKey: "fake-apikey", env: "cyan1-test" });
     assert.equal(store.kind, "cloudbase-pg");
     await store.save({ id: "card-9", tokenHash: hashToken("RW-PG01-PG02-PG03"), label: "同学A", quota: { calls: 20, tokens: 0 }, used: { calls: 0, tokens: 0 } });
-    assert.equal(pg.ddl, 1, "应当建一次表");
+    // 一次建表 + 给老库补新列（2026-09-12 起有"按天用量"那一列），两者都只做一次。
+    assert.equal(pg.ddl, 2, "应当是「建表 + 补列」各一次，实际 " + pg.ddl);
+    assert.deepEqual(pg.addedColumns, ["daily"], "补的列不对：" + JSON.stringify(pg.addedColumns));
     const found = await store.findByToken("RW-PG01-PG02-PG03");
     assert.ok(found && found.label === "同学A", "按卡号查不到：" + JSON.stringify(found));
     assert.equal(found.quota.calls, 20);
+    assert.deepEqual(found.daily, {}, "新卡的按天用量应当是空对象");
     // 记一次用量：同一张卡再存一次应当走 upsert 合并，而不是插出第二条。
     await store.save(Object.assign({}, found, { used: { calls: 1, tokens: 33 } }));
-    assert.equal(pg.ddl, 1, "不该重复建表");
+    assert.equal(pg.ddl, 2, "不该重复建表/补列");
     assert.equal(pg.rows.size, 1, "同一张卡不该插成两行");
     const again = await store.get("card-9");
     assert.equal(again.used.calls, 1);

@@ -144,6 +144,8 @@ function createRelay(options) {
       },
       lastUsedAt: new Date().toISOString(),
     });
+    // 按天也记一笔（2026-09-12）：累计值看不出"今天谁用得多"。
+    next.daily = storeLib.addDailyUsage(next, next.lastUsedAt.slice(0, 10), usage);
     await store.save(next);
     return next;
   }
@@ -155,13 +157,14 @@ function createRelay(options) {
     if (bearer(req) !== adminSecret) return sendJson(res, 401, { error: "管理口令不对" }, corsHeaders());
     const parts = url.pathname.split("/").filter(Boolean);   // admin/cards/:id/:action
 
-    if (req.method === "GET" && parts.length === 2) {
+    if (req.method === "GET" && parts.length === 2 && parts[1] === "cards") {
       const cards = await store.list();
       return sendJson(res, 200, {
         cards: cards.map((card) => ({
           id: card.id, label: card.label, createdAt: card.createdAt, expiresAt: card.expiresAt,
           quota: card.quota, used: card.used, disabled: card.disabled, note: card.note,
           lastUsedAt: card.lastUsedAt || null,
+          daily: card.daily || {},
         })),
       }, corsHeaders());
     }
@@ -189,6 +192,68 @@ function createRelay(options) {
         quota: card.quota,
         expiresAt: card.expiresAt,
         hint: "卡号只显示这一次，请立刻复制给对方（账本里只存哈希，找不回来）。",
+      }, corsHeaders());
+    }
+
+    /* 改一张已有的卡：加次数 / 加 token / 续期 / 改标签备注（2026-09-12 新增）。
+     * 为什么需要它：同学那边次数用完了，以前只能"重新发一张" —— 他就得重新配一次卡。
+     * 现在可以就地补：`PATCH /admin/cards/:id {calls, tokens, days, label, note}`。
+     * 语义：calls/tokens 是**新的上限**（不是增量），days 是"从今天起再给几天"。 */
+    if ((req.method === "PATCH" || req.method === "POST") && parts.length === 4 && parts[3] === "update") {
+      const card = await store.get(parts[2]);
+      if (!card) return sendJson(res, 404, { error: "没有这张卡" }, corsHeaders());
+      const raw = await readBody(req, 64 * 1024);
+      let body = {};
+      try { body = JSON.parse(raw.toString("utf8") || "{}"); } catch (_) { return sendJson(res, 400, { error: "请求体不是 JSON" }, corsHeaders()); }
+      const next = Object.assign({}, card);
+      if (body.calls !== undefined) next.quota = Object.assign({}, next.quota, { calls: Math.max(0, Number(body.calls) || 0) });
+      if (body.tokens !== undefined) next.quota = Object.assign({}, next.quota, { tokens: Math.max(0, Number(body.tokens) || 0) });
+      if (body.days !== undefined) {
+        const days = Math.max(0, Number(body.days) || 0);
+        next.expiresAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+      }
+      if (body.label !== undefined) next.label = String(body.label || "").slice(0, 60);
+      if (body.note !== undefined) next.note = String(body.note || "").slice(0, 200);
+      if (body.disabled !== undefined) next.disabled = body.disabled === true;
+      await store.save(next);
+      return sendJson(res, 200, {
+        id: next.id,
+        label: next.label,
+        quota: next.quota,
+        used: next.used,
+        expiresAt: next.expiresAt,
+        disabled: next.disabled === true,
+      }, corsHeaders());
+    }
+
+    /* 按天用量汇总（2026-09-12 新增）：把每张卡的 daily 加起来，给控制台看"今天用了多少"。 */
+    if (req.method === "GET" && parts.length === 2 && parts[1] === "usage") {
+      const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days")) || 14));
+      const cards = await store.list();
+      const byDay = new Map();
+      for (const card of cards) {
+        const daily = (card && card.daily) || {};
+        for (const [day, row] of Object.entries(daily)) {
+          const current = byDay.get(day) || { calls: 0, tokens: 0, cards: 0 };
+          current.calls += Number(row && row.calls) || 0;
+          current.tokens += Number(row && row.tokens) || 0;
+          if ((Number(row && row.calls) || 0) > 0) current.cards += 1;
+          byDay.set(day, current);
+        }
+      }
+      const today = new Date();
+      const out = [];
+      for (let i = days - 1; i >= 0; i -= 1) {
+        const day = new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10);
+        const row = byDay.get(day) || { calls: 0, tokens: 0, cards: 0 };
+        out.push({ day: day, calls: row.calls, tokens: row.tokens, cards: row.cards });
+      }
+      const totalCalls = cards.reduce((sum, card) => sum + (Number(card.used && card.used.calls) || 0), 0);
+      return sendJson(res, 200, {
+        days: out,
+        cards: cards.length,
+        totalCalls: totalCalls,
+        hint: "按天只统计这张卡自己记得的日子；账本里最多留 " + storeLib.DAILY_KEEP + " 天。",
       }, corsHeaders());
     }
 

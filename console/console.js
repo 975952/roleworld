@@ -169,6 +169,14 @@
       toggle.addEventListener("click", () => setDisabled(card, !card.disabled));
       actionCell.appendChild(toggle);
 
+      const extend = document.createElement("button");
+      extend.type = "button";
+      extend.className = "btn";
+      extend.textContent = "加次数";
+      extend.title = "同学用完了就地补：不用换卡，他也不用重新配";
+      extend.addEventListener("click", () => extendCard(card));
+      actionCell.appendChild(extend);
+
       const revoke = document.createElement("button");
       revoke.type = "button";
       revoke.className = "btn danger";
@@ -196,6 +204,59 @@
     const data = await api("/api/cards");
     cards = data.cards || [];
     renderCards();
+  }
+
+  /** 按天用量（最近 7 天）：一眼看出"今天谁用得多" —— 卡被转借只有这里看得出来。 */
+  async function loadUsage() {
+    const box = $("usageBox");
+    if (!box) return;
+    try {
+      const data = await api("/api/usage?days=7");
+      const max = Math.max(1, ...(data.days || []).map((row) => row.calls));
+      box.hidden = false;
+      box.textContent = "";
+      const title = document.createElement("div");
+      title.className = "usage-title";
+      title.innerHTML = "最近 7 天用量　<span class=\"muted\">合计 " + data.totalCalls + " 次 / " + data.cards + " 张卡</span>";
+      box.appendChild(title);
+      const bars = document.createElement("div");
+      bars.className = "usage-bars";
+      for (const row of data.days || []) {
+        const item = document.createElement("div");
+        item.className = "usage-bar";
+        item.title = row.day + "：" + row.calls + " 次 / " + row.tokens + " token / " + row.cards + " 张卡";
+        const fill = document.createElement("div");
+        fill.className = "usage-fill";
+        fill.style.height = Math.round((row.calls / max) * 100) + "%";
+        const label = document.createElement("span");
+        label.textContent = row.calls ? String(row.calls) : "";
+        const day = document.createElement("em");
+        day.textContent = row.day.slice(5);
+        item.append(fill, label, day);
+        bars.appendChild(item);
+      }
+      box.appendChild(bars);
+    } catch (_) { box.hidden = true; }
+  }
+
+  /** 加次数 / 续期：就地补，不用重新发卡。 */
+  async function extendCard(card) {
+    const name = card.label || card.id;
+    const current = Number(card.quota && card.quota.calls) || 0;
+    const answer = window.prompt("给「" + name + "」加多少次数？\n（当前上限 " + current + "，已用 " + ((card.used && card.used.calls) || 0) + "；现在填的是**新的上限**）", String(current + 50));
+    if (answer === null) return;
+    const calls = Number(answer);
+    if (!Number.isFinite(calls) || calls <= 0) { toast("次数要填一个正数", true); return; }
+    const daysAnswer = window.prompt("再给它多少天？直接确定 = 保持原来的到期时间", "");
+    const body = { calls: calls };
+    if (daysAnswer !== null && String(daysAnswer).trim() !== "") body.days = Number(daysAnswer) || 0;
+    try {
+      await api("/api/card/" + encodeURIComponent(card.id) + "/extend", { method: "POST", body: body });
+      toast("已更新：" + name + " → " + calls + " 次" + (body.days ? " / 再 " + body.days + " 天" : ""));
+      await loadCards();
+    } catch (error) {
+      toast("更新失败：" + error.message, true);
+    }
   }
 
   /* ---------------- 操作 ---------------- */
@@ -347,7 +408,11 @@
       return;
     }
     $("issueButton").addEventListener("click", issue);
-    $("refreshButton").addEventListener("click", () => { loadState().catch((e) => toast(e.message, true)); loadCards().catch((e) => toast(e.message, true)); });
+    $("refreshButton").addEventListener("click", () => {
+      loadState().catch((e) => toast(e.message, true));
+      loadCards().catch((e) => toast(e.message, true));
+      loadUsage();
+    });
     $("searchInput").addEventListener("input", renderCards);
     $("sortSelect").addEventListener("change", renderCards);
     $("onlyAlive").addEventListener("change", renderCards);
@@ -359,6 +424,7 @@
       $("bootError").textContent = "连不上本机控制台服务：" + error.message;
     });
     loadCards().catch((error) => toast("读卡列表失败：" + error.message, true));
+    loadUsage();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });

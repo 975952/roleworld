@@ -162,6 +162,25 @@ function createConsole(options) {
 
     if (url.pathname === "/api/record") return sendJson(res, 200, { rows: readRecord().slice().reverse() });
 
+    /* 加次数 / 续期（2026-09-12）：同学用完了就地补，不用换卡、不用他重新配。 */
+    if (url.pathname === "/api/usage") {
+      const days = url.searchParams.get("days") || 14;
+      return sendJson(res, 200, await client.usage(days));
+    }
+
+    const extend = url.pathname.match(/^\/api\/card\/([^/]+)\/extend$/);
+    if (extend && req.method === "POST") {
+      const id = decodeURIComponent(extend[1]);
+      const body = await readBody(req);
+      const fields = {};
+      if (body.calls !== undefined && body.calls !== null && body.calls !== "") fields.calls = normalizeInt(body.calls, 0, 0, 1000000);
+      if (body.tokens !== undefined && body.tokens !== null && body.tokens !== "") fields.tokens = normalizeInt(body.tokens, 0, 0, 1000000000);
+      if (body.days !== undefined && body.days !== null && body.days !== "") fields.days = normalizeInt(body.days, 0, 0, 3650);
+      if (!Object.keys(fields).length) return sendJson(res, 400, { error: "要给点什么：加次数或加天数" });
+      const updated = await client.updateCard(id, fields);
+      return sendJson(res, 200, { ok: true, card: updated });
+    }
+
     if (url.pathname === "/api/issue" && req.method === "POST") {
       const body = await readBody(req);
       const count = normalizeInt(body.count, 1, 1, 50);

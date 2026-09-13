@@ -41,12 +41,33 @@ function blankCard(fields) {
     expiresAt: null,
     quota: { calls: 0, tokens: 0 },   // 0 = 不限制
     used: { calls: 0, tokens: 0 },
+    // 按天的用量（2026-09-12 加）：{"2026-09-13": {calls, tokens}}，只留最近 DAILY_KEEP 天。
+    // 累计 used 看不出"今天谁用得多"，而"卡被转借/被刷"只有按天看得出来。
+    daily: {},
     disabled: false,
     note: "",
   }, fields || {});
   card.quota = Object.assign({ calls: 0, tokens: 0 }, card.quota || {});
   card.used = Object.assign({ calls: 0, tokens: 0 }, card.used || {});
+  card.daily = card.daily && typeof card.daily === "object" ? card.daily : {};
   return card;
+}
+
+/** 按天记账：累加今天的用量，并丢掉太旧的日期（账本行不能无限长）。 */
+const DAILY_KEEP = 30;
+
+function addDailyUsage(card, day, usage) {
+  const key = String(day || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return card.daily;
+  const daily = Object.assign({}, card.daily || {});
+  const row = Object.assign({ calls: 0, tokens: 0 }, daily[key] || {});
+  row.calls += 1;
+  row.tokens += Number(usage && usage.total) || 0;
+  daily[key] = row;
+  const keys = Object.keys(daily).sort();
+  while (keys.length > DAILY_KEEP) delete daily[keys.shift()];
+  card.daily = daily;
+  return daily;
 }
 
 /* ---------------- 内存（测试） ---------------- */
@@ -316,6 +337,13 @@ const PG_COLUMNS = [
   "expires_at TIMESTAMPTZ",
   "created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
   "last_used_at TIMESTAMPTZ",
+  // 按天用量（2026-09-12）：老库里没有这一列，ensureTable 会用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 补上。
+  "daily JSONB NOT NULL DEFAULT '{}'::jsonb",
+];
+
+/** 建表之后才加的列：只有这些需要在老库上 ALTER 补齐（PG 支持 ADD COLUMN IF NOT EXISTS）。 */
+const PG_UPGRADE_COLUMNS = [
+  "daily JSONB NOT NULL DEFAULT '{}'::jsonb",
 ];
 
 function toRow(card) {
@@ -332,6 +360,7 @@ function toRow(card) {
     expires_at: card.expiresAt || null,
     created_at: card.createdAt || new Date().toISOString(),
     last_used_at: card.lastUsedAt || null,
+    daily: card.daily && typeof card.daily === "object" ? card.daily : {},
   };
 }
 
@@ -347,7 +376,12 @@ function toCard(row) {
     expiresAt: row.expires_at || null,
     createdAt: row.created_at || "",
     lastUsedAt: row.last_used_at || null,
+    daily: row.daily && typeof row.daily === "object" ? row.daily : (typeof row.daily === "string" ? safeJson(row.daily) : {}),
   };
+}
+
+function safeJson(text) {
+  try { const parsed = JSON.parse(text); return parsed && typeof parsed === "object" ? parsed : {}; } catch (_) { return {}; }
 }
 
 function createPgStore(options) {
@@ -386,6 +420,16 @@ function createPgStore(options) {
         const ddl = `CREATE TABLE IF NOT EXISTS ${table} (${PG_COLUMNS.join(", ")})`;
         const res = await request("POST", `${base}/v1/rdb/exec-pgsql`, { sql: ddl, role: "cloudbase_postgres" });
         if (res.status !== 200) throw failure("建表", res);
+        // 已经建过的老库不会有新列 —— 只补"建表之后才加的"那几列（幂等）。
+        // 刻意**不**遍历 PG_COLUMNS：那会把主键那些列也 ALTER 一遍，既没意义又容易被网关拒。
+        for (const column of PG_UPGRADE_COLUMNS) {
+          const name = column.split(" ")[0];
+          const add = await request("POST", `${base}/v1/rdb/exec-pgsql`, {
+            sql: `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column}`,
+            role: "cloudbase_postgres",
+          });
+          if (add.status !== 200) throw failure("补列 " + name, add);
+        }
         return true;
       })();
     }
@@ -462,4 +506,4 @@ function createStore(spec) {
   return createMemoryStore();
 }
 
-module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, createPgStore, describeAuth, hashToken, randomToken, blankCard, nowIso };
+module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, createPgStore, describeAuth, hashToken, randomToken, blankCard, addDailyUsage, DAILY_KEEP, nowIso };

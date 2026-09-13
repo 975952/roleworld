@@ -42,6 +42,8 @@ function usage() {
     "用法：",
     "  node scripts/card-cli.cjs issue --label 小明 --calls 200 --days 30 [--count 5]",
     "  node scripts/card-cli.cjs list | disable <id> | enable <id> | revoke <id>",
+    "  node scripts/card-cli.cjs extend <id> --calls 50 --days 14      （加次数 / 续期，不用重新发卡）",
+    "  node scripts/card-cli.cjs usage [天数]                          （按天用量）",
     "  node scripts/card-cli.cjs quota <卡号> | text <卡号>",
     "",
     "凭据：ADMIN_SECRET 环境变量，或本机 relay/admin-secret.local.txt（已 gitignore）；",
@@ -107,6 +109,35 @@ function usage() {
       console.log(`\n----- 第 ${index + 1} 张 -----`);
       console.log(cardText.shareText(card.token, card.quota, { appUrl: APP_URL, relayUrl: RELAY_URL }));
     });
+    return;
+  }
+
+  if (command === "extend") {
+    // 加次数 / 续期：同学用完了就地补，不用重新发卡（他也不用重新配一次）。
+    const id = args[1];
+    if (!id) return usage();
+    const fields = {};
+    if (flag("calls", undefined) !== undefined) fields.calls = Number(flag("calls", 0)) || 0;
+    if (flag("tokens", undefined) !== undefined) fields.tokens = Number(flag("tokens", 0)) || 0;
+    if (flag("days", undefined) !== undefined) fields.days = Number(flag("days", 0)) || 0;
+    if (flag("label", undefined) !== undefined) fields.label = String(flag("label", ""));
+    if (!Object.keys(fields).length) { console.error("要给点什么：--calls N / --tokens N / --days N / --label 名字"); process.exitCode = 1; return; }
+    const body = await client.updateCard(id, fields);
+    console.log("已更新：" + body.id
+      + "　上限 " + body.quota.calls + " 次 / " + (body.quota.tokens || "不限") + " token"
+      + "　已用 " + body.used.calls + " 次"
+      + "　到期 " + String(body.expiresAt || "不过期").slice(0, 10));
+    return;
+  }
+
+  if (command === "usage") {
+    const days = Number(args[1]) || 14;
+    const body = await client.usage(days);
+    console.log(["日期".padEnd(12), "次数".padEnd(8), "token".padEnd(12), "涉及卡数"].join(" "));
+    for (const row of body.days) {
+      console.log([row.day.padEnd(12), String(row.calls).padEnd(8), String(row.tokens).padEnd(12), String(row.cards)].join(" "));
+    }
+    console.log("\n合计 " + body.totalCalls + " 次（" + body.cards + " 张卡）；" + body.hint);
     return;
   }
 

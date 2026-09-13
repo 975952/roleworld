@@ -68,3 +68,11 @@ td .tag.bad { color: var(--bad); border-color: rgba(255,122,122,.4); }
   padding: 9px 16px; border-radius: 999px; background: #232c3a; border: 1px solid var(--line);
   color: var(--fg); font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4);
 }
+/* 最近 7 天用量：小柱状图。 */
+.usage-box { margin: 10px 0 4px; }
+.usage-title { font-size: 13px; margin-bottom: 8px; }
+.usage-bars { display: flex; align-items: flex-end; gap: 8px; height: 84px; }
+.usage-bar { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.usage-bar .usage-fill { width: 100%; min-height: 2px; border-radius: 5px 5px 2px 2px; background: linear-gradient(180deg, var(--accent), rgba(111,140,255,.35)); }
+.usage-bar span { font-size: 12px; color: var(--fg); }
+.usage-bar em { font-style: normal; font-size: 11px; color: var(--muted); }
