@@ -607,8 +607,19 @@ async function main() {
       await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
     });
 
-    // 每个视口检查完把弹层状态清掉，避免影响下一个视口
+    // 每个视口检查完把弹层状态清掉，避免影响下一个视口。
+    // 设置面板也要关：有一条用例中途失败时会把设置留在打开状态，
+    // 后面几条就全都点到 `div.confirm-backdrop`/设置层上，报出一串看不懂的错
+    // （2026-09-13 缩放改成 0.9 时亲眼见过：1 个真问题带出 5 个假失败）。
     await evaluate("try { window.TASK21.closeRequestPeek(); window.TASK21.closeMemoryPanel(); window.TASK21.closeCompanionDialog(); } catch (_) {} true");
+    await evaluate(`(() => {
+      const surface = document.querySelector('#settingsSurface');
+      if (surface && surface.hidden === false) {
+        const back = document.querySelector('[data-action="close-settings"]');
+        if (back) back.click();
+      }
+      return true;
+    })()`);
   }
 
   await cdp.sessionSend(session, "Page.removeScriptToEvaluateOnNewDocument", { identifier: fixtureScript.identifier });

@@ -32,13 +32,28 @@
     density: ["comfortable", "compact"],
     motion: ["full", "reduced"],
     sendMode: ["enter", "ctrl-enter"],
-    // 界面缩放：整体放大/缩小。范围收窄到 90%–120%（5% 一档）—— 太大一按就"跳"。
+    // 界面缩放：整体放大/缩小。8 档（95%–130%，5% 一档）。
+    // **2026-09-13 重新定了基准**：默认 = 0.9，而这一档在界面上叫「100%」
+    // （用户：「所有的默认大小调到现在的90%，就是把现在的90改成100」）。
+    // 界面上的百分比 = zoom 值 × 100 + 10，见 zoom.js 的 percentOf()。
     // Ctrl/⌘ + - / = / 0 也能调，见 zoom.js。
-    scale: ["0.9", "0.95", "1", "1.05", "1.1", "1.15", "1.2"],
+    scale: ["0.85", "0.9", "0.95", "1", "1.05", "1.1", "1.15", "1.2"],
     // 风格：同一套布局下的不同配色（见 tokens.css）。
     style: ["default", "paper", "ink", "forest", "sakura", "gold"],
     lastSettingsSection: ["appearance", "conversation", "model", "characters", "layout", "about", "local-data"],
   });
+  /** 当前这一档叫「100%」—— 2026-09-13 从 1 改成 0.9。 */
+  const SCALE_BASE = "0.9";
+  /** 老存档的迁移：**只把旧默认（1）搬到新默认（0.9）**。
+   *  为什么不是"整体下一格"：老存档里的 1 几乎都是"从没动过设置"的人，
+   *  他们应该跟着新默认一起变小；而 0.95 / 1.2 这些是用户**自己挑的绝对大小**，
+   *  不该被偷偷改掉 —— 换句话说，动的只有"默认值"，其它档位只是换了叫法
+   *  （1.2 现在读作 130%）。用户原话：「把现在的90改成100」。 */
+  function rebaseScale(value, fallback) {
+    const raw = String(value ?? "");
+    if (raw === "1") return SCALE_BASE;
+    return ENUMS.scale.indexOf(raw) >= 0 ? raw : fallback;
+  }
   const LIMITS = Object.freeze({
     harrySidebarWidth: [196, 420],
     harryMemoryWidth: [320, 620],
@@ -68,7 +83,9 @@
       density: "comfortable",
       motion: opts.prefersReducedMotion === true ? "reduced" : "full",
       sendMode: "enter",
-      scale: "1",
+      // 默认就是新基准 0.9（界面上的「100%」）。老存档的档位在 readPreferences() 里整体下一格。
+      scale: SCALE_BASE,
+      scaleBase: SCALE_BASE,
       style: "default",
       ambient: false,
       // 侧栏显示哪些角色：null = 从未设置（引导用户挑），数组 = 用户的选择（可为空）
@@ -143,6 +160,10 @@
       motion: enumValue(raw.motion, ENUMS.motion, defaults.motion),
       sendMode: enumValue(raw.sendMode, ENUMS.sendMode, defaults.sendMode),
       scale: enumValue(String(raw.scale ?? ""), ENUMS.scale, defaults.scale),
+      // 界面大小的**基准标记**：值就是"哪一档叫 100%"。
+      // 2026-09-13 之前 1 = 100%；之后 0.9 = 100%（用户：「把现在的90改成100」）。
+      // 老存档没有这个标记 → readPreferences() 里整体下一格（见 rebaseScale）。
+      scaleBase: SCALE_BASE,
       style: enumValue(String(raw.style ?? ""), ENUMS.style, defaults.style),
       ambient: boolValue(raw.ambient, defaults.ambient),
       sidebarCharacters: sidebarCharactersValue(raw.sidebarCharacters),
@@ -238,7 +259,19 @@
 
     const existing = parseJson(safeGet(storage, key), null);
     if (existing && typeof existing === "object") {
-      return { preferences: normalizePreferences(existing, options), key, migrated: false, storageAvailable: true };
+      const preferences = normalizePreferences(existing, options);
+      // 2026-09-13 界面大小重新定基准（1 → 0.9，并且 0.9 叫「100%」）：
+      // 老存档里的档位整体下一格，否则"默认用户"（存着 1）根本不会变小 ——
+      // 这次改动的全部意义就没了。scaleBase 标记保证只搬一次，搬完立刻落盘。
+      if (existing.scaleBase !== SCALE_BASE) {
+        const rebased = Object.assign({}, preferences, {
+          scale: rebaseScale(existing.scale, preferences.scale),
+          scaleBase: SCALE_BASE,
+        });
+        safeSet(storage, key, JSON.stringify(rebased));
+        return { preferences: rebased, key, migrated: true, storageAvailable: true };
+      }
+      return { preferences, key, migrated: false, storageAvailable: true };
     }
 
     const legacy = readLegacyPreferences(storage, options);

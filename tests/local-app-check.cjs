@@ -2485,36 +2485,115 @@ async function main() {
     assert(await evaluate("document.querySelector('#settingsSurface').getBoundingClientRect().height > 100"), "放大后设置面板没有正常显示");
     await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
 
+    // 回到**新基准**（2026-09-13 起 100% = zoom 0.9）。
     await evaluate(`(() => {
       const select = document.querySelector('#scaleSelect');
-      select.value = '1';
+      select.value = '0.9';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor("!document.querySelector('#appShell').style.zoom", 6000);
+    await waitFor("document.querySelector('#appShell').style.zoom === '0.9'", 6000);
+
+    // 默认就是 0.9，而且设置里那一档要读作「100%」——
+    // 用户原话：「所有的默认大小调到现在的90%，就是把现在的90改成100」。
+    const baseline = await evaluate(`(() => {
+      const select = document.querySelector('#scaleSelect');
+      const option = select.querySelector('option[value="0.9"]');
+      return {
+        defaultValue: window.RoleWorldZoom.DEFAULT_SCALE,
+        zoom: document.querySelector('#appShell').style.zoom,
+        label: option ? option.textContent.trim() : null,
+        options: Array.from(select.options).map((o) => o.value + "=" + o.textContent.trim()),
+      };
+    })()`);
+    assert(baseline.defaultValue === 0.9, "默认档不是 0.9：" + JSON.stringify(baseline));
+    assert(baseline.label === "100%", "0.9 那一档没有读作 100%：" + baseline.label);
+    assert(baseline.options[0] === "0.85=95%" && baseline.options[baseline.options.length - 1] === "1.2=130%",
+      "档位标签没有整体后移一档：" + JSON.stringify(baseline.options));
   });
 
   await check("Ctrl+减号 / 等号 / 0 能调界面大小，且范围有限", async () => {
     await waitFor("window.TASK21_READY === true", 30000);
     const ladder = await evaluate("window.RoleWorldZoom.LADDER.join(',')");
-    assert(ladder === "0.9,0.95,1,1.05,1.1,1.15,1.2", "档位不是收窄后的 7 档：" + ladder);
+    assert(ladder === "0.85,0.9,0.95,1,1.05,1.1,1.15,1.2", "档位不是收窄后的 8 档：" + ladder);
 
     const press = (key) => evaluate(`(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, ctrlKey: true, bubbles: true, cancelable: true }));
       return document.querySelector('#appShell').style.zoom || '1';
     })()`);
 
-    assert(await press("=") === "1.05", "Ctrl+= 没有放大一档");
-    assert(await press("=") === "1.1", "Ctrl+= 第二次没生效");
+    assert(await press("=") === "0.95", "Ctrl+= 没有放大一档");
+    assert(await press("=") === "1", "Ctrl+= 第二次没生效");
     // 一路顶到上限，不能再涨
-    for (let i = 0; i < 6; i += 1) await press("=");
-    assert(await evaluate("window.RoleWorldZoom.current()") === 1.2, "上限没有停在 120%");
-    for (let i = 0; i < 12; i += 1) await press("-");
-    assert(await evaluate("window.RoleWorldZoom.current()") === 0.9, "下限没有停在 90%");
+    for (let i = 0; i < 8; i += 1) await press("=");
+    assert(await evaluate("window.RoleWorldZoom.current()") === 1.2, "上限没有停在 130%");
+    for (let i = 0; i < 14; i += 1) await press("-");
+    assert(await evaluate("window.RoleWorldZoom.current()") === 0.85, "下限没有停在 95%");
 
-    assert(await press("0") === "1", "Ctrl+0 没有回到 100%");
-    // 设置里的下拉要跟着同步
-    assert(await evaluate("document.querySelector('#scaleSelect').value") === "1", "设置下拉没有同步");
+    // Ctrl+0 回到的是**新基准 0.9**（界面上的 100%），不是旧的 1。
+    assert(await press("0") === "0.9", "Ctrl+0 没有回到 100%（zoom 0.9）");
+    assert(await evaluate("document.querySelector('#scaleSelect').value") === "0.9", "设置下拉没有同步");
+  });
+
+  await check("界面大小换了基准：老存档（1 = 旧100%）加载后自动降到新100%（zoom 0.9），且只降一次", async () => {
+    // 用户 2026-09-13：「所有的默认大小调到现在的90%，就是把现在的90改成100」。
+    // 光改默认值不够 —— 老用户的 localStorage 里存着 scale:"1"（旧 100%），
+    // 不迁移的话他们的界面一点都不会变小，这次改动对他们等于没发生。
+    // 规则：老存档（没有 scaleBase 标记）整体下一格，搬完立刻落盘，只搬一次。
+    const writePrefs = (scale) => evaluate(`(() => {
+      localStorage.setItem("task27a.preferences.v1.local", JSON.stringify({
+        version: 1, theme: "dark", density: "comfortable", motion: "full", sendMode: "enter",
+        style: "default", ambient: false, scale: ${JSON.stringify(scale)},
+      }));
+      return localStorage.getItem("task27a.preferences.v1.local");
+    })()`);
+    try {
+      await writePrefs("1");
+      await goto(base + "/index.html?onboarding=off&surprise=off");
+      await waitFor("window.TASK21_READY === true", 30000);
+      const first = await evaluate(`(() => ({
+        zoom: document.querySelector('#appShell').style.zoom || '1',
+        select: document.querySelector('#scaleSelect').value,
+        stored: JSON.parse(localStorage.getItem("task27a.preferences.v1.local") || "{}"),
+      }))()`);
+      assert(first.stored.scale === "0.9", "老存档 scale:1 没有被搬到新基准 0.9：" + JSON.stringify(first));
+      assert(first.zoom === "0.9", "老存档迁移后界面没变小：" + JSON.stringify(first));
+      assert(first.select === "0.9", "设置里的下拉没跟上迁移：" + JSON.stringify(first));
+      assert(first.stored.scaleBase === "0.9", "迁移标记没落盘，下次会被再搬一格：" + JSON.stringify(first));
+
+      // 再加载一次：标记在，就不许再往下降。
+      await goto(base + "/index.html?onboarding=off&surprise=off");
+      await waitFor("window.TASK21_READY === true", 30000);
+      const second = await evaluate(`(() => ({
+        zoom: document.querySelector('#appShell').style.zoom || '1',
+        stored: JSON.parse(localStorage.getItem("task27a.preferences.v1.local") || "{}"),
+      }))()`);
+      assert(second.stored.scale === "0.9" && second.zoom === "0.9",
+        "第二次加载又降了一格（迁移不幂等）：" + JSON.stringify(second));
+
+      // 自己挑过档位的人：**只换叫法，不动大小**（1.2 现在读作 130%）。
+      await writePrefs("1.2");
+      await goto(base + "/index.html?onboarding=off&surprise=off");
+      await waitFor("window.TASK21_READY === true", 30000);
+      const third = await evaluate(`(() => ({
+        zoom: document.querySelector('#appShell').style.zoom || '1',
+        stored: JSON.parse(localStorage.getItem("task27a.preferences.v1.local") || "{}"),
+      }))()`);
+      assert(third.stored.scale === "1.2", "用户自己挑的 1.2 不该被改掉：" + JSON.stringify(third));
+
+      // 停在旧 90% 的人：大小不变，只是现在这一档叫 100%。
+      await writePrefs("0.9");
+      await goto(base + "/index.html?onboarding=off&surprise=off");
+      await waitFor("window.TASK21_READY === true", 30000);
+      const fourth = await evaluate(`(() => ({
+        zoom: document.querySelector('#appShell').style.zoom || '1',
+        stored: JSON.parse(localStorage.getItem("task27a.preferences.v1.local") || "{}"),
+      }))()`);
+      assert(fourth.stored.scale === "0.9" && fourth.zoom === "0.9",
+        "停在 90% 的人应当原地不动（现在读作 100%）：" + JSON.stringify(fourth));
+    } finally {
+      await writePrefs("0.9").catch(() => {});
+    }
   });
 
   await check("体验卡：粘一条卡号就能用，界面报出剩余额度（同学不用碰 API Key）", async () => {

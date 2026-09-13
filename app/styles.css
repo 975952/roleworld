@@ -154,7 +154,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .sidebar-spacer { flex: 1; min-height: 22px; }
 
 .identity-zone { position: relative; min-width: 0; }
-.identity-control { display: grid; grid-template-columns: 28px minmax(0, 1fr) 14px; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 6px 8px; color: var(--secondary-text); text-align: left; border: 1px solid transparent; border-radius: var(--base-radius); background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, background var(--hover-motion) ease, border-color var(--hover-motion) ease; }
+.identity-control { display: grid; grid-template-columns: 28px minmax(0, 1fr) 14px; align-items: center; gap: 9px; width: 100%; min-height: var(--tap); padding: 6px 8px; color: var(--secondary-text); text-align: left; border: 1px solid transparent; border-radius: var(--base-radius); background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, background var(--hover-motion) ease, border-color var(--hover-motion) ease; }
 .identity-control:hover, .identity-control[aria-expanded="true"] { color: var(--main-text); border-color: var(--hairline); background: var(--raised); }
 .identity-avatar { position: relative; display: block; flex: 0 0 28px; width: 28px; height: 28px; overflow: hidden; border: 1px solid rgba(188,197,216,.25); border-radius: 50%; background: #22252b; }
 .identity-avatar::before { position: absolute; top: 6px; left: 10px; width: 7px; height: 7px; content: ""; border: 1px solid rgba(232,234,238,.72); border-radius: 50%; }
@@ -407,6 +407,9 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 /* 伴侣模式：关系档案 */
 .modal-field-check { margin-top: 14px; }
 .modal-field-check span { display: flex; align-items: center; gap: 8px; color: var(--main-text); font-size: 12px; cursor: pointer; }
+/* 复选框默认只有 13×13，界面缩到 0.9 之后渲染出来只剩 11.7px；给个明确尺寸，
+   并且在窄屏上让**整行**（label 里的 span）成为手指点得着的目标。 */
+.modal-field-check input[type="checkbox"] { flex: 0 0 auto; width: 15px; height: 15px; }
 .companion-rules { margin-top: 12px; font-size: 10px; }
 .companion-rules summary { color: var(--secondary-text); cursor: pointer; }
 .companion-rules ol { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 18px; color: var(--muted-text); line-height: 1.5; }
@@ -620,8 +623,8 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .app-shell.settings-open .archive-sidebar { visibility: hidden; opacity: 0; pointer-events: none; }
   .app-shell .panel-resizer, .app-shell .inspector-column { display: none !important; }
   .navigation-button, .sidebar-inner-toggle { display: inline-grid; }
-  .navigation-button { width: 44px; height: 44px; }
-  .sidebar-inner-toggle, .new-conversation-button, .settings-back-button { min-height: 44px; }
+  .navigation-button { width: var(--tap); height: var(--tap); }
+  .sidebar-inner-toggle, .new-conversation-button, .settings-back-button { min-height: var(--tap); }
   .topbar, .settings-topbar {
     /* 手机上顶栏以前是**写死高度**（--mobile-topbar-height）。内容一换行（角色名长、
        体验卡徽标 + 记忆 + 模型/语言下拉挤在一起）就会溢出自己的盒子，而聊天区是后画的，
@@ -685,11 +688,11 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   }
   .composer-box { width: 100%; max-width: 100%; padding: 8px 10px 8px 12px; border-radius: 16px; }
   .composer-box textarea { min-height: 34px; max-height: 132px; padding: 4px 2px 7px; font-size: 16px; line-height: 1.45; }
-  .composer-footer { min-height: 44px; }
-  .send-button { width: 44px; height: 44px; flex: 0 0 44px; }
-  .stop-button { min-width: 64px; min-height: 44px; }
+  .composer-footer { min-height: var(--tap); }
+  .send-button { width: var(--tap); height: var(--tap); flex: 0 0 var(--tap); }
+  .stop-button { min-width: 64px; min-height: var(--tap); }
   .character-picker { padding: 0 0 6px; }
-  .character-picker-trigger { min-height: 44px; padding-inline: 12px; }
+  .character-picker-trigger { min-height: var(--tap); padding-inline: 12px; }
   .character-picker-menu {
     position: fixed;
     top: auto;
@@ -704,7 +707,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     border-radius: 16px;
     overscroll-behavior: contain;
   }
-  .character-picker-item, .character-picker-action { min-height: 44px; padding-block: 10px; }
+  .character-picker-item, .character-picker-action { min-height: var(--tap); padding-block: 10px; }
 
   .mobile-bottom-nav {
     position: fixed;
@@ -763,21 +766,21 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     overscroll-behavior-inline: contain;
     scrollbar-width: thin;
   }
-  .settings-nav-item { flex: 0 0 auto; min-height: 44px; padding-inline: 12px; white-space: nowrap; }
+  .settings-nav-item { flex: 0 0 auto; min-height: var(--tap); padding-inline: 12px; white-space: nowrap; }
   .settings-content, .settings-section, .settings-card { width: 100%; max-width: 100%; min-width: 0; }
   .settings-section-heading h2 { font-size: 18px; }
   .settings-section-heading p { margin-bottom: 16px; }
   .settings-row { grid-template-columns: minmax(0, 1fr); align-items: flex-start; gap: 10px; min-width: 0; }
   .settings-row > div, .settings-row strong, .settings-row span { min-width: 0; overflow-wrap: anywhere; }
-  .settings-row select, .settings-row button, .settings-row a { width: 100%; max-width: 100%; min-width: 0; min-height: 44px; }
+  .settings-row select, .settings-row button, .settings-row a { width: 100%; max-width: 100%; min-width: 0; min-height: var(--tap); }
   .settings-card-heading, .character-manage-toolbar, .admin-users-toolbar { min-width: 0; }
   .settings-card-heading { align-items: stretch; }
   .settings-search { width: 100%; min-width: 0; }
-  .settings-search input { min-height: 44px; font-size: 16px; }
+  .settings-search input { min-height: var(--tap); font-size: 16px; }
   .character-manage-toolbar, .admin-users-toolbar { display: grid; grid-template-columns: 1fr; align-items: stretch; }
-  .character-manage-toolbar button, .admin-users-toolbar button { width: 100%; min-height: 44px; }
+  .character-manage-toolbar button, .admin-users-toolbar button { width: 100%; min-height: var(--tap); }
   .character-manage-actions, .admin-user-actions { width: 100%; }
-  .character-manage-actions button, .admin-user-actions button { flex: 1 1 120px; min-height: 44px; }
+  .character-manage-actions button, .admin-user-actions button { flex: 1 1 120px; min-height: var(--tap); }
 
   .modal-backdrop, .confirm-backdrop, .auth-gate, .chat-template-gate {
     align-items: center;
@@ -805,19 +808,26 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     padding: 22px 16px;
   }
   .confirm-dialog { padding: 20px 16px; }
-  .modal-close { top: 8px; right: 8px; width: 44px; height: 44px; }
-  .modal-title-input { width: calc(100% - 42px); min-height: 44px; font-size: 18px; }
+  .modal-close { top: 8px; right: 8px; width: var(--tap); height: var(--tap); }
+  .modal-title-input { width: calc(100% - 42px); min-height: var(--tap); font-size: 18px; }
   .modal-field textarea { max-height: 34vh; font-size: 16px; }
-  .dialog-field input { min-height: 44px; font-size: 16px; }
-  .dialog-check { min-height: 44px; }
+  .dialog-field input { min-height: var(--tap); font-size: 16px; }
+  .dialog-check { min-height: var(--tap); }
+  /* 复选框那一行整行都要点得着（复选框本身只有 13px，手指点不准）。 */
+  .modal-field-check span, .dialog-check { min-height: var(--tap); }
   .modal-actions, .confirm-actions { flex-wrap: wrap; }
-  .modal-actions button, .confirm-actions button { min-width: 44px; min-height: 44px; }
+  .modal-actions button, .confirm-actions button { min-width: var(--tap); min-height: var(--tap); }
   .toast { right: max(12px, var(--mobile-safe-right)); bottom: calc(var(--mobile-bottom-nav-height) + 12px + var(--mobile-safe-bottom)); left: max(12px, var(--mobile-safe-left)); max-width: none; }
 }
 
 /* Mobile refinement: use the desktop theme and controls with a compact phone layout. */
 @media (max-width: 760px) {
   :root { --mobile-bottom-nav-height: 58px; }
+  /* 底部导航条是 #appShell 的**兄弟**节点，不跟着「界面大小」缩放（见 zoom.js），
+     所以在缩放过的壳里给它留位置时得把缩放除回去：
+     壳里写 58px 只渲染出 52.2px，导航条却还是 58px 高 —— 下面会被压住 ~6px。
+     --nav-reserve 就是"在壳里要写多少"，凡是给导航条让位的地方都用它。 */
+  :root { --nav-reserve: calc((var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom, 0px)) / var(--ui-scale, 1)); }
   .topbar, .settings-topbar { border-bottom-color: transparent; }
   .topbar h1, .settings-topbar h1 { font-size: 16px; font-weight: 600; }
   .topbar-title { gap: 10px; }
@@ -837,17 +847,17 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .narration-line { font-size: 14px; line-height: 1.8; }
   .message-row-user .message-stack { max-width: 88%; }
   .user-bubble { padding: 11px 14px; border-radius: 14px 14px 4px 14px; }
-  .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 10px + var(--mobile-safe-bottom)) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
-  .composer-box { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: end; column-gap: 8px; padding: 8px; border-radius: var(--input-radius); box-shadow: none; }
+  .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom, 0px))) + 10px) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
+  .composer-box { display: grid; grid-template-columns: minmax(0, 1fr) var(--tap); align-items: end; column-gap: 8px; padding: 8px; border-radius: var(--input-radius); box-shadow: none; }
   .composer-box:focus-within { box-shadow: none; transform: none; border-color: var(--muted-text); }
   .composer-box .character-picker { grid-column: 1 / -1; grid-row: 1; padding: 0; }
-  .character-picker-trigger { min-height: 44px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }
+  .character-picker-trigger { min-height: var(--tap); padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }
   .character-picker-trigger:hover { background: var(--hover); }
-  .composer-box textarea { grid-column: 1; grid-row: 2; min-width: 0; min-height: 44px; max-height: 132px; padding: 10px 6px; line-height: 1.5; }
+  .composer-box textarea { grid-column: 1; grid-row: 2; min-width: 0; min-height: var(--tap); max-height: 132px; padding: 10px 6px; line-height: 1.5; }
   /* 手机上这一列（本次请求 / 停止 / 发送）以前是 gap:0，「本次请求」会**贴住**发送键
      （用户 2026-09-12：「本次请求离那个发送按钮太近了」）。给它一个竖排间距。 */
   .composer-footer { grid-column: 2; grid-row: 2; align-self: end; gap: 8px; flex-direction: column; align-items: flex-end; }
-  .composer-footer .stop-button { min-width: 44px; width: 44px; }
+  .composer-footer .stop-button { min-width: var(--tap); width: var(--tap); }
   .character-picker-menu { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; width: 100%; max-height: min(58vh, max(88px, calc(var(--visual-viewport-height, 100dvh) - var(--mobile-topbar-height) - var(--mobile-bottom-nav-height) - var(--mobile-safe-bottom) - 220px))); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
   .character-picker-item, .character-picker-action { font-size: 14px; }
 
@@ -858,15 +868,15 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
      真正能滚动的只有 .settings-layout，装内容的是 .settings-content，露在底栏下面的是 .settings-surface。
      三层一起量：① surface 先把底栏高度从自己盒子里扣掉，内容区不再伸到底栏底下；
      ② content 补一段底边距，滚到底时最后一行整体上移；③ 滚动容器 .settings-layout 同步补 + scroll-padding。 */
-  .settings-surface { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom)); }
-  .settings-surface .settings-content { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 28px); }
+  .settings-surface { padding-bottom: var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))); }
+  .settings-surface .settings-content { padding-bottom: calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px); }
   .mobile-bottom-nav-item { position: relative; min-height: 57px; gap: 4px; padding: 6px; font-size: 11px; border-radius: 0; }
   .mobile-bottom-nav-item.is-active, .mobile-bottom-nav-item[aria-current="page"] { background: transparent; }
   .mobile-bottom-nav-item[aria-current="page"]::after { content: ''; position: absolute; top: 0; left: calc(50% - 12px); width: 24px; height: 2px; background: var(--main-text); border-radius: 0 0 2px 2px; }
 
-  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 28px + var(--mobile-safe-bottom)) max(16px, var(--mobile-safe-left)); scroll-padding-bottom: calc(var(--mobile-bottom-nav-height) + 28px + var(--mobile-safe-bottom)); }
+  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px) max(16px, var(--mobile-safe-left)); scroll-padding-bottom: calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px); }
   .settings-nav { gap: 16px; min-height: 45px; margin: 0; padding: 0; border-bottom: 1px solid var(--hairline); scrollbar-width: none; }
-  .settings-nav-item { min-height: 44px; padding: 0 2px; border-bottom: 2px solid transparent; border-radius: 0; font-size: 13px; }
+  .settings-nav-item { min-height: var(--tap); padding: 0 2px; border-bottom: 2px solid transparent; border-radius: 0; font-size: 13px; }
   .settings-nav-item.is-active, .settings-nav-item:hover { background: transparent; }
   .settings-nav-item.is-active { border-bottom-color: var(--main-text); }
   .settings-card { border-radius: 12px; }
@@ -880,7 +890,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .settings-action-row > button, .settings-action-row > a { width: auto; min-width: 66px; }
   .character-manage-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; }
   .character-manage-toolbar > span { grid-column: 1; grid-row: 1; align-self: center; font-size: 12px; }
-  .character-manage-toolbar [data-action="character-refresh"] { grid-column: 2; grid-row: 1; justify-self: end; width: auto; min-width: 44px; border-color: transparent; background: transparent; }
+  .character-manage-toolbar [data-action="character-refresh"] { grid-column: 2; grid-row: 1; justify-self: end; width: auto; min-width: var(--tap); border-color: transparent; background: transparent; }
   .character-manage-toolbar button { font-size: 12px; }
   .character-manage-row { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 16px; }
   .character-manage-head strong { font-size: 14px; }
@@ -1056,7 +1066,7 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
    hover 报成 hover，只按媒体查询会让手机拿到 24px 的小按钮。
    宽度是最可靠的判据：窄屏 = 可能用手指点。 */
 @media (max-width: 760px) {
-  .message-flag { min-width: 44px; min-height: 44px; font-size: 12px; opacity: .6; }
+  .message-flag { min-width: var(--tap); min-height: var(--tap); font-size: 12px; opacity: .6; }
   .message-flags { gap: 4px; margin-left: 6px; }
   .message-meta { flex-wrap: wrap; }
 }

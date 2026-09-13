@@ -664,7 +664,9 @@ function applyPreferences() {
   document.documentElement.classList.toggle("season-ambient-on", preferences.ambient === true);
   // 界面缩放：整体（正文+控件）一起缩放。
   // 实测这片页面会给 body 上的 zoom 忽略掉（连手设 2 都算回 1），所以加在 appShell 上。
-  const scale = Number(preferences.scale) || 1;
+  // 默认值 = 新基准 0.9（界面上的「100%」，见 zoom.js 的说明）。
+  const DEFAULT_UI_SCALE = 0.9;
+  const scale = Number(preferences.scale) || DEFAULT_UI_SCALE;
   document.documentElement.dataset.scale = String(scale);
   document.documentElement.style.setProperty("--ui-scale", String(scale));
   const scaleTarget = $("#appShell");
