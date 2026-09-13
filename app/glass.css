@@ -635,11 +635,14 @@ html[data-style="sakura"] .map-app .map-button-primary {
   background: var(--focus-grad);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--wash) 18%, transparent);
 }
-/* 发送按钮太粉了（"逆天"）：它是圆形小按钮，整天杵在输入框边，
-   粉得那么实很吵。单独给它一个很浅的粉，别跟主按钮抢戏。 */
+/* 发送按钮跟主按钮分开处理（它是圆形小按钮，整天杵在输入框边）。
+   注意：**不再写死颜色** —— 以前这里给它一段近白渐变（#fff1f7 → #ffe9f2），
+   深色主题下就是个刺眼白点，而且 hover 用的还是同一段渐变、等于没反应
+   （用户 2026-09-12：不同外观风格下发送按钮颜色有 bug）。
+   现在只加一点主题色的味道，底色/图标仍走 --main-text / --canvas 这对保证对比的变量。 */
 html[data-style="sakura"] .send-button {
-  color: var(--button-text);
-  background: linear-gradient(160deg, #fff1f7, #ffe9f2);
+  color: var(--canvas);
+  background: color-mix(in srgb, var(--focus) 26%, var(--main-text));
   box-shadow: 0 4px 14px color-mix(in srgb, var(--wash) 12%, transparent);
 }
 html[data-style="sakura"] .primary-button:hover,
@@ -649,9 +652,11 @@ html[data-style="sakura"] .map-app .map-button-primary:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 html[data-style="sakura"] .send-button:hover {
-  background: linear-gradient(160deg, #fff1f7, #ffe9f2);
-  filter: brightness(.98);
+  background: color-mix(in srgb, var(--focus) 40%, var(--main-text));
+  filter: none;
 }
+/* 其它风格也把发送按钮的 hover 变成"真的变一下"，别只是换回同一段底色。 */
+.send-button:hover { filter: brightness(1.08); }
 
 /* =====================================================================
    风格「羊皮纸」：不是换配色，是换一套界面

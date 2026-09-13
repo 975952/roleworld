@@ -270,7 +270,9 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 @media (max-width: 760px) {
   .composer-cost, .composer-estimate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
-.send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
+.send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--canvas); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
+/* 图标色用 --canvas（页面底色）：底色是 --main-text（正文色）—— 这一对在任何主题里
+   天然互为反色，不会出现"浅底浅字"（用户 2026-09-12：不同外观风格下发送按钮颜色有 bug）。 */
 .send-button:hover { background: #fff; transform: translateY(-1px); }
 .send-button:disabled { opacity: .38; cursor: wait; transform: none; }
 /* 发送箭头：圆形按钮里画一个粗细不变的线宽箭头（SVG stroke，圆头）。
@@ -624,6 +626,11 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     z-index: 3;
     padding: var(--mobile-safe-top) max(12px, var(--mobile-safe-right)) 8px max(12px, var(--mobile-safe-left));
   }
+  /* 手机上顶栏那一排的**挤压顺序**：体验卡徽标可以缩（省略号），
+     「记忆」按钮永远保住自己的宽度 —— 否则徽标一长就把「记忆」推出屏幕，
+     表现就是"上面一栏的记忆点不动"（用户 2026-09-12 反馈）。 */
+  .topbar-actions .card-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-actions [data-action="open-memories"] { flex: 0 0 auto; }
   .topbar-title, .topbar-actions { gap: 6px; }
   /* 标题能缩（省略号）比"换行成两排"好：360px 的安卓机上一行放得下 ☰ / 名字 / 体验卡 / 记忆。 */
   .topbar-title { flex: 1 1 auto; min-width: 0; }
