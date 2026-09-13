@@ -158,6 +158,15 @@
     pick("key-status").forEach((node) => {
       setStatus(node, saved ? "已保存到本机 · 不会上传到任何服务器" : "未保存", false);
     });
+    // 浏览器（或密码管理器）可能把"记住的密码"自动填进这个密钥栏 ——
+    // 用体验卡的人早先把卡号粘在这一栏过，之后每次都看到卡号被自动填回来
+    // （用户 2026-09-13：「apikey 好像会自动填上那个卡啥的」）。
+    // 只清"恰好等于本机已存的那个密钥"的情况：用户自己新粘的 Key 不会被误删。
+    if (saved && saved.value) {
+      pick("key").forEach((node) => {
+        if (document.activeElement !== node && node.value === saved.value) node.value = "";
+      });
+    }
     await refreshCardStatus(settings, saved);
     await refreshVersion();
   }

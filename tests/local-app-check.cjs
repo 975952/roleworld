@@ -2748,6 +2748,97 @@ async function main() {
     }
   });
 
+  await check("用卡的人再走一次教程：Key 栏不自动填东西，粘卡号也不会被当成 API Key 存下去", async () => {
+    // 用户 2026-09-13 实测：「再看一遍教程的时候，apikey 好像会自动填上那个卡啥的」。
+    // 两个原因，各修一条：
+    //   ① 浏览器把这栏当过密码 —— 用户早先把卡号粘在这里过，Chrome 记住了，之后每次都自动填回来。
+    //      现在这栏是 autocomplete="new-password"（浏览器约定的"别自动填"）+ 每次进这一步强制清空，
+    //      并且用卡的人会先看到一句「这一步不用填 API Key」。
+    //   ② 万一手快把卡号粘进 Key 栏再点「保存并测试」，以前会直接把卡号写进密钥位 → 下一轮必然 401。
+    //      现在会被认出来、挪到体验卡那一栏，并且**不写**密钥位。
+    await evaluate(`(async () => {
+      await RoleWorld.saveLocalSettings({ tutorial_seen: true, provider: "custom", endpoint: "${base}/relay/v1/chat/completions", card_relay: "${base}/relay", model: "deepseek-flash" });
+      await RoleWorld.secrets.set("api_key_custom", "RW-AAAAA-BBBBB-CCCCC");
+      window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "custom", endpoint: "${base}/relay/v1/chat/completions", card_relay: "${base}/relay" } }));
+      return true;
+    })()`);
+    try {
+      // 「设置 → 关于 → 再看一次教程」走的就是这一套（archive-ui.js 接的线是 show() 无参数 = full）。
+      await evaluate("window.RoleWorldOnboarding.show(); true");
+      await waitFor("!!document.querySelector('.rw-ob')", 8000);
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!!document.querySelector('[data-ob=\"nickname\"]')", 8000);
+      await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
+      await waitFor("!!document.querySelector('[data-ob=\"key\"]')", 8000);
+      await waitFor("document.querySelector('[data-ob=\"key-note\"]').textContent.length > 0", 8000);
+
+      const step = await evaluate(`(() => {
+        const key = document.querySelector('[data-ob="key"]');
+        return {
+          keyValue: key.value,
+          autocomplete: key.getAttribute("autocomplete"),
+          type: key.getAttribute("type"),
+          note: document.querySelector('[data-ob="key-note"]').textContent,
+          endpoint: document.querySelector('[data-ob="endpoint"]').value,
+        };
+      })()`);
+      assert(step.keyValue === "", "进这一步时 Key 栏应当是空的（浏览器可能自动填了东西）：" + JSON.stringify(step));
+      assert(step.type === "password", "Key 栏应当是遮住的：" + step.type);
+      assert(step.autocomplete === "new-password",
+        "Key 栏的 autocomplete 必须是 new-password，否则浏览器会把记住的密码填回来：" + step.autocomplete);
+      assert(step.note.indexOf("体验卡") >= 0 && step.note.indexOf("不用填") >= 0,
+        "用卡的人在这步没被告知「不用填 Key」：" + step.note);
+      assert(step.endpoint.indexOf("/relay/v1/chat/completions") >= 0, "接口地址没带出来：" + step.endpoint);
+
+      // 设置 → 模型 那一栏也是同一个毛病（同一个被浏览器记住的密码），一起钉住。
+      const settingsKey = await evaluate(`(() => {
+        const node = document.querySelector('[data-roleworld="key"]');
+        return { value: node.value, autocomplete: node.getAttribute("autocomplete"), type: node.getAttribute("type") };
+      })()`);
+      assert(settingsKey.type === "password", "设置里的 Key 栏应当是遮住的");
+      assert(settingsKey.autocomplete === "new-password",
+        "设置 → 模型 的 Key 栏也必须是 new-password：" + settingsKey.autocomplete);
+      assert(settingsKey.value === "", "设置里的 Key 栏被自动填了东西：" + JSON.stringify(settingsKey));
+
+      // 手快把卡号粘进 Key 栏再点「保存并测试」：不许写进密钥位。
+      const after = await evaluate(`(async () => {
+        const key = document.querySelector('[data-ob="key"]');
+        key.value = 'RW-ZZZZZ-YYYYY-XXXXX@${base}/relay';
+        key.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector('[data-ob="save"]').click();
+        await new Promise((r) => setTimeout(r, 600));
+        return {
+          secret: (await RoleWorld.secrets.get("api_key_custom") || {}).value || "",
+          keyValue: key.value,
+          cardValue: document.querySelector('[data-ob="card"]').value,
+          cardStatus: document.querySelector('[data-ob="card-status"]').textContent,
+        };
+      })()`);
+      assert(after.secret === "RW-AAAAA-BBBBB-CCCCC",
+        "卡号被当成 API Key 写进密钥位了（下一轮必然 401）：" + JSON.stringify(after));
+      assert(after.keyValue === "", "认出是卡号之后 Key 栏应当清空：" + JSON.stringify(after));
+      assert(after.cardValue.indexOf("RW-ZZZZZ-YYYYY-XXXXX") === 0, "卡号没被挪到体验卡那一栏：" + JSON.stringify(after));
+      assert(after.cardStatus.indexOf("体验卡") >= 0, "没提示该点「用体验卡」：" + after.cardStatus);
+
+      // 收尾：**走完**流程（内部 close() 才会摘掉 Esc 拦截与 overlay 引用），别直接删 DOM。
+      for (let i = 0; i < 4 && await evaluate("!!document.querySelector('.rw-ob')"); i += 1) {
+        await evaluate("document.querySelector('[data-ob=\"next\"]').click(); true");
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      assert(!(await evaluate("!!document.querySelector('.rw-ob')")), "教程走不到头（卡用户的「下一步」卡住了）");
+    } finally {
+      if (await evaluate("!!document.querySelector('.rw-ob')")) {
+        await evaluate("document.querySelector('.rw-ob').remove(); true");
+      }
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "", tutorial_seen: true });
+        await RoleWorld.secrets.remove("api_key_custom");
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions", card_relay: "" } }));
+        return true;
+      })()`).catch(() => {});
+    }
+  });
+
   await check("角色语言：默认跟角色卡自己（英文卡说英文），每个角色可以在顶栏单独开成中文", async () => {
     // 用户 2026-09-12 的两句话定了这件事：
     //   「应该是可以开启强制全部中文，默认应该是角色自身的语言」+「每个角色都弄一个语言开关选项」。

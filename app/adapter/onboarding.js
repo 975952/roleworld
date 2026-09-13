@@ -195,6 +195,9 @@ html[data-theme="light"] .rw-ob{
       return [
         "<h2>填入你的 API Key，或用体验卡</h2>",
         "<p>请求从这台设备**直接**发给你选的模型服务，不经过任何中转。Key 只保存在本机。</p>",
+        // 正在用体验卡的人（点「再看一次教程」会走到这一步）先给一句说明，
+        // 免得他对着下面那个中转地址和一栏空的 Key 发懵（用户 2026-09-13 实测反馈）。
+        '<p class="rw-ob-status" data-ob="key-note"></p>',
         '<div class="rw-ob-field"><select data-ob="provider" aria-label="服务商">',
         '<option value="deepseek">DeepSeek 官方</option>',
         '<option value="openai">OpenAI</option>',
@@ -202,7 +205,13 @@ html[data-theme="light"] .rw-ob{
         '<option value="siliconflow">硅基流动</option>',
         '<option value="custom">自定义云端服务</option>',
         "</select>",
-        '<input type="password" data-ob="key" placeholder="粘贴 API Key（sk-…）" autocomplete="off" spellcheck="false" maxlength="200" aria-label="API Key">',
+        // autocomplete="new-password"：这一栏是密钥，不是登录密码。
+        // 写成 "off" 时浏览器（尤其是之前在这一栏存过密码的 Chrome）照样会把旧值自动填回来 ——
+        // 用户 2026-09-13 报的「apikey 好像会自动填上那个卡啥的」就是这么来的：
+        // 他早先把卡号粘在这一栏过，浏览器把它当密码存下来了。
+        // new-password 是浏览器约定的"别自动填"，另外三个 data-* 是给密码管理器看的。
+        '<input type="password" data-ob="key" placeholder="粘贴 API Key（sk-…）" autocomplete="new-password"'
+          + ' data-lpignore="true" data-1p-ignore="true" data-form-type="other" spellcheck="false" maxlength="200" aria-label="API Key">',
         "</div>",
         '<div class="rw-ob-field"><input type="text" data-ob="endpoint" placeholder="接口地址（留空用服务商默认）" spellcheck="false" autocomplete="off" aria-label="接口地址"></div>',
         '<p class="rw-ob-status" data-ob="status"></p>',
@@ -355,10 +364,39 @@ html[data-theme="light"] .rw-ob{
       const settings = await global.RoleWorld.getLocalSettings();
       const provider = overlay && overlay.querySelector('[data-ob="provider"]');
       const endpoint = overlay && overlay.querySelector('[data-ob="endpoint"]');
+      const keyInput = overlay && overlay.querySelector('[data-ob="key"]');
       if (provider && settings.provider) provider.value = settings.provider;
       if (endpoint && settings.endpoint) endpoint.value = settings.endpoint;
+      // 浏览器（或密码管理器）可能把"记住的密码"自动填进这一栏 —— 用户早先把卡号粘在这里过，
+      // 之后每次进这一步都看到卡号被填回来（2026-09-13：「apikey 好像会自动填上那个卡啥的」）。
+      // 只清掉"恰好等于本机已存的那个密钥"的值：用户自己刚粘进去、还没保存的 Key 不动。
+      if (keyInput) {
+        const providerName = (provider && provider.value) || settings.provider || "deepseek";
+        const saved = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor({ provider: providerName }));
+        const savedValue = (saved && saved.value) || "";
+        if (savedValue && keyInput.value === savedValue) keyInput.value = "";
+      }
       syncKeyFields();
+      await showKeyNote();
     } catch (_) { /* 用默认值即可 */ }
+  }
+
+  /** 正在用体验卡的人走到这一步时，先说清楚"这栏不用填"。 */
+  async function showKeyNote() {
+    const node = overlay && overlay.querySelector('[data-ob="key-note"]');
+    if (!node) return;
+    node.textContent = "";
+    node.classList.remove("is-ok", "is-bad");
+    try {
+      const state = global.RoleWorldCard && global.RoleWorldCard.currentState
+        ? await global.RoleWorldCard.currentState() : null;
+      if (!state || !state.active) return;
+      const quota = global.RoleWorldCard.formatQuota ? global.RoleWorldCard.formatQuota(state.quota) : "";
+      node.textContent = "你现在用的是体验卡" + (quota ? "（" + quota + "）" : "")
+        + "，这一步不用填 API Key —— 直接点「下一步」就行。"
+        + "下面那栏地址就是这张卡走的中转地址，不用改；想换回自己的 Key，就在上面那一栏粘你的 Key。";
+      node.classList.add("is-ok");
+    } catch (_) { /* 说明文字失败不影响流程 */ }
   }
 
   function syncKeyFields() {
@@ -422,6 +460,18 @@ html[data-theme="light"] .rw-ob{
     const keyInput = overlay.querySelector('[data-ob="key"]');
     const endpoint = overlay.querySelector('[data-ob="endpoint"]').value.trim();
     const key = keyInput ? keyInput.value.trim() : "";
+    // 粘进来的其实是体验卡号？那就别往密钥位里写 —— 写进去等于把卡号当 API Key 用，
+    // 下一轮请求必然 401（用户 2026-09-12 就是这么踩的）。
+    // 把那段文字挪到「体验卡」那一栏，并告诉他点哪个按钮。
+    if (key && global.RoleWorldCard && typeof global.RoleWorldCard.looksLikeCard === "function"
+      && global.RoleWorldCard.looksLikeCard(key)) {
+      const cardInput = overlay.querySelector('[data-ob="card"]');
+      if (cardInput) cardInput.value = key;
+      if (keyInput) keyInput.value = "";
+      setStatus("");
+      setCardStatus("这看起来是体验卡号，不是 API Key。已经帮你放到下面的体验卡那一栏了 —— 点「用体验卡」。", "bad");
+      return;
+    }
     busy = true;
     try {
       await adapter.saveLocalSettings({ provider, endpoint });
