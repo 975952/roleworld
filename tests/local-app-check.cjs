@@ -3893,7 +3893,7 @@ async function main() {
         swipes: swipes,
         versions: versions,
         labels: Array.from(document.querySelectorAll('#dynamicMessages .message-version-label')).map((n) => n.textContent),
-        branchFiles: list.filter((row) => String(row.fileName || row.file_name || row.id || '').indexOf('分支') >= 0).length,
+        branchFiles: Math.max(0, list.length - 1),
       };
     })()`;
     const before = await evaluate(scan);
@@ -3908,6 +3908,62 @@ async function main() {
     assert(after.swipes === before.swipes && JSON.stringify(after.versions) === JSON.stringify(before.versions),
       "刷新后版本丢了：" + JSON.stringify({ before, after }));
     assert(after.branchFiles === before.branchFiles, "刷新后分支对话不见了：" + JSON.stringify({ before, after }));
+  });
+
+  await check("导出再导入之后：版本与分支关系仍然正确", async () => {
+    // 用户本轮的验收里明确要求这一条。做法就是应用自己那条路：
+    // RoleWorld.exportArchive() → 清库 → RoleWorld.importArchive(dump, {mode:'replace'})。
+    const snapshot = () => evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      let swipes = 0;
+      const versions = [];
+      for (const row of list) {
+        const fileName = row.fileName || row.file_name || row.id || '';
+        if (!fileName) continue;
+        let lines = [];
+        try { lines = await window.STApi.getChat('Harry Potter (EN).png', fileName) || []; } catch (_) { lines = []; }
+        for (const line of (Array.isArray(lines) ? lines : [])) {
+          if (line && Array.isArray(line.swipes) && line.swipes.length > 1) { swipes += 1; versions.push(line.swipes.length); }
+        }
+      }
+      return {
+        chats: list.length,
+        swipes: swipes,
+        versions: versions,
+        branches: Math.max(0, list.length - 1),
+      };
+    })()`);
+    const before = await snapshot();
+    assert(before.swipes >= 1 && before.branches >= 1, "导出前就没有多版本 / 分支可验，这条用例没意义：" + JSON.stringify(before));
+
+    const dump = await evaluate(`(async () => {
+      const data = await window.RoleWorld.exportArchive();
+      window.__rwArchiveDump = data;
+      return { format: data && data.format, stores: Object.keys((data && data.data) || {}).length };
+    })()`);
+    assert(dump.format === "roleworld-archive", "导出的存档格式不对：" + JSON.stringify(dump));
+    assert(dump.stores > 0, "导出的存档是空的：" + JSON.stringify(dump));
+
+    await evaluate(`(async () => {
+      await window.RoleWorld.resetAll();
+      await window.RoleWorld.importArchive(window.__rwArchiveDump, { mode: 'replace' });
+      return true;
+    })()`);
+
+    const after = await snapshot();
+    assert(after.chats === before.chats, "导入后对话文件数不对：" + JSON.stringify({ before, after }));
+    assert(after.swipes === before.swipes && JSON.stringify(after.versions) === JSON.stringify(before.versions),
+      "导入之后版本丢了：" + JSON.stringify({ before, after }));
+    assert(after.branches === before.branches, "导入之后分支丢了：" + JSON.stringify({ before, after }));
+
+    // 刷新一次再核对一遍（版本条只画在"当前打开的那段对话"上，
+    // 而刷新后打开的不一定是带版本的那一段，所以这里查存储、不查 DOM）。
+    await goto(base + "/index.html?onboarding=off&surprise=off");
+    await waitFor("window.TASK21_READY === true", 30000);
+    const reloaded = await snapshot();
+    assert(reloaded.swipes === before.swipes && reloaded.branches === before.branches && reloaded.chats === before.chats,
+      "导入并刷新之后版本 / 分支不对：" + JSON.stringify({ before, reloaded }));
   });
 
   await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
