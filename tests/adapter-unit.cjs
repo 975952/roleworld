@@ -666,6 +666,29 @@ async function main() {
     // 构建命令必须真的接进 package.json，否则没人知道怎么出包。
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     assert.ok(pkg.scripts["android:build"], "package.json 里没有 android:build 命令");
+
+    // 4) **手机白屏的元凶**（2026-09-13 用户真机踩到，必须钉住）：
+    //    tauri 的 build.rs 里 `let dev = !custom_protocol;`。直接 `cargo build` 时
+    //    `custom-protocol` 没开 → `dev = true` → `src/protocol/tauri.rs` 里
+    //    `#[cfg(all(dev, mobile))]` 会让**所有**资源请求走"开发服务器代理"
+    //    （reqwest 去请求一个根本不存在的 devUrl），手机上打开就是：
+    //      Failed to request http://tauri.localhost/: error sending request for url
+    //    桌面端不会现形（那条分支只在 mobile + dev 下编译进去），所以"打包成功"
+    //    完全不能说明手机上能开 —— 只能在测试里钉住。
+    assert.ok(
+      script.indexOf("tauri/custom-protocol") >= 0,
+      "build-android.cjs 少了 --features tauri/custom-protocol：手机上会白屏（资源请求被当成开发服务器代理）",
+    );
+    assert.ok(
+      /"--lib"/.test(script),
+      "build-android.cjs 少了 --lib：手机只加载 libroleworld.so，不该去构建可执行文件",
+    );
+    // 反过来也得钉住：这个 feature **不能**进 default features ——
+    // 一旦进 default，`tauri dev` 桌面开发就会失去 devUrl 热更新。
+    assert.ok(
+      !/default\s*=\s*\[[^\]]*custom-protocol/.test(cargo),
+      "custom-protocol 不能进 Cargo.toml 的 default features（会让 tauri dev 失去热更新）",
+    );
   });
 
   await test("index.html 里没有重复的 id", () => {

@@ -15,7 +15,7 @@
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
     "android:build": "node scripts/build-android.cjs",
-    "android:release": "node scripts/build-android.cjs --release",
+    "android:release": "node scripts/build-android.cjs --abi universal --release",
     "verify:live": "node scripts/verify-live.cjs"
   },
   "devDependencies": {

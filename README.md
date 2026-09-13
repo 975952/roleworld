@@ -112,6 +112,70 @@ data/blobs/<id>                 头像等图片
 2. 点「测试连接」确认能通；
 3. 回到对话页，导入一个角色卡（`.json` / `.png` / `.charx`），开始聊天。
 
+### 手机版（Android）
+
+手机版和网页版也是**同一份前端代码**，打包成 APK 直接装到手机上 —— 不用开浏览器、
+图标就在桌面。与桌面版的区别：手机版的数据存在应用私有目录里（系统的 WebView 数据库），
+**不像桌面版那样是一堆能用资源管理器打开的普通文件**，所以备份要靠应用里的「导出存档」。
+
+```bash
+pnpm install
+pnpm android:build                          # debug 包，只带 arm64（够新手机用）
+node scripts/build-android.cjs --abi universal --release   # 通用包：arm64 + 32 位 arm，任何手机都装得上
+```
+
+产物落在 `dist/`：
+
+| 命令 | 产物 | 用途 |
+|---|---|---|
+| `pnpm android:build` | `RoleWorld_<版本>_android_arm64-debug.apk` | 自己装、快速验证 |
+| `--abi universal --release` | `RoleWorld_<版本>_android_universal.apk` | **发给同学**：新老手机都能装，包更小（release 会 strip + R8） |
+| `--abi x86_64` 等 | 对应的单架构包 | 模拟器 |
+
+装到手机：
+
+```bash
+adb install -r "dist/RoleWorld_0.1.54_android_universal.apk"
+```
+
+> **release 包一定要签名**，否则装的时候系统只说一句"应用未安装"，看不出原因。
+> 脚本默认用 Android 自带的调试密钥签（`~/.android/debug.keystore`，口令是公开的
+> `android`）—— 能装、能发给同学，但**不能上架**，而且换一台电脑签名就变了
+> （旧包装不上新包，得先卸载）。要正式分发就设这四个环境变量再跑：
+> `TAURI_ANDROID_KEYSTORE_PATH` / `_PASSWORD` / `TAURI_ANDROID_KEY_ALIAS` / `_KEY_PASSWORD`。
+> 脚本每次都会 `apksigner verify` 复核，签名不过直接报错、不产出文件。
+
+构建前提（Windows 本机）：
+
+| 需要 | 说明 |
+|---|---|
+| Rust 工具链 | `rustup target add aarch64-linux-android`（脚本会在缺 target 时报错） |
+| JDK 17+ | 设 `JAVA_HOME` |
+| Android SDK | 设 `ANDROID_HOME`（默认找 `C:\Android\Sdk`）：`platform-tools`、`platforms;android-36`、`build-tools;36.0.0` |
+| Android NDK | **必须是 `29.0.13846066`** —— 这是 tauri-cli 2.11.4 钉的版本，`ndk;29.0.13846066` |
+| Gradle 8.14.3 | 已解压在 `GRADLE_HOME`（或 `C:\Android\gradle\gradle-8.14.3`）时会直接用，否则走 wrapper 联网下载 131 MB |
+
+```bash
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.13846066"
+```
+
+> 为什么不是一条 `tauri android build` 就完事：Windows 上它会**软链** `.so` 到 `jniLibs`，
+> 而普通用户没有创建符号链接的权限（要「开发者模式」）。`scripts/build-android.cjs` 里
+> 把四个坑都绕开了（软链、Gradle 下载超时、SDK 目录里有多个 NDK 时挑错版本、
+> 以及下面这个最坑的），每一条都在脚本注释里写了原因。
+>
+> **最容易白屏的一个坑：`--features tauri/custom-protocol` + `--lib`。**
+> tauri 的 `build.rs` 里写着 `let dev = !custom_protocol;` —— 直接 `cargo build`
+> 不带这个 feature，`dev` 就是 true，而 tauri 在 **mobile + dev** 下会把**所有**资源请求
+> 交给"开发服务器代理"（reqwest 去请求一个不存在的 devUrl），于是手机上打开只有一句
+> `Failed to request http://tauri.localhost/: error sending request for url`。
+> 桌面端不会现形（那段代码只在 mobile+dev 下编译进去），所以「打包成功」说明不了任何事。
+> CLI 平时会自己补这两个参数，我们绕开了 CLI 就得自己补。
+> **缺 `[lib]`/cdylib 会闪退、缺 `custom-protocol` 会白屏**，两条都在 `adapter-unit`
+> 里有守卫盯着（其中 custom-protocol 那条是真机上踩过之后补的）。
+
+模型与 Key：首次打开在应用里照引导填一次（与桌面版、网页版各填一次，互不相通）。
+
 ### 模型服务要求
 
 网站版使用 DeepSeek、OpenAI、OpenRouter、硅基流动或其他支持浏览器跨域访问的云端 OpenAI 兼容接口。
@@ -157,15 +221,18 @@ packs/<包名>/pack.json               # 包的说明与授权信息
 ## 测试
 
 ```bash
-npm test                         # 全部 9 个套件（约 5 分钟，全部离线、不碰真实模型）
+npm test                         # 全部 12 个套件（全部离线、不碰真实模型）
 node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / ZIP / 记忆 / 上下文预算 / 仓库卫生（不需要浏览器）
 node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的能跑起来
 node tests/offline-check.cjs     # 离线壳：清单、接管页面、关掉服务器后仍能打开并读到本机数据
+node tests/relay-check.cjs       # 体验卡中转：卡校验六种结局、用量记账、日志里没有正文
+node tests/console-check.cjs     # 体验卡控制台（纯本机）：只绑 127.0.0.1、钥匙头、页面里没有口令
 node tests/desktop-smoke.cjs     # 启动真 exe，验证数据以普通文件落盘（需先 desktop:build）
 ```
 
 `npm test` 依次跑：`adapter-unit`、`memory-unit`、`search-unit`、`metrics-unit`、
-`companion-unit`、`local-app-check`、`viewport-check`、`data-integrity`、`offline-check`。
+`companion-unit`、`local-app-check`、`viewport-check`、`data-integrity`、`offline-check`、
+`relay-check`、`console-check`。
 需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
 CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
 
@@ -181,8 +248,8 @@ CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
 ## 项目状态
 
 已完成：本地适配层、去掉账号系统、页面接入适配层、内容包机制（含哈利·波特内置包）、
-存档导出导入、Windows 桌面端打包、GitHub Actions 自动出包、五阶段功能
-（基础聊天 / 上下文管理 / 长期记忆 / 轻量检索 / 伴侣模式）与整套回归测试。
+存档导出导入、Windows 桌面端打包、Android APK（Tauri，2026-09-13）、GitHub Actions 自动出包、
+五阶段功能（基础聊天 / 上下文管理 / 长期记忆 / 轻量检索 / 伴侣模式）与整套回归测试。
 
 验收清单见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（逐条对应那张阶段表，写清状态与依据），
 出问题先查 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
@@ -191,7 +258,8 @@ CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
 
 - [ ] macOS / Linux 构建（Tauri 配置已留好，取消 `release.yml` 里 matrix 的注释即可；
       macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
-- [ ] Android（Capacitor）
+- [ ] Android 正式签名包上架（现在出的是 debug 自签包：能自己装、能发给同学，
+      但不能上应用商店；要上架得自己生成 keystore 再出 release 包）
 - [ ] 语音输入与朗读（要先定录音是否离开设备）
 - [ ] 跨设备同步（要先定同步范围与冲突规则）
 - [ ] 把 `app.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
