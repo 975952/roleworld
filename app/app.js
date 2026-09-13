@@ -479,6 +479,8 @@ function setMemoryPanelOpen(open, options = {}) {
   const shell = $("#appShell");
   shell?.classList.toggle("memory-panel-open", shouldOpen);
   $(".inspector-column")?.setAttribute("aria-hidden", String(!shouldOpen));
+  const columnToggle = $("#memoryColumnToggle");
+  if (columnToggle) columnToggle.checked = shouldOpen;
   document.querySelectorAll('[data-action="open-memories"]').forEach((button) => button.setAttribute("aria-expanded", String(shouldOpen)));
   if (!options.skipPersist) persistLayoutPreferences();
 }
@@ -490,19 +492,20 @@ function closeUtilities() {
 function openInspector(view) {
   state.inspector = view;
   if (view !== "memories") return;
-  // 2026-09-13 合并入口：顶栏「记忆」= 一步进入**当前角色的记忆**（统一角色面板的第 2 页）。
-  // 桌面上同时把右侧常驻「记忆书」栏打开 —— 那是这个按钮原来的行为，不该因为合并入口而消失。
+  // 顶栏「记忆」**只做一件事**：打开统一角色面板的记忆页。
+  // 2026-09-13 用户实测反馈：「为什么点击一下会跳出一个框、还会打开右边侧栏」——
+  // 之前这里顺手把右侧常驻记忆栏也打开了（想保住旧行为），结果是"一次点击动了两处"。
+  // 右侧栏现在有自己的开关：设置 → 外观与布局 → 面板状态。
   if (window.TASK21 && typeof window.TASK21.openMemoryPanel === "function") {
     window.TASK21.openMemoryPanel();
-  } else {
-    // 兜底：万一主流程还没挂上（启动早期/异常路径），至少把记忆页直接显示出来，
-    // 别让"点了没反应"再次发生 —— 用户 2026-09-12 连报两次。
-    const modal = document.querySelector("#memoryPanel");
-    const panel = document.querySelector("#characterPanel");
-    if (panel) panel.hidden = false;
-    if (modal) modal.hidden = false;
+    return;
   }
-  if (window.innerWidth >= layoutConfig.utilityCloseWidth) setMemoryPanelOpen(true);
+  // 兜底：万一主流程还没挂上（启动早期/异常路径），至少把记忆页直接显示出来，
+  // 别让"点了没反应"再次发生 —— 用户 2026-09-12 连报两次。
+  const modal = document.querySelector("#memoryPanel");
+  const panel = document.querySelector("#characterPanel");
+  if (panel) panel.hidden = false;
+  if (modal) modal.hidden = false;
 }
 
 function setUserMenuOpen(open, options = {}) {
@@ -1133,6 +1136,11 @@ function bindSettings() {
     });
   }
   $("#resetLayoutButton")?.addEventListener("click", resetLayout);
+  // 右侧常驻记忆栏的开关：以前只有顶栏「记忆」能切换它，而那颗按钮现在专职打开角色面板，
+  // 所以把"要不要常驻显示"放到布局设置里（和"恢复默认布局"在一起）。
+  $("#memoryColumnToggle")?.addEventListener("change", (event) => {
+    setMemoryPanelOpen(event.target.checked === true);
+  });
   $("#resetPreferencesButton")?.addEventListener("click", resetPreferences);
   // 「关于 → 数据与备份」那颗按钮：跳到同一个入口（不再在关于页重复放导出/导入/清空，
   // 免得同一件事有两个地方、还挨着"清空"）。
