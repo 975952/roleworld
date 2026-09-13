@@ -843,6 +843,11 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .character-picker-item, .character-picker-action { font-size: 14px; }
 
   .mobile-bottom-nav { min-height: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom)); padding-top: 0; background: var(--canvas); box-shadow: none; backdrop-filter: none; }
+  /* 设置面板滚到底时，最后一行以前会被底部导航条压住（用户 2026-09-12：「下滑的最下面会被下面一栏挡住，看不见」）。
+     给滚动容器补一段等于底栏高度的下边距。 */
+  .settings-surface .settings-scroll,
+  .settings-surface .settings-body,
+  .settings-surface .settings-content { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 16px); }
   .mobile-bottom-nav-item { position: relative; min-height: 57px; gap: 4px; padding: 6px; font-size: 11px; border-radius: 0; }
   .mobile-bottom-nav-item.is-active, .mobile-bottom-nav-item[aria-current="page"] { background: transparent; }
   .mobile-bottom-nav-item[aria-current="page"]::after { content: ''; position: absolute; top: 0; left: calc(50% - 12px); width: 24px; height: 2px; background: var(--main-text); border-radius: 0 0 2px 2px; }

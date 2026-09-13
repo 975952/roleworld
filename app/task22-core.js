@@ -99,11 +99,13 @@
     }),
     // 伴侣模式：语气更稳一点（温度略降），其余与对话页一致 ——
     // 刻意不改输出上限：卡片里的"说话方式"与最近对话已经在管这件事。
+    // 2026-09-12 用户：「伴侣模式直接取消渲染，不要加入动作，就是纯对话」——
+    // 所以它的格式指令不是"分旁白/台词"，而是"只说话"。
     companion: Object.freeze({
       purpose: "companion",
       temperature: 0.85,
       topP: 0.9,
-      replyFormat: "dialogue",
+      replyFormat: "plain",
       autoSearch: true,
       searchNote: true,
       minHistoryMessages: 4,
@@ -670,6 +672,17 @@
     "Keep it to a few sentences; if more is needed, someone else will get their turn next.",
   ].join(" ");
 
+  /* 伴侣模式的输出约定（2026-09-12 用户要求）：**纯对话**。
+   * 不要旁白、不要动作/表情/环境描写、不要括号里的舞台提示 —— 就是在说话。
+   * 为什么：伴侣模式要像真人发消息，而"分旁白/台词 + 动作描写"是演戏的写法。 */
+  const PLAIN_FORMAT_INSTRUCTION = [
+    "Just talk — this is a conversation, not a scene.",
+    "Write ONLY the words you are saying: no narration, no action or expression descriptions,",
+    "no stage directions, no parentheses describing what you do, and no recapping.",
+    "One thought per message; keep it as short as a real chat message. If you need to show feeling,",
+    "show it in what you say and how you say it — not by describing yourself.",
+  ].join(" ");
+
   /* 带「旁白/台词」输出约定的系统提示：基础组合 + 末尾格式指令（不影响与 Task-20 的逐字节对齐证明）。 */
   function buildSystemPromptWithFormat(card, memoryBooks, promptText, instruction, options) {
     // extraSystem：调用方追加的段落（诚实规则、历史检索结果等）。
@@ -680,7 +693,8 @@
     // 格式指令按用途选：对话页是"旁白/台词"，剧情模式页是"只写你这一小段"。
     const profile = PURPOSE_PROFILES[normalizePurpose(options && options.purpose)];
     const formatText = instruction
-      || (profile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION);
+      || (profile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION
+        : profile.replyFormat === "plain" ? PLAIN_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION);
     // 语言要求**两头都要有**：开头一处（身份级："这是个说英文的角色"）、
     // 结尾一处（模型对最后一条规则最敏感）。
     // 只放中间会被后面的格式指令盖过去；只放结尾时，实测仍会出现"旁白英文、台词中文"。
@@ -722,7 +736,9 @@
       last = re.lastIndex;
     }
     pushNarration(segments, raw.slice(last));
-    if (!segments.length) segments.push({ type: "narration", text: raw.trim() });
+    // 整段一个引号都没有时，**当成一段正常的话**（气泡）显示，而不是"旁白"那种淡色小字。
+    // 伴侣模式现在是纯对话（用户 2026-09-12 要求：取消渲染、不要动作），模型不会再写引号。
+    if (!segments.length) segments.push({ type: "dialogue", text: raw.trim() });
     return segments;
   }
 
@@ -971,7 +987,8 @@
     if (systemRows.length) {
       // 这段是按用途选的：对话页是"旁白/台词"，剧情模式页是"只写你这一小段"。
       const formatProfile = PURPOSE_PROFILES[normalizePurpose(options.purpose)];
-      const formatInstruction = formatProfile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION;
+      const formatInstruction = formatProfile.replyFormat === "scene" ? SCENE_FORMAT_INSTRUCTION
+        : formatProfile.replyFormat === "plain" ? PLAIN_FORMAT_INSTRUCTION : REPLY_FORMAT_INSTRUCTION;
       systemRows.push({ kind: "reply-format", label: "回复格式要求", texts: ["[Reply format] " + formatInstruction], head: true });
       // 结尾那处语言要求：真实文本里它跟在格式指令后面，只有一个换行。
       if (panelLanguageLine) systemRows.push({ kind: "card-language", label: "语言要求", texts: [panelLanguageLine] });
@@ -1676,6 +1693,7 @@
     normalizePreset,
     resolveSampling,
     SCENE_FORMAT_INSTRUCTION,
+    PLAIN_FORMAT_INSTRUCTION,
     MODEL_CONTEXT,
     contextLimitFor,
     outputLimitFor,

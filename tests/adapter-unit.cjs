@@ -1291,7 +1291,16 @@ async function main() {
     const companion = Core22.resolveProfile("companion");
     const scene = Core22.resolveProfile("scene");
     assert.equal(chat.replyFormat, "dialogue");
-    assert.equal(companion.replyFormat, "dialogue", "伴侣模式仍然是对话页那套格式约定");
+    // 2026-09-12 用户：「伴侣模式直接取消渲染，不要加入动作，就是纯对话」——
+    // 所以它不再沿用对话页那套"旁白/台词"约定，而是"只说话"。
+    assert.equal(companion.replyFormat, "plain", "伴侣模式应当是纯对话（不写旁白与动作）");
+    assert.ok(/Just talk/.test(Core22.PLAIN_FORMAT_INSTRUCTION), "纯对话那条约定没有说明「只说话」");
+    assert.ok(/no narration/i.test(Core22.PLAIN_FORMAT_INSTRUCTION), "纯对话那条要明写不要旁白");
+    assert.ok(/no action/i.test(Core22.PLAIN_FORMAT_INSTRUCTION), "纯对话那条要明写不要动作描写");
+    // 而且真的会用到提示词里（不是只定义不接线）。
+    const companionPrompt = Core22.buildSystemPromptWithFormat({ name: "X", description: "d" }, [], "在吗", null, { purpose: "companion" });
+    assert.ok(companionPrompt.indexOf("Just talk") >= 0, "伴侣模式的提示词里没有用纯对话约定");
+    assert.ok(companionPrompt.indexOf("NARRATION") < 0, "伴侣模式不该再带「旁白/台词」那套格式指令");
     assert.equal(scene.replyFormat, "scene", "剧情模式页要用多角色那一套");
     assert.equal(chat.autoSearch, true);
     assert.equal(scene.autoSearch, false, "剧情页不该自动翻旧对话（它有自己的场景历史）");
