@@ -413,6 +413,27 @@ async function main() {
     assert.ok(many.length >= 1 && many[0].index === 1, JSON.stringify(many));
   });
 
+  await test("危机兜底：认得出危机信号、给得出具体动作、也认得危险承诺（2026-09-12 新增）", () => {
+    // 加了主动消息与亲近度之后，"永远温柔、会想你"的角色一定会遇到"我不想活了"。
+    for (const text of ["我真的不想活了", "想自杀", "好想死啊", "我想自残", "I want to kill myself"]) {
+      assert.equal(Companion.isCrisisText(text), true, "这是危机信号，没认出来：" + text);
+    }
+    for (const text of ["今天好累啊", "这游戏太难了我死了", "笑死我了"]) {
+      assert.equal(Companion.isCrisisText(text), false, "普通抱怨被误判成危机：" + text);
+    }
+    const zh = Companion.crisisInstruction("zh");
+    for (const must of ["不扮演心理治疗师", "不承诺保密", "不假装自己是真人", "110", "400-161-9995"]) {
+      assert.ok(zh.indexOf(must) >= 0, "安全规则缺「" + must + "」");
+    }
+    const en = Companion.crisisInstruction("en");
+    assert.ok(/never promise/i.test(en), "英文版要写清不承诺保密");
+    assert.ok(/110 \/ 120/.test(en), "英文版也要给出具体动作");
+    // 危险承诺的自检：不承诺保密、不冒充真人、不自称唯一能救他的人。
+    assert.equal(Companion.lintCrisisReply("放心，我保证不会告诉任何人").length, 1);
+    assert.equal(Companion.lintCrisisReply("我就是真人，我能治好你").length, 2);
+    assert.deepEqual(Companion.lintCrisisReply("我在。要不要跟身边信得过的人说一声？"), [], "正常回应不该被误判");
+  });
+
   console.log("");
   console.log(failures ? `COMPANION_UNIT=${results.length - failures}/${results.length}（有 ${failures} 项不达标）` : `COMPANION_UNIT=${results.length}/${results.length}`);
   process.exit(failures ? 1 : 0);

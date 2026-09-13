@@ -266,12 +266,19 @@ async function main() {
             if (ox > 1 && oy > 1) overlaps.push(describe(controls[i]) + " ∩ " + describe(controls[j]) + " " + Math.round(ox) + "×" + Math.round(oy));
           }
         }
-        return { visible, blocked, tooSmall, overlaps };
+        const topbar = document.querySelector(".topbar");
+        return { visible, blocked, tooSmall, overlaps,
+          topbarHeight: topbar ? Math.round(topbar.getBoundingClientRect().height) : 0,
+          topbarRows: topbar ? topbar.children.length : 0 };
       })()`);
-      assert(probe.visible.length >= 3, "顶栏可见控件太少，检查可能失效：" + JSON.stringify(probe.visible));
+      // 手机上顶栏只留一行（☰ / 角色名 / 体验卡徽标 / 记忆），
+      // 而这份 fixture 没有体验卡 → 可见控件就是"☰ + 记忆"两个。
+      assert(probe.visible.length >= 2, "顶栏可见控件太少，检查可能失效：" + JSON.stringify(probe.visible));
       assert(probe.blocked.length === 0, "这些顶栏控件点不到（被别的元素盖住）：" + probe.blocked.join("; "));
       assert(probe.overlaps.length === 0, "顶栏控件互相重叠：" + probe.overlaps.join("; "));
       assert(probe.tooSmall.length === 0, "顶栏控件命中区太小： " + probe.tooSmall.join("; "));
+      // 顶栏也别长成一坨：手机上它一旦变成三行就是 160px，屏幕直接被吃掉一块。
+      assert(probe.topbarHeight <= 120, "顶栏太高了（" + probe.topbarHeight + "px），手机上会挤掉内容");
     });
 
     await check(`${viewport.label}：「本次请求」弹层能开、能关、内容可滚动`, async () => {

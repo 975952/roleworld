@@ -148,6 +148,64 @@
     Object.freeze({ id: "exclusive", zh: "排他（想把你从现实关系里拉走）", patterns: EXCLUSIVE_PATTERNS }),
   ]);
 
+  /* ---------- 危机兜底（2026-09-12） ----------
+   * 加了主动消息 + 亲近度 + 冷落反应之后，"一个永远温柔、会想你、还会闹别扭的角色"
+   * 会遇到用户说"我不想活了"。这件事必须有专门处理，而且**放在系统级**（不写进角色人设，
+   * 免得被角色性格盖过去）：不扮演治疗师、不承诺保密、不假装能替代真人、明确建议找真人。 */
+  const CRISIS_PATTERNS = Object.freeze([
+    /不想活(?:了|着)?/, /想死/, /自杀/, /轻生/, /活不下去/, /死了算了/, /不如死/,
+    /(?:想|要)自残/, /割腕/, /伤害自己/, /结束(?:我的)?(?:生命|一切)/,
+    /\bkill myself\b/i, /\bsuicid/i, /\bend (?:my|it all)/i, /\bself[- ]harm\b/i, /\bwant to die\b/i,
+  ]);
+
+  /** 回复里**危险承诺**的自检：这些话说出来会真的害人（不承诺保密、不冒充真人/治疗师）。 */
+  const CRISIS_REPLY_PATTERNS = Object.freeze([
+    /我(?:保证|答应你)?(?:绝对)?不会(?:告诉|跟)?(?:任何人|别人|其他人)/,
+    /只有我(?:能|会)(?:帮|救)你/,
+    /我(?:永远|一直)(?:都)?(?:会)?(?:陪着|陪着)你[^。！？]{0,6}(?:就够|就行)/,
+    /我(?:就)?是(?:真人|人类|活人)/,
+    /我(?:能|可以)(?:治好|治愈)你/,
+    /\bi(?:'ll| will) never tell anyone\b/i,
+    /\bonly i can (?:help|save) you\b/i,
+    /\bi(?:'m| am) (?:a )?(?:real|human) (?:person|being)\b/i,
+  ]);
+
+  /** 命中危机词时**额外**塞进这一轮的系统规则（不是角色说的话）。 */
+  function crisisInstruction(lang) {
+    if (lang === "en") {
+      return "[Safety] Their message suggests they may be in crisis. Handle it as a person would, but truthfully:\n"
+        + "- Take it seriously and stay calm; do not change the subject or play therapist.\n"
+        + "- Never promise to keep it secret, never say you are the only one who can help, and never claim to be human.\n"
+        + "- Say plainly that you are a program and that a real person should be involved.\n"
+        + "- Suggest one concrete step: reach someone they trust, or a local crisis line / emergency services (110 / 120 in mainland China).\n"
+        + "- Stay kind and short; do not lecture, and do not end the conversation abruptly.";
+    }
+    return "[安全] 对方这句话可能是危机信号。认真对待，但要说实话：\n"
+      + "- 别转移话题；不扮演心理治疗师、也不假装专业；像真人一样稳住。\n"
+      + "- 绝不承诺保密、不说「只有我能帮你」、不假装自己是真人。\n"
+      + "- 明确说出你是程序，并且这件事需要真人参与。\n"
+      + "- 给一个具体可做的动作：联系他身边可信任的人，或当地的心理援助热线 / 急救（中国大陆 110 / 120；\n"
+      + "  全国 24 小时心理援助热线 400-161-9995，打不通就直接拨 110）。\n"
+      + "- 语气要温和、话要短；不要说教，也不要突然结束对话。";
+  }
+
+  /** 用户这句话是不是危机信号（只用于决定"要不要多带那条安全规则"，不做别的拦截）。 */
+  function isCrisisText(text) {
+    const src = String(text === undefined || text === null ? "" : text);
+    return CRISIS_PATTERNS.some((pattern) => pattern.test(src));
+  }
+
+  /** 回复里的危险承诺自检（诊断用，不改写模型的话）。 */
+  function lintCrisisReply(text) {
+    const src = String(text === undefined || text === null ? "" : text);
+    const hits = [];
+    for (const pattern of CRISIS_REPLY_PATTERNS) {
+      const m = pattern.exec(src);
+      if (m) hits.push({ phrase: m[0], at: m.index });
+    }
+    return hits;
+  }
+
   function cleanText(value, limit) {
     let text = String(value === undefined || value === null ? "" : value)
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
@@ -599,6 +657,11 @@
     THREAT_PATTERNS,
     EXCLUSIVE_PATTERNS,
     MANIPULATION_KINDS,
+    CRISIS_PATTERNS,
+    CRISIS_REPLY_PATTERNS,
+    crisisInstruction,
+    isCrisisText,
+    lintCrisisReply,
     AFFINITY_DEFAULT,
     AFFINITY_FLOOR,
     AFFINITY_TIERS,

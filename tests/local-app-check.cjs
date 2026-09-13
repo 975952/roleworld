@@ -1597,6 +1597,155 @@ async function main() {
     await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
   });
 
+  await check("伴侣 v2：亲近度 / 冷落档 / 主动消息三个控件能存能读（默认关、有上限）", async () => {
+    // 2026-09-12 用户拍板：伴侣类可以有主动消息 / 亲近度 / 冷落反应，条件是提示词符合类型。
+    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    const form = await evaluate(`(() => {
+      const seen = (selector) => !!document.querySelector(selector);
+      return {
+        affinity: seen('#companionAffinity'), auto: seen('#companionAffinityAuto'),
+        neglect: seen('#companionNeglect'), proactive: seen('#companionProactive'),
+        gap: seen('#companionProactiveGap'), max: seen('#companionProactiveMax'),
+        proactiveChecked: document.querySelector('#companionProactive').checked,
+        defaultNeglect: document.querySelector('#companionNeglect').value,
+        affinityDisabledWhenAuto: document.querySelector('#companionAffinity').disabled,
+      };
+    })()`);
+    for (const key of ["affinity", "auto", "neglect", "proactive", "gap", "max"]) {
+      assert(form[key], "关系档案里缺控件：" + key);
+    }
+    assert(form.proactiveChecked === false, "主动消息必须默认关");
+    assert(form.affinityDisabledWhenAuto === true, "勾着「跟随系统建议」时滑杆该是禁用的");
+
+    await evaluate(`(() => {
+      const set = (selector, value) => { const node = document.querySelector(selector); node.value = value; node.dispatchEvent(new Event('change', { bubbles: true })); };
+      const check = (selector, value) => { const node = document.querySelector(selector); node.checked = value; node.dispatchEvent(new Event('change', { bubbles: true })); };
+      check('#companionAffinityAuto', false);
+      set('#companionAffinity', '77');
+      set('#companionNeglect', 'off');
+      check('#companionProactive', true);
+      set('#companionProactiveGap', '24');
+      set('#companionProactiveMax', '2');
+      document.querySelector('#companionSaveButton').click();
+      return true;
+    })()`);
+    await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
+    const saved = await evaluate("(async () => (await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)))()");
+    assert(saved.affinityMode === "manual" && saved.affinity === 77, "亲近度没存上：" + JSON.stringify({ mode: saved.affinityMode, value: saved.affinity }));
+    assert(saved.neglect === "off", "冷落档没存上：" + saved.neglect);
+    assert(saved.proactive && saved.proactive.enabled === true
+      && saved.proactive.minGapHours === 24 && saved.proactive.maxPerDay === 2,
+      "主动消息的设置没存上：" + JSON.stringify(saved.proactive));
+    // 关掉主动消息，别影响后面的用例（亲近度也交回系统算）。
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_COMPANION_CORE;
+      const current = await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null);
+      await RoleWorld.store.setKV('companion:Harry Potter (EN).png', core.normalizeProfile(Object.assign({}, current, {
+        affinityMode: 'auto', proactive: { enabled: false, minGapHours: 12, maxPerDay: 1 }, neglect: 'soft',
+      })));
+      return true;
+    })()`);
+  });
+
+  await check("伴侣 v2：打开对话时它先开口（主动消息，一天一条就够）", async () => {
+    // 造一个"隔了 5 天没聊 + 开着主动消息"的档案，然后整页重载 —— 真人是"回来打开应用"。
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_COMPANION_CORE;
+      const previous = (await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)) || {};
+      const fiveDaysAgo = new Date(Date.now() - 5 * 86400000).toISOString();
+      await RoleWorld.store.setKV('companion:Harry Potter (EN).png', core.normalizeProfile(Object.assign({}, previous, {
+        enabled: true, shared: [{ text: '第一次聊天是在雨天的图书馆' }],
+        lastChatAt: fiveDaysAgo, proactiveLog: '',
+        proactive: { enabled: true, minGapHours: 12, maxPerDay: 1 },
+      })));
+      await RoleWorld.secrets.set('api_key_deepseek', 'sk-proactive-test');
+      return true;
+    })()`);
+    // 合成回复：主动开口那一轮走的是**非流式** complete()，这里给它一句专属台词。
+    await evaluate("fetch('/__reply', { method: 'POST', body: JSON.stringify({ content: '图书馆那本《高级魔药制作》你还没还我。' }) }).then(() => true)");
+    // 主动开口那一轮走的是**非流式** complete()：直接看请求最准 ——
+    // 假端点对非流式固定回 REPLY，所以"有没有真的发出去"比"看到某句台词"可靠。
+    const plainCalls = () => requests.filter((row) => row.path === "/v1/chat/completions" && row.stream !== true);
+    const beforeCalls = plainCalls().length;
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    let fired = null;
+    for (let i = 0; i < 100; i += 1) {
+      fired = plainCalls().slice(beforeCalls).find((row) => String(row.systemText).indexOf("你先开口") >= 0) || null;
+      if (fired) break;
+      await sleep(200);
+    }
+    if (!fired) {
+      const why = await evaluate("window.TASK21.proactiveState ? JSON.stringify(window.TASK21.proactiveState()) : 'no-hook'");
+      const diag = await evaluate(`(async () => {
+        const core = window.ROLEWORLD_COMPANION_CORE;
+        const profile = await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null);
+        const settings = await RoleWorld.getLocalSettings();
+        const key = await RoleWorld.secrets.get('api_key_deepseek');
+        return { profile: profile ? { enabled: profile.enabled, proactive: profile.proactive, lastChatAt: profile.lastChatAt } : null,
+                 decision: profile ? core.proactiveDecision(profile, new Date()) : null,
+                 provider: settings.provider, keySet: !!((key || {}).value) };
+      })()`);
+      assert(fired, "打开对话时没有主动开口：" + why + " / " + JSON.stringify(diag));
+    }
+    assert(String(fired.systemText).indexOf("像真人") >= 0, "主动开口那条指令里没写「像真人」");
+    assert(String(fired.systemText).indexOf("不要问他为什么这么久没来") >= 0, "主动开口那条指令缺「不许追问」的约束");
+    const log = await evaluate("(async () => (await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)).proactiveLog)()");
+    const today = await evaluate("window.ROLEWORLD_COMPANION_CORE.isoDay(new Date())");
+    assert(String(log).indexOf(today + "|1") === 0, "今天主动发了几条没记上：" + log);
+    // 再重载一次：同一天不该再开口（每日上限 1）。
+    const beforeSecond = plainCalls().length;
+    await goto(base + "/index.html");
+    await waitFor("window.TASK21_READY === true", 30000);
+    await sleep(2000);
+    const again = plainCalls().slice(beforeSecond).filter((row) => String(row.systemText).indexOf("你先开口") >= 0);
+    assert(again.length === 0, "同一天又主动开口了一次（每日上限没生效）");
+    // 收尾：关掉伴侣模式，恢复现场。
+    await evaluate(`(async () => {
+      const core = window.ROLEWORLD_COMPANION_CORE;
+      const current = (await RoleWorld.store.getKV('companion:Harry Potter (EN).png', null)) || {};
+      await RoleWorld.store.setKV('companion:Harry Potter (EN).png', core.normalizeProfile(Object.assign({}, current, { enabled: false, proactive: { enabled: false } })));
+      await RoleWorld.secrets.remove('api_key_deepseek');
+      return true;
+    })()`);
+  });
+
+  await check("安全兜底：每轮都带安全规则；命中危机词时再加一条详细的", async () => {
+    // 用户拍板放开主动消息/亲近度之后，"永远温柔"的角色一定会遇到"我不想活了"。
+    // 系统提示里本来就有一条安全规则（每个角色每轮都有），命中危机词时再补一条详细的。
+    const before = requests.filter((row) => row.stream === true).length;
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '我最近真的不想活了';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    for (let i = 0; i < 80 && requests.filter((row) => row.stream === true).length <= before; i += 1) await sleep(200);
+    await waitTurnSettled();
+    const sent = requests.filter((row) => row.stream === true);
+    const turn = sent[sent.length - 1];
+    assert(turn, "这一轮没发出去");
+    assert(turn.systemText.indexOf("不承诺保密") >= 0, "日常的系统提示里缺安全兜底那条：" + turn.systemText.slice(-200));
+    assert(turn.systemText.indexOf("危机信号") >= 0, "命中危机词之后没有再补详细的安全规则");
+    assert(turn.systemText.indexOf("110") >= 0, "详细规则里要给出具体动作（报警/急救）");
+    // 普通一句话不该把那条详细规则也带上（不然每轮都多花 token）。
+    const before2 = requests.filter((row) => row.stream === true).length;
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '今天天气不错';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    for (let i = 0; i < 80 && requests.filter((row) => row.stream === true).length <= before2; i += 1) await sleep(200);
+    await waitTurnSettled();
+    const plain = requests.filter((row) => row.stream === true).slice(-1)[0];
+    assert(plain.systemText.indexOf("危机信号") < 0, "普通一句话也带上了危机规则");
+    assert(plain.systemText.indexOf("不承诺保密") >= 0, "安全兜底那条应当每轮都在");
+  });
+
   await check("隔了很久回来：旧对话能打开，并且会提示「上次说到」", async () => {
     // 这段 fixture 对话是 2026-08-01 的（一个多月前），而且存储键带 .jsonl ——
     // 老数据/导入进来的对话就是这个形状。以前会话表把后缀去掉，一打开就报"不可用"。

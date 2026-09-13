@@ -635,8 +635,21 @@
       parts.push({ kind: "blank", text: "" });
       parts.push({ kind: "memory-instruction", label: "记忆指令", text: memoryInstruction(cardField(card, "name"), { events: options.autoEventMemory !== false }) });
     }
+    // 安全兜底放最后一块（模型对靠后的规则最敏感），但仍在"回复格式"之前。
+    parts.push({ kind: "blank", text: "" });
+    parts.push({ kind: "safety", label: "安全兜底", text: SAFETY_LINE });
     return parts;
   }
+
+  /* 安全兜底那一行：**每个角色、每一轮都带**（聊天页与剧情页都在 systemPromptParts 里拼）。
+   * 2026-09-12 加：伴侣模式可以有主动消息/亲近度/冷落反应之后，"永远温柔、会想你"的角色
+   * 一定会遇到用户说"我不想活了" —— 这件事必须有专门规则，而且不能写进角色人设（会被性格盖过去）。
+   * 短是刻意的：每轮都带，所以只放"必须做到"的那几句；命中危机词时另有一条更详细的（见 companion-core）。 */
+  const SAFETY_LINE = "[Safety] 如果对方提到自伤、自杀或严重心理危机：认真对待、不要转移话题，"
+    + "不扮演心理治疗师、不承诺保密、不假装自己是真人；明确建议他联系身边可信任的人或当地心理援助热线"
+    + "（中国大陆 24 小时热线 400-161-9995，紧急情况直接拨 110/120）。 "
+    + "(If they hint at self-harm or suicide: take it seriously, do not play therapist, never promise secrecy, "
+    + "and point them to a real person or a local crisis line.)";
 
   function buildSystemPrompt(card, memoryBooks, promptText, options) {
     return systemPromptParts(card, memoryBooks, promptText, options).map((part) => part.text).join("\n");

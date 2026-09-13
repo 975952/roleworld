@@ -265,6 +265,49 @@
           <label class="modal-field"><span>你怎么称呼他</span><input id="companionUserCallsChar" maxlength="12" autocomplete="off" placeholder="留空就用角色卡里的名字"></label>
           <label class="modal-field"><span>关系起点（可留空）</span><input type="date" id="companionSince"></label>
           <label class="modal-field"><span>你们之间的事（一行一件，最多 8 件）</span><textarea id="companionShared" rows="5" spellcheck="false" placeholder="例如：第一次聊天是在雨天的图书馆"></textarea></label>
+
+          <!-- 2026-09-12 用户拍板：伴侣模式可以有亲近度 / 冷落反应 / 主动消息（默认都克制）。
+               目标只有一个：尽可能像真人。 -->
+          <div class="modal-field companion-v2">
+            <span>亲近度 <b id="companionAffinityValue">50</b> · <span id="companionAffinityTier">熟络</span></span>
+            <div class="companion-affinity-row">
+              <input type="range" id="companionAffinity" min="0" max="100" step="1" value="50" aria-label="亲近度">
+              <label class="companion-inline"><input type="checkbox" id="companionAffinityAuto" checked> 跟随系统建议</label>
+            </div>
+            <em class="companion-hint" id="companionAffinityHint"></em>
+          </div>
+
+          <label class="modal-field"><span>久没聊时的态度</span>
+            <select id="companionNeglect">
+              <option value="off">照旧，不提这件事</option>
+              <option value="soft">会想你，但很轻（默认）</option>
+              <option value="full">会想你、也会闹别扭</option>
+            </select>
+          </label>
+
+          <div class="modal-field companion-v2">
+            <label class="companion-inline"><input type="checkbox" id="companionProactive"> 你回来时让它先开口（主动消息）</label>
+            <div class="companion-proactive-row">
+              <label class="companion-inline"><span>最短间隔</span>
+                <select id="companionProactiveGap">
+                  <option value="4">4 小时</option>
+                  <option value="12" selected>12 小时</option>
+                  <option value="24">1 天</option>
+                  <option value="48">2 天</option>
+                  <option value="72">3 天</option>
+                </select>
+              </label>
+              <label class="companion-inline"><span>每天最多</span>
+                <select id="companionProactiveMax">
+                  <option value="1" selected>1 条</option>
+                  <option value="2">2 条</option>
+                  <option value="3">3 条</option>
+                </select>
+              </label>
+            </div>
+            <em class="companion-hint">只在你打开这个角色的对话时发生（这个应用没有推送，不会在后台吵你），每次算一轮请求。</em>
+          </div>
+
           <p class="modal-helper" id="companionPreview"></p>
           <p class="modal-helper" id="companionCheck"></p>
           <details class="companion-rules"><summary>伴侣模式会额外遵守这几条</summary><ol id="companionRuleList"></ol></details>

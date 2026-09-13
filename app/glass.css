@@ -125,16 +125,17 @@
 @media (max-width: 760px) {
   .app-shell .main-stage { grid-template-rows: auto minmax(0, 1fr); }
   .topbar { padding: 10px 12px; }
-  /* 手机上把模型 / 语言两个下拉收窄成"能缩、不溢出"的格子：
-     以前这里的 select 最大宽度按整屏算（--viewport-w - 48px），两个并排就会互相压住
-     （2026-09-12 实测 modelBadge ∩ langSelect = 22×38）。 */
-  .chat-model { display: grid; min-width: 0; }
-  .chat-model select {
-    width: 100%;
-    min-width: 0;
-    max-width: calc(var(--viewport-w, 100%) / var(--ui-scale) - 48px);
-  }
-  .chat-language select { max-width: 96px; }
+  /* 手机上顶栏**只留一行**：☰ / 角色名 / 体验卡徽标 / 记忆。
+     模型与语言那两个下拉收进「设置」—— 以前这里用 display:grid 把它们显示出来，
+     顶栏会长成三行、160px 高，把手机屏幕吃掉一大块（2026-09-12 用户实测"错位"）。
+     语言在别处都能改：首启/体验卡开场里会问一次，「设置 → 模型 → 角色语言」随时可改，
+     「角色管理」每行还有单个角色的语言下拉。 */
+  .chat-model { display: none; }
+  /* 顶栏**不换行**：宁可标题缩成省略号，也不让它变成两排（320–412 全是一行 65px）。
+     这两条必须写在 glass.css 里：同选择器的规则在这份表里更靠后/更具体。 */
+  .topbar { flex-wrap: nowrap; }
+  .topbar-title { flex: 1 1 auto; min-width: 0; }
+  .topbar-actions { flex: 0 0 auto; flex-wrap: nowrap; }
   .composer-box { padding: 10px; }
 }
 @media (min-width: 761px) {

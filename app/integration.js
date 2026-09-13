@@ -1675,6 +1675,10 @@
   /** 把表单读成一份档案。不校验的部分交给 core 归一化（截断、去重、日期合法性）。 */
   function readCompanionForm() {
     const read = (selector) => (document.querySelector(selector)?.value || "").trim();
+    const num = (selector, fallback) => {
+      const value = Number(read(selector));
+      return Number.isFinite(value) ? value : fallback;
+    };
     const shared = read("#companionShared").split("\n").map((line) => line.trim()).filter(Boolean);
     return {
       enabled: document.querySelector("#companionEnabled")?.checked === true,
@@ -1684,6 +1688,15 @@
       userCallsChar: read("#companionUserCallsChar"),
       since: read("#companionSince"),
       shared: shared,
+      // 伴侣模式 v2（2026-09-12）：亲近度 / 冷落反应 / 主动消息。
+      affinityMode: document.querySelector("#companionAffinityAuto")?.checked === true ? "auto" : "manual",
+      affinity: num("#companionAffinity", 50),
+      neglect: read("#companionNeglect") || "soft",
+      proactive: {
+        enabled: document.querySelector("#companionProactive")?.checked === true,
+        minGapHours: num("#companionProactiveGap", 12),
+        maxPerDay: num("#companionProactiveMax", 1),
+      },
     };
   }
 
@@ -1746,13 +1759,15 @@
       node.textContent = "自检：这个角色还没有回复可查。";
       return;
     }
-    const hits = core.lintGuiltIn(replies.map((message) => message.mes));
+    const hits = core.lintManipulationIn
+      ? core.lintManipulationIn(replies.map((message) => message.mes))
+      : core.lintGuiltIn(replies.map((message) => message.mes)).map((hit) => Object.assign({ kindLabel: "内疚话术" }, hit));
     if (!hits.length) {
-      node.textContent = `自检：最近 ${replies.length} 条回复里没有发现内疚话术。`;
+      node.textContent = `自检：最近 ${replies.length} 条回复里没有发现内疚 / 威胁 / 排他的话术。`;
       return;
     }
-    const sample = hits.slice(0, 3).map((hit) => `「${hit.phrase}」`).join("、");
-    node.textContent = `自检：最近 ${replies.length} 条回复里有 ${hits.length} 处像内疚话术（${sample}）。`
+    const sample = hits.slice(0, 3).map((hit) => `「${hit.phrase}」（${hit.kindLabel || "内疚话术"}）`).join("、");
+    node.textContent = `自检：最近 ${replies.length} 条回复里有 ${hits.length} 处要留意（${sample}）。`
       + "这几句只是提醒，不会被自动改掉。";
   }
 
@@ -1762,6 +1777,7 @@
     const p = core.normalizeProfile(profile);
     renderCompanionRelationOptions();
     const set = (selector, value) => { const node = document.querySelector(selector); if (node) node.value = value; };
+    const check = (selector, value) => { const node = document.querySelector(selector); if (node) node.checked = value === true; };
     const enabled = document.querySelector("#companionEnabled");
     if (enabled) enabled.checked = p.enabled === true;
     set("#companionRelation", p.relation);
@@ -1770,9 +1786,39 @@
     set("#companionUserCallsChar", p.userCallsChar);
     set("#companionSince", p.since);
     set("#companionShared", p.shared.map((row) => row.text).join("\n"));
+    // 伴侣模式 v2 三个控件
+    const affinity = core.affinityOf(p, new Date());
+    set("#companionAffinity", String(p.affinity));
+    check("#companionAffinityAuto", p.affinityMode === "auto");
+    set("#companionNeglect", p.neglect);
+    check("#companionProactive", p.proactive.enabled);
+    set("#companionProactiveGap", String(p.proactive.minGapHours));
+    set("#companionProactiveMax", String(p.proactive.maxPerDay));
+    renderCompanionAffinityHint(affinity);
     renderCompanionCustomRow();
     renderCompanionPreview();
     renderCompanionSelfCheck();
+  }
+
+  /** 亲近度那一行的实时提示：现在是几分、什么档、手动还是系统算的。 */
+  function renderCompanionAffinityHint(affinity) {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    const valueNode = document.querySelector("#companionAffinityValue");
+    const tierNode = document.querySelector("#companionAffinityTier");
+    const hintNode = document.querySelector("#companionAffinityHint");
+    const slider = document.querySelector("#companionAffinity");
+    const auto = document.querySelector("#companionAffinityAuto")?.checked === true;
+    if (!core || !hintNode) return;
+    const shown = auto ? affinity.suggested : affinity.value;
+    if (valueNode) valueNode.textContent = String(shown);
+    if (tierNode) tierNode.textContent = core.affinityTier(shown, "zh").label;
+    if (slider) {
+      slider.disabled = auto;
+      if (auto) slider.value = String(shown);
+    }
+    hintNode.textContent = auto
+      ? `系统按「共同经历 + 认识多久 − 多久没聊」算的（现在是 ${shown}）。想自己定就取消勾选，直接拖。`
+      : "你自己定的。系统不会偷偷改它；想交回系统就勾上「跟随系统建议」。";
   }
 
   async function openCompanionDialog() {
@@ -2750,6 +2796,105 @@
       setChatListStatus("对话列表暂时无法加载。", true);
     }
     syncActiveSession();
+    // 2026-09-12 用户拍板：「伴侣类版本可以有主动消息」。这个应用没有后端、没有推送，
+    // 所以"主动"只能是**你回来的时候它先开口** —— 就是这里：对话加载完之后试一次。
+    maybeProactiveOpening().catch(() => { /* 主动开口失败不该影响打开对话 */ });
+  }
+
+  /**
+   * 伴侣模式的"主动开口"：打开这个角色的对话时，如果隔得够久、今天还没发够，
+   * 就让角色自己先说一句（像真人突然发来一条消息）。
+   * 三个约束：只在伴侣模式 + 主动消息都开着时；同一段对话每次打开只试一次；每天有条数上限。
+   */
+  async function maybeProactiveOpening() {
+    const core = window.ROLEWORLD_COMPANION_CORE;
+    // 为什么没开口：留给「设置 → 关于」与测试看（比"没反应"强）。
+    const bail = (reason) => { liveState.proactiveReason = reason; return false; };
+    if (!core || typeof core.proactiveDecision !== "function") return bail("no-core");
+    if (liveState.pending || liveState.switching) return bail("busy");
+    const session = liveState.activeSession;
+    const entry = activeCharacterEntry();
+    if (!session || !entry || !entry.avatar) return bail("no-session");
+    // 只在"已经聊过、不是空白新对话"的会话里主动（新对话该由用户先开口）。
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    if (messages.length < 2) return bail("empty-chat");
+    const key = String(session.storageFileName || session.fileName || session.id || "");
+    liveState.proactiveTried = liveState.proactiveTried || new Set();
+    if (liveState.proactiveTried.has(key)) return bail("already-tried");
+    liveState.proactiveTried.add(key);
+
+    let profile = null;
+    try { profile = await loadCompanion(entry); } catch (_) { return bail("no-profile"); }
+    const now = new Date();
+    const decision = core.proactiveDecision(profile, now);
+    if (!decision.ok) return bail("decision:" + decision.reason);
+
+    const card = liveState.card || (liveState.cardCache && liveState.cardCache.get(entry.avatar)) || null;
+    if (!card) return bail("no-card");
+    const lang = companionLangFor(entry);
+    // 注意：这里是 boot 早期（loadCharacterAndChat 结束时），liveState.localSettings 可能还没加载，
+    // 用它会导致端点回退成服务商默认地址 —— 真发生过：请求打到了真的 DeepSeek 并拿到 401。
+    let settings = liveState.localSettings && liveState.localSettings.provider ? liveState.localSettings : null;
+    if (!settings) {
+      try { settings = await window.RoleWorld.getLocalSettings(); } catch (_) { settings = {}; }
+    }
+    const provider = settings.provider || "deepseek";
+    const apiKey = ((await window.RoleWorld.secrets.get(window.RoleWorldModel.secretKeyFor({ provider }))) || {}).value || "";
+    if (!apiKey) return bail("no-key");
+
+    // 记忆书用和正常发送同一条路（memoryBooksFor），别自己拼一份。
+    let booksForChar = [];
+    try {
+      booksForChar = window.TASK29_CHARACTER_CORE.memoryBooksFor(entry, liveState.memoryBooks);
+    } catch (_) { booksForChar = []; }
+    const messagesForModel = [
+      { role: "system", content: window.TASK22_CORE.buildSystemPromptWithFormat(card, booksForChar, "", null, {
+        purpose: window.TASK22_CORE.PURPOSES.COMPANION,
+        language: languageForAvatar(entry.avatar),
+      }) },
+      { role: "system", content: core.proactiveInstruction(profile, { now, lang }) },
+    ];
+    for (const message of messages.slice(-6)) {
+      if (!message || typeof message.mes !== "string" || !message.mes) continue;
+      messagesForModel.push({ role: message.is_user ? "user" : "assistant", content: message.mes });
+    }
+
+    liveState.proactiveRunning = true;
+    try {
+      const result = await window.RoleWorldModel.complete(
+        { messages: messagesForModel, max_tokens: 220 },
+        {
+          settings: { provider, endpoint: window.RoleWorldModel.endpointFor(settings), model: liveState.modelName },
+          apiKey: apiKey,
+        },
+      );
+      const text = String((result && result.content) || "").trim();
+      if (!text) return false;
+      // 像正常一轮那样落盘：写成助手消息，并把"今天主动发过几条"记上。
+      messages.push({
+        name: entry.charName || entry.avatar,
+        is_user: false,
+        mes: text,
+        send_date: new Date().toISOString(),
+        rw_proactive: true,
+      });
+      try { await window.STApi.saveChat(entry.avatar, session.storageFileName || session.fileName, messages); } catch (_) { /* 存不下也先显示 */ }
+      const today = core.isoDay(now);
+      const sentToday = core.proactiveCountToday(profile, now) + 1;
+      await saveCompanion(entry, core.normalizeProfile(Object.assign({}, profile, {
+        proactiveLog: today + "|" + sentToday,
+        lastChatAt: now.toISOString(),
+      })));
+      syncActiveSession();
+      liveState.proactiveReason = "sent";
+      showToast((entry.charName || "他") + "先开口了");
+      return true;
+    } catch (error) {
+      liveState.proactiveReason = "error:" + String((error && error.message) || error).slice(0, 120);
+      return false;
+    } finally {
+      liveState.proactiveRunning = false;
+    }
   }
 
   async function retryChatList() {
@@ -3406,6 +3551,14 @@
         const companionBlock = companionBlockFor(entry, companionProfile);
         if (companionBlock) extraParts.push(companionBlock);
       } catch (_) { companionProfile = null; }
+      // 危机兜底（2026-09-12）：系统提示里本来就有一条"安全兜底"（每个角色每轮都有），
+      // 命中危机词时**再加一条更详细的**，把"不承诺保密 / 不冒充真人 / 给一个具体动作"讲透。
+      try {
+        const safetyCore = window.ROLEWORLD_COMPANION_CORE;
+        if (safetyCore && safetyCore.isCrisisText(text)) {
+          extraParts.push(safetyCore.crisisInstruction(languageForAvatar(entry.avatar) === "en" ? "en" : "zh"));
+        }
+      } catch (_) { /* 安全规则加不上也不能挡住这一轮 */ }
       // 用途档案：伴侣模式用 companion，其余用 chat。
       // 它决定采样口味、回复格式指令、要不要自动检索 —— 数字只在 task22-core 那张表里。
       const purpose = companionProfile && companionProfile.enabled === true
@@ -4249,6 +4402,8 @@
     closeMemoryPanel,
     // 伴侣模式：关系档案（用户亲手写的那一份）。
     openCompanionDialog,
+    // 主动开口为什么没发生（诊断用；测试与"设置 → 关于"都能看）。
+    proactiveState: () => ({ reason: liveState.proactiveReason || null, tried: Array.from(liveState.proactiveTried || []) }),
     closeCompanionDialog,
     loadCompanion,
     saveCompanion,
@@ -4430,8 +4585,23 @@
       renderCompanionCustomRow();
       renderCompanionPreview();
     });
+    // 亲近度那两个控件是"联动"的：勾上自动就禁用滑杆并显示系统算的值。
+    const affinityAuto = document.querySelector("#companionAffinityAuto");
+    if (affinityAuto) affinityAuto.addEventListener("change", () => {
+      const core = window.ROLEWORLD_COMPANION_CORE;
+      const entry = liveState.companionEntry || activeCharacterEntry();
+      renderCompanionAffinityHint(core.affinityOf(readCompanionForm(), new Date()));
+      renderCompanionPreview();
+      void entry;
+    });
+    const affinitySlider = document.querySelector("#companionAffinity");
+    if (affinitySlider) affinitySlider.addEventListener("input", () => {
+      const core = window.ROLEWORLD_COMPANION_CORE;
+      renderCompanionAffinityHint(core.affinityOf(readCompanionForm(), new Date()));
+    });
     ["#companionEnabled", "#companionCharCallsUser", "#companionUserCallsChar", "#companionSince",
-      "#companionRelationCustom", "#companionShared"].forEach((selector) => {
+      "#companionRelationCustom", "#companionShared", "#companionAffinity", "#companionNeglect",
+      "#companionProactive", "#companionProactiveGap", "#companionProactiveMax"].forEach((selector) => {
       const node = document.querySelector(selector);
       if (!node) return;
       node.addEventListener("input", renderCompanionPreview);
