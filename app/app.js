@@ -497,10 +497,14 @@ function closeUtilities() {
 function openInspector(view) {
   state.inspector = view;
   if (view !== "memories") return;
-  // 顶栏「记忆」**只做一件事**：打开统一角色面板的记忆页。
-  // 2026-09-13 用户实测反馈：「为什么点击一下会跳出一个框、还会打开右边侧栏」——
-  // 之前这里顺手把右侧常驻记忆栏也打开了（想保住旧行为），结果是"一次点击动了两处"。
-  // 右侧栏现在有自己的开关：设置 → 外观与布局 → 面板状态。
+  // 用户 2026-09-13 定的分工（原话：「如果是手机版就直接弹出弹窗，电脑版就直接打开侧边栏」）：
+  //   · 手机（窄屏）：右边那栏本来就是 display:none，直接弹**角色面板的记忆页**；
+  //   · 电脑（宽屏）：直接把**右侧记忆栏**打开（这是这个按钮一直以来的行为），
+  //     要看更细的（设定 / 关系）再点顶栏的角色名。
+  if (window.innerWidth >= layoutConfig.utilityCloseWidth) {
+    setMemoryPanelOpen(true);
+    return;
+  }
   if (window.TASK21 && typeof window.TASK21.openMemoryPanel === "function") {
     window.TASK21.openMemoryPanel();
     return;

@@ -550,11 +550,10 @@ async function main() {
     for (const type of ["mousePressed", "mouseReleased"]) {
       await cdp.sessionSend(session, "Input.dispatchMouseEvent", { type, x: hit.x, y: hit.y, button: "left", clickCount: 1 });
     }
-    // 2026-09-13 起：顶栏「记忆」**只做一件事** —— 打开角色面板的记忆页；
-  // 右侧常驻记忆栏改由「设置 → 外观与布局 → 面板状态」里的开关控制
-  // （用户实测反馈："点一下为什么会跳出一个框、还打开右边侧栏"）。
-  await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
-  await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    // 用户 2026-09-13 定的分工：「手机版就直接弹出弹窗，电脑版就直接打开侧边栏」。
+  // 用例跑在宽屏上，所以这里量的是**右侧记忆栏**打开了（窄屏那条由 viewport 套件覆盖）。
+  await waitFor("document.querySelector('.inspector-column').getAttribute('aria-hidden') === 'false'", 8000);
+  await evaluate("window.TASK25C_UI.setMemoryPanelOpen ? window.TASK25C_UI.setMemoryPanelOpen(false) : null; true");
     await waitFor("document.querySelectorAll('#memoryBookList .memory-book').length > 0", 8000);
     const listed = await evaluate("document.querySelector('#memoryBookList').textContent");
     assert(listed.indexOf("自动记忆") >= 0, "记忆栏里没列出真实记忆书：" + JSON.stringify(listed));
