@@ -23,7 +23,8 @@
       endpoint: "https://api.deepseek.com/chat/completions",
       secretKey: "api_key_deepseek",
       // Official catalog checked 2026-09-11: https://api-docs.deepseek.com/updates/
-      models: ["deepseek-flash", "deepseek-v4-pro"],
+      // 2026-09-13 用户：「用 deepseek 就固定 deepseek-flash，不要用 v4-pro 了又蠢又贵」。
+      models: ["deepseek-flash"],
     },
     openai: {
       label: "OpenAI",
@@ -107,7 +108,17 @@
     const source = payload || {};
     const settings = source.settings || {};
     const body = {
-      model: source.model || settings.model || DEFAULT_SETTINGS.model,
+      // DeepSeek 固定 deepseek-flash：老存档里存着 v4-pro / reasoner 的一律按 flash 发，
+    // 免得"又蠢又贵"那个模型被悄悄用上（用户 2026-09-13 明确要求）。
+    model: (function () {
+      const picked = source.model || settings.model || DEFAULT_SETTINGS.model;
+      const core = global.TASK22_CORE;
+      const provider = String((settings && settings.provider) || "deepseek");
+      if (provider === "deepseek" && core && typeof core.pinDeepseekModel === "function") {
+        return core.pinDeepseekModel(picked);
+      }
+      return picked;
+    })(),
       messages: Array.isArray(source.messages) ? source.messages : [],
       stream: source.stream === true,
     };

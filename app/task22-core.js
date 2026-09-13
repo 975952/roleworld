@@ -1203,6 +1203,14 @@
     };
   }
 
+  /** DeepSeek 只认 deepseek-flash（用户 2026-09-13：「用 deepseek 就固定 deepseek-flash，
+   *  不要用 v4-pro 了又蠢又贵」）。老存档 / 老体验卡里存着 pro 名字的，统一搬过来。 */
+  function pinDeepseekModel(name) {
+    const raw = String(name || "").trim();
+    if (!raw) return raw;
+    return /v?4[-_.]?pro|reasoner|^deepseek-v4$/i.test(raw) ? "deepseek-flash" : raw;
+  }
+
   function messagesFromChat(lines) {
     return (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === "string");
   }
@@ -1750,6 +1758,7 @@
     chatDayLabel,
     normalizeChatSummary,
     messagesFromChat,
+    pinDeepseekModel,
     createHarryChatModel,
   };
 });

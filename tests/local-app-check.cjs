@@ -734,7 +734,9 @@ async function main() {
     assert(current === "deepseek-flash", "顶栏当前值不对：" + current);
     assert(await evaluate("document.querySelector('#chatDeepseekKeyInput') === null"), "对话页仍有重复的密钥输入框");
     const options = await evaluate("Array.from(document.querySelectorAll('#chatModelSelect option')).map((o) => o.value)");
-    assert(options.indexOf("deepseek-v4-pro") >= 0, "已知型号没列出来：" + JSON.stringify(options));
+    assert(options.indexOf("deepseek-flash") >= 0, "已知型号没列出来：" + JSON.stringify(options));
+    assert(options.indexOf("deepseek-v4-pro") < 0,
+      "DeepSeek 只留 deepseek-flash（用户要求不再用 v4-pro）：" + JSON.stringify(options));
     assert(options.indexOf("__custom__") >= 0, "缺少「自定义模型名…」入口");
 
     await evaluate(`(() => {
@@ -743,7 +745,7 @@ async function main() {
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-v4-pro'", 8000);
+    await waitFor("(document.querySelector('[data-roleworld=\"model\"]') || {}).value === 'deepseek-flash'", 8000);
 
     await evaluate(`(() => {
       const select = document.querySelector('#chatModelSelect');

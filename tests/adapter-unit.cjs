@@ -581,10 +581,10 @@ async function main() {
     }
   });
 
-  await test("版本号四处一致：package.json / tauri.conf.json / Cargo.toml / app/version.json", () => {
+  await test("版本号五处一致：package.json / tauri.conf.json / Cargo.toml / app/version.json / app/build.js", () => {
     // app/version.json 是给网页版判断"线上是不是发了新版"用的（见 app/pwa.js）；
     // Cargo.toml 决定 **Windows「应用和功能」里显示的版本** —— 它以前漏了，
-    // 于是装出来的 0.1.15 在系统里显示成 0.1.0。四处都由 scripts/set-version.cjs 一起改。
+    // 于是装出来的 0.1.15 在系统里显示成 0.1.0。五处都由 scripts/set-version.cjs 一起改。
     const root = path.join(__dirname, "..");
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     const tauri = JSON.parse(fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"));
@@ -622,6 +622,50 @@ async function main() {
     assert.ok(sw.indexOf('addEventListener("fetch"') >= 0, "离线壳没有 fetch 处理");
     assert.ok(sw.indexOf('addEventListener("install"') >= 0, "离线壳没有 install 处理");
     // 行为正确性（真离线打开、提示页不覆盖外壳）由 tests/offline-check.cjs 在真实浏览器里验。
+  });
+
+  await test("Android 打包的地基没被拆掉：lib 目标 + 移动入口 + 工具链钉版一致", () => {
+    const root = path.join(__dirname, "..");
+    const cargo = fs.readFileSync(path.join(root, "src-tauri", "Cargo.toml"), "utf8");
+    const packageName = (cargo.match(/^\[package\]([\s\S]*?)(?=^\[|\Z)/m) || ["", ""])[1];
+    const appName = (packageName.match(/^\s*name\s*=\s*"([^"]+)"/m) || [])[1] || "";
+
+    // 1) `[lib]` 段必须存在且是 cdylib。
+    //    Android **不加载可执行文件，只加载动态库** —— `tauri android build` 从
+    //    `[lib] name` 推导出要加载的 `lib<name>.so`。少一段 `[lib]` 或少了 cdylib，
+    //    命令行一切正常、APK 也出得来，**装到手机上一点就闪退**（`UnsatisfiedLinkError`），
+    //    所以这条必须在打包前就红。
+    const libBlock = cargo.match(/^\[lib\]([\s\S]*?)(?=^\[|\Z)/m);
+    assert.ok(libBlock, "src-tauri/Cargo.toml 缺 [lib] 段：Android 只加载动态库");
+    const crateTypes = ((libBlock[1].match(/crate-type\s*=\s*\[([^\]]*)\]/) || [])[1] || "");
+    assert.ok(crateTypes.indexOf("cdylib") >= 0, "[lib] 的 crate-type 必须含 cdylib（Android 加载 .so）");
+    const libBlockName = (libBlock[1].match(/name\s*=\s*"([^"]+)"/) || [])[1] || "";
+    assert.ok(
+      libBlockName && libBlockName === appName,
+      "[lib] name 与 package name 不一致（.so 名字会对不上，手机闪退）：" + libBlockName + " vs " + appName,
+    );
+
+    // 2) 移动入口：这个宏生成 Android/iOS 侧要调用的 `start_app` 符号。
+    const libRs = fs.readFileSync(path.join(root, "src-tauri", "src", "lib.rs"), "utf8");
+    assert.ok(
+      libRs.indexOf("tauri::mobile_entry_point") >= 0,
+      "src/lib.rs 缺 #[cfg_attr(mobile, tauri::mobile_entry_point)]：手机会起不来",
+    );
+    assert.ok(/pub\s+fn\s+run\s*\(/.test(libRs), "src/lib.rs 没有 pub fn run()（移动入口）");
+    // 桌面入口只是薄壳，真正的命令在库里，改一处两端都变。
+    const mainRs = fs.readFileSync(path.join(root, "src-tauri", "src", "main.rs"), "utf8");
+    assert.ok(mainRs.indexOf("roleworld::run()") >= 0, "src/main.rs 没有调用 roleworld::run()（桌面入口断了）");
+
+    // 3) 打包脚本里钉的 NDK 版本。
+    //    踩过：SDK 下同时装了 27 和 29 时，tauri-cli 会挑**字典序最大**的那个，
+    //    而 CLI 2.11.4 认的是 29.0.13846066。写错版本号时构建能过、行为却不对，
+    //    所以这里和 CLI 的常量和脚本的常量对齐。
+    const script = fs.readFileSync(path.join(root, "scripts", "build-android.cjs"), "utf8");
+    const pinned = (script.match(/NDK_VERSION\s*=\s*"([^"]+)"/) || [])[1] || "";
+    assert.equal(pinned, "29.0.13846066", "build-android.cjs 里的 NDK 版本和 tauri-cli 2.11.4 钉的不一致");
+    // 构建命令必须真的接进 package.json，否则没人知道怎么出包。
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    assert.ok(pkg.scripts["android:build"], "package.json 里没有 android:build 命令");
   });
 
   await test("index.html 里没有重复的 id", () => {
@@ -1700,7 +1744,8 @@ async function main() {
   await test("官方目录只列在售型号", () => {
     const models = Model.PRESETS.deepseek.models;
     assert.ok(models.indexOf("deepseek-flash") >= 0, "缺少 deepseek-flash：" + JSON.stringify(models));
-    assert.ok(models.indexOf("deepseek-v4-pro") >= 0, "缺少 deepseek-v4-pro：" + JSON.stringify(models));
+    assert.ok(models.indexOf("deepseek-v4-pro") < 0,
+      "DeepSeek 只留 deepseek-flash（用户要求不再用 v4-pro）：" + JSON.stringify(models));
     assert.ok(models.indexOf("deepseek-v4-flash") < 0, "已下线的旧型号还在列表里：" + JSON.stringify(models));
     assert.equal(Model.DEFAULT_SETTINGS.model, "deepseek-flash");
   });
