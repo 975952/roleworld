@@ -3535,6 +3535,82 @@ async function main() {
 
   console.log("== 消息旁的操作（本轮第 ③ 项）==");
 
+  await check("伴侣模式开关就在角色自己那一行：给谁开点谁，不用先切过去", async () => {
+    // 用户 2026-09-13：「现在的是什么当前角色啥的我要做到每个角色本身的上面」。
+    // 这条盯的是「设置 → 角色管理」里每一行那个开关：
+    // ① 每个角色都有；② 给**非当前**角色打开不会影响当前角色；③ 切过去看确实开着。
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
+    await evaluate("window.TASK25C_UI.setSettingsSection('characters'); true");
+    await waitFor("document.querySelectorAll('#characterManageList .character-manage-row').length >= 2", 10000);
+
+    const rows = await evaluate(`(() => Array.from(document.querySelectorAll('#characterManageList .character-manage-row')).map((row) => {
+      const box = row.querySelector("[data-companion-avatar]");
+      const strong = row.querySelector('.character-manage-head strong');
+      return {
+        name: strong ? strong.textContent : '',
+        avatar: box ? box.dataset.companionAvatar : '',
+        hasSwitch: !!box,
+        disabled: box ? box.disabled === true : true,
+        text: row.querySelector('.character-manage-companion') ? row.querySelector('.character-manage-companion').textContent.trim() : '',
+      };
+    }))()`);
+    assert(rows.length >= 2, "角色管理里应当至少两个角色：" + JSON.stringify(rows));
+    assert(rows.every((row) => row.hasSwitch), "有角色这一行没有「伴侣模式」开关：" + JSON.stringify(rows));
+    assert(rows.every((row) => row.text.indexOf('伴侣模式') >= 0), "开关文案不对：" + JSON.stringify(rows.map((r) => r.text)));
+    await waitFor("Array.from(document.querySelectorAll('#characterManageList [data-companion-avatar]')).every((b) => b.disabled === false)", 8000);
+
+    // 挑一个**不是**当前对话的角色
+    const target = await evaluate(`(async () => {
+      const current = (document.querySelector('#topbarTitle') || {}).textContent || '';
+      const box = Array.from(document.querySelectorAll('#characterManageList [data-companion-avatar]'))
+        .find((node) => {
+          const row = node.closest('.character-manage-row');
+          const strong = row.querySelector('.character-manage-head strong');
+          return strong && strong.textContent.indexOf(current.trim()) < 0;
+        });
+      if (!box) return null;
+      const avatar = box.dataset.companionAvatar;
+      const before = box.checked;
+      box.checked = true;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 700));
+      const profile = await window.TASK21.loadCompanion({ avatar });
+      return { avatar, before, stored: profile && profile.enabled === true, toast: (document.querySelector('#toast') || {}).textContent || '' };
+    })()`);
+    assert(target, "没有找到第二个角色来做这条用例");
+    assert(target.stored === true, "在角色那一行打开伴侣模式没有落盘：" + JSON.stringify(target));
+    assert(target.toast.indexOf(target.avatar.replace('.png', '')) >= 0 || target.toast.indexOf('伴侣模式') >= 0,
+      "打开之后没给出反馈：" + target.toast);
+
+    // 当前对话角色的伴侣模式不该被牵动（per-character 的真意思）
+    const untouched = await evaluate(`(async () => {
+      const current = (document.querySelector('#topbarTitle') || {}).textContent || '';
+      const box = Array.from(document.querySelectorAll('#characterManageList [data-companion-avatar]'))
+        .find((node) => {
+          const row = node.closest('.character-manage-row');
+          const strong = row.querySelector('.character-manage-head strong');
+          return strong && strong.textContent.indexOf(current.trim()) >= 0;
+        });
+      return box ? box.checked : null;
+    })()`);
+    assert(untouched === false, "给别的角色开伴侣模式，把当前角色也带开了：" + untouched);
+
+    // 收尾：把它关回去，别影响后面的用例。
+    await evaluate(`(async () => {
+      const box = Array.from(document.querySelectorAll('#characterManageList [data-companion-avatar]'))
+        .find((node) => node.dataset.companionAvatar === ${JSON.stringify(target.avatar)});
+      box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 600));
+      return true;
+    })()`);
+    const closed = await evaluate(`(async () => (await window.TASK21.loadCompanion({ avatar: ${JSON.stringify(target.avatar)} })).enabled === true)()`);
+    assert(closed === false, "关回去没生效");
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
+  });
+
   await check("消息菜单：每条消息都有入口，手机上不用悬停也点得到，复制真的复制到了", async () => {
     await goto(base + "/index.html?onboarding=off&surprise=off");
     await waitFor("window.TASK21_READY === true", 30000);

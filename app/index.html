@@ -404,7 +404,10 @@
           <section class="settings-section" id="settings-characters" data-settings-panel="characters">
             <div class="settings-section-heading"><h2>角色管理</h2><p>创建、导入或删除当前账户的角色卡。删除会同时删除该角色的全部聊天，不可恢复。</p></div>
             <div class="settings-card">
-              <div class="character-manage-toolbar"><span id="characterManageCount">0 个角色</span><button class="plain-button" type="button" data-action="open-companion">伴侣模式（当前角色）</button><button class="plain-button" type="button" data-action="character-ai-create">AI 创建角色</button><button class="plain-button" type="button" data-action="character-import">导入角色文件</button><button class="plain-button" type="button" data-action="character-refresh">刷新</button></div>
+              <div class="character-manage-toolbar"><span id="characterManageCount">0 个角色</span><button class="plain-button" type="button" data-action="open-companion">伴侣模式详情（当前对话角色）</button><button class="plain-button" type="button" data-action="character-ai-create">AI 创建角色</button><button class="plain-button" type="button" data-action="character-import">导入角色文件</button><button class="plain-button" type="button" data-action="character-refresh">刷新</button></div>
+              <p class="settings-empty">伴侣模式是<b>每个角色单独</b>开的：下面每一行都有「伴侣模式」开关，给谁开就点谁 ——
+                不用先切到那个角色。上面那颗按钮只是打开<b>当前正在对话</b>的那个角色的详细档案
+                （关系 / 称呼 / 共同经历 / 亲近度 / 久没聊时的态度 / 主动开口）。</p>
               <div class="character-manage-list" id="characterManageList"></div>
               <p class="settings-empty" id="characterManageEmpty">正在加载角色…</p>
             </div>

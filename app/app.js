@@ -981,6 +981,27 @@ function renderCharacterManagement(cards) {
     langSelect.addEventListener("change", () => { setCharacterLanguage(card.avatar, langSelect.value).catch(() => {}); });
     langWrap.append(langLabel, langSelect);
     actions.appendChild(langWrap);
+    // 伴侣模式：**每个角色一个**开关，就摆在角色这一行上。
+    // 2026-09-13 用户：「现在的是什么当前角色啥的我要做到每个角色本身的上面」——
+    // 以前只能先切到那个角色、再去关系页里找开关；这里直接一行一个，
+    // 存的是同一份 companion:<角色文件>，不新增一套配置。
+    const companionToggle = document.createElement("label");
+    companionToggle.className = "character-manage-companion";
+    companionToggle.title = "给这个角色单独打开伴侣模式：关系档案、亲近度、久没聊时的态度、主动开口都在角色面板的「关系」页里";
+    const companionBox = document.createElement("input");
+    companionBox.type = "checkbox";
+    companionBox.disabled = true; // 读出来之前先别让人点，免得把默认值当成真值存回去
+    companionBox.dataset.companionAvatar = card.avatar;
+    companionBox.setAttribute("aria-label", `给 ${card.name || card.avatar} 单独打开伴侣模式`);
+    companionBox.addEventListener("change", () => { setCharacterCompanion(card, companionBox).catch(() => {}); });
+    const companionText = document.createElement("span");
+    companionText.textContent = "伴侣模式";
+    companionToggle.append(companionBox, companionText);
+    actions.appendChild(companionToggle);
+    loadCompanionEnabled(card.avatar)
+      .then((on) => { companionBox.checked = on; })
+      .catch(() => { /* 读不到就按关着显示 */ })
+      .then(() => { companionBox.disabled = false; });
     // 侧栏开关：每个角色一个，状态本机持久化；关掉只影响侧栏展示。
     const sidebarToggle = document.createElement("label");
     sidebarToggle.className = "character-manage-sidebar";
@@ -1013,8 +1034,44 @@ function renderCharacterManagement(cards) {
   }
 }
 
-async function confirmDeleteCharacter(card) {
-  if (!card || !card.avatar) return;
+/** 读某个角色有没有开伴侣模式（存在 companion:<角色文件> 里，和关系档案同一份）。 */
+async function loadCompanionEnabled(avatar) {
+  const api = window.TASK21;
+  if (!api || typeof api.loadCompanion !== "function" || !avatar) return false;
+  const profile = await api.loadCompanion({ avatar: String(avatar) });
+  return !!(profile && profile.enabled === true);
+}
+
+/** 在角色这一行上直接开关伴侣模式：读写还是同一份 per-character 档案。 */
+async function setCharacterCompanion(card, box) {
+  const api = window.TASK21;
+  const core = window.ROLEWORLD_COMPANION_CORE;
+  const entry = { avatar: String(card && card.avatar || ""), charName: String(card && (card.name || card.avatar) || "") };
+  if (!api || typeof api.saveCompanion !== "function" || !entry.avatar) {
+    box.checked = !box.checked;
+    showToast("伴侣模式暂不可用，请刷新后重试");
+    return;
+  }
+  const want = box.checked === true;
+  box.disabled = true;
+  try {
+    const current = await api.loadCompanion(entry);
+    const merged = Object.assign({}, current, { enabled: want });
+    const next = core && typeof core.normalizeProfile === "function" ? core.normalizeProfile(merged) : merged;
+    await api.saveCompanion(entry, next);
+    // saveCompanion 自己会更新集成层那份按角色缓存，所以下一轮就是新状态，不用额外通知。
+    showToast(want
+      ? `已给「${entry.charName}」打开伴侣模式（只对这个角色生效；细节在角色面板的「关系」页）`
+      : `已关掉「${entry.charName}」的伴侣模式`);
+  } catch (error) {
+    box.checked = !want;
+    showToast("保存失败：" + String((error && error.message) || error).slice(0, 80));
+  } finally {
+    box.disabled = false;
+  }
+}
+
+async function confirmDeleteCharacter(card) {  if (!card || !card.avatar) return;
   const avatar = String(card.avatar);
   const name = String(card.name || avatar);
   const confirmationWord = "删除";
