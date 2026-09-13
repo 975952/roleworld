@@ -225,6 +225,52 @@ async function main() {
       assert(probe.input.bottom <= probe.innerHeight + 1, "输入框超出视口底部：" + JSON.stringify(probe.input));
     });
 
+    // 用户 2026-09-12：「文字还是会超出输入框」。
+    // 中文与空格式子本来就会换行，真正会顶出去的是**一长串没有空格的**内容（长链接、英文长词、
+    // 别人复制过来的一整行 base64）。四种极端草稿都量一次：输入框自己不许横向滚动，
+    // 输入区盒子也不许被撑宽，页面更不许出现横向滚动条。
+    //
+    // 注意（2026-09-13 实测）：**光靠上面这些量法抓不到这个 bug** ——
+    // Chrome 的 UA 样式表里 textarea 自带 `overflow-wrap: break-word`，长词本来就会断；
+    // 而 iOS Safari 没有这条默认值，所以用户手机上才会溢出、我在无头 Chrome 里怎么量都是 0。
+    // 因此再钉一条"保险必须在"：显式声明了 overflow-wrap / word-break，
+    // 谁把这两行删掉，这条用例立刻红。
+    await check(`${viewport.label}：输入框里的长文本不会溢出（长词 / 长句 / 长链接）`, async () => {
+      const cases = {
+        长英文单词: "Supercalifragilisticexpialidocious".repeat(8),
+        长中文句: "这是一句很长的中文，用来看看它会不会超出输入框的宽度。".repeat(6),
+        长链接: "https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com/index.html?token=abcdefghijklmnopqrstuvwxyz0123456789",
+        纯字母: "a".repeat(160),
+      };
+      const bad = [];
+      for (const [name, text] of Object.entries(cases)) {
+        const info = await evaluate(`(() => {
+          const input = document.querySelector('#messageInput');
+          input.value = ${JSON.stringify(text)};
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          const box = document.querySelector('.composer-box');
+          const doc = document.documentElement;
+          const style = getComputedStyle(input);
+          return {
+            name: ${JSON.stringify(name)},
+            inputOverflow: input.scrollWidth - input.clientWidth,
+            boxOverflow: box.scrollWidth - box.clientWidth,
+            docOverflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
+            overflowWrap: style.overflowWrap,
+            wordBreak: style.wordBreak,
+          };
+        })()`);
+        if (info.inputOverflow > 2 || info.boxOverflow > 2 || info.docOverflow > 4) bad.push(info);
+        assert(info.overflowWrap === "anywhere" || info.overflowWrap === "break-word",
+          "输入框没写 overflow-wrap，iOS Safari 上长链接会顶出框外：" + JSON.stringify(info));
+        assert(info.wordBreak === "break-word" || info.wordBreak === "break-all",
+          "输入框没写 word-break，长英文词会顶出框外：" + JSON.stringify(info));
+        await evaluate(`(() => { const i = document.querySelector('#messageInput'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      assert(bad.length === 0, "这些草稿溢出了输入框：" + JSON.stringify(bad));
+    });
+
     await check(`${viewport.label}：顶栏每个控件都真的点得到（不被盖住、不互相压住）`, async () => {
       // 2026-09-12 用户实测：「手机端上面几个东西都点不动，而且还有重叠」。
       // 根因两条：① 手机上顶栏是**写死高度**，第二行溢出自己的盒子 → 被后画的聊天区盖住；
