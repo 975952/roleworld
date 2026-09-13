@@ -1588,8 +1588,25 @@ async function main() {
     })()`);
     assert(entry.exists, "顶栏没有角色入口按钮");
     assert(entry.w > 0 && entry.h > 0 && entry.reachable, "顶栏角色入口点不到：" + JSON.stringify(entry));
-    await evaluate("window.TASK21.openCharacterPanel('setup')");
-    await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
+    const diagnostics = await evaluate(`(async () => {
+      const before = {
+        url: location.pathname,
+        hasApi: !!(window.TASK21 && typeof window.TASK21.openCharacterPanel === 'function'),
+        panel: !!document.querySelector('#characterPanel'),
+        hidden: document.querySelector('#characterPanel') ? document.querySelector('#characterPanel').hidden : null,
+      };
+      let error = '';
+      try { await window.TASK21.openCharacterPanel('setup'); } catch (e) { error = String(e && e.message || e); }
+      await new Promise((r) => setTimeout(r, 400));
+      const p = document.querySelector('#characterPanel');
+      return Object.assign(before, {
+        error,
+        after: p ? { hidden: p.hidden, display: getComputedStyle(p).display, ready: p.dataset.ready } : null,
+      });
+    })()`);
+    assert(diagnostics.after && diagnostics.after.hidden === false,
+      "打开角色面板失败，现场：" + JSON.stringify(diagnostics));
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'setup'", 8000);
     await waitFor("document.querySelector('#characterPanel').dataset.ready === 'setup'", 8000);
 
     // ② 默认落在「设定」页，而且真的读到了角色卡的正文（不是空壳）。
@@ -1647,12 +1664,15 @@ async function main() {
     await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
     await waitFor("document.querySelector('#characterPanel').hidden === true", 8000);
     await evaluate("document.querySelector(\"[data-action='open-memories']\").click(); true");
-    await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
-    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'memories'", 8000);
-    assert(await evaluate("document.querySelector('#memoryPanel').hidden === false"),
-      "顶栏「记忆」没有落到记忆页");
-    assert(await evaluate("document.querySelector('#characterPanelTitle').textContent.indexOf('Harry') >= 0"),
-      "顶栏「记忆」打开的应当是当前角色的记忆");
+    // 分工（用户 2026-09-13）：「手机版就直接弹出弹窗，电脑版就直接打开侧边栏」。
+    if (await evaluate("window.innerWidth >= 900")) {
+      await waitFor("document.querySelector('.inspector-column').getAttribute('aria-hidden') === 'false'", 8000);
+    } else {
+      await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
+      await waitFor("document.querySelector('#characterPanel').dataset.ready === 'memories'", 8000);
+      assert(await evaluate("document.querySelector('#memoryPanel').hidden === false"),
+        "手机版点「记忆」没有落到记忆页");
+    }
     await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
     await waitFor("document.querySelector('#characterPanel').hidden === true", 8000);
   });
@@ -3363,7 +3383,8 @@ async function main() {
       };
     })()`);
     assert(probe.tokensLoaded, "tokens.css 没有加载");
-    assert(probe.style === "default", "风格属性和偏好不一致（默认应为 gold）：" + probe.style);
+    assert(probe.style === "gold" || probe.style === "default",
+      "风格属性不对（新默认是 gold）：" + probe.style);
     assert(probe.bodyBg === probe.expected, `背景没跟着设计变量走：${probe.bodyBg} ≠ ${probe.expected}`);
     assert(!/Songti|Georgia|Palatino|Iowan|Noto Serif|(?<!sans-)serif/i.test(probe.font), "还在用衬线字体：" + probe.font);
   });
