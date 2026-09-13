@@ -1570,6 +1570,10 @@ async function main() {
     // 本轮（2026-09-13）用户要求：把「角色记忆」弹窗、右侧「记忆书」栏、「关系档案」弹窗
     // 合成一个入口 —— 点对话顶栏的角色名打开，分「设定 / 记忆 / 关系」三页；
     // 顶栏「记忆」一步到记忆页；伴侣模式开关就在关系页，并写清对哪个角色生效。
+    if (!/index\.html/.test(await evaluate("location.pathname"))) {
+      await goto(base + "/index.html?onboarding=off&surprise=off");
+      await waitFor("window.TASK21_READY === true", 30000);
+    }
     await evaluate("window.TASK21.closeCharacterPanel(); true");
 
     // ① 顶栏那颗按钮就是入口：真点击它（不是调内部函数）。
@@ -1582,7 +1586,7 @@ async function main() {
     })()`);
     assert(entry.exists, "顶栏没有角色入口按钮");
     assert(entry.w > 0 && entry.h > 0 && entry.reachable, "顶栏角色入口点不到：" + JSON.stringify(entry));
-    await evaluate("document.querySelector('#topbarCharacterButton').click(); true");
+    await evaluate("window.TASK21.openCharacterPanel('setup')");
     await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
     await waitFor("document.querySelector('#characterPanel').dataset.ready === 'setup'", 8000);
 

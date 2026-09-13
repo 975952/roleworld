@@ -2133,6 +2133,12 @@
       if (title) title.textContent = entry && entry.avatar ? (entry.charName || entry.name || "角色") : "角色";
       // 两个入口各自落在固定的页：点角色名 = 设定（角色的"家"），顶栏「记忆」= 记忆。
       const next = setCharacterPanelTab(tab || "setup");
+      // **先露面，再读内容**：读角色卡 / 记忆书 / 内容包清单都要走网络或数据库，
+      // 万一哪一次不返回（实测：内容包清单的请求被前面的流式请求堵住时就会挂住），
+      // "先读完再显示"就会变成"点了没反应"。各分页填好之后会打 data-ready 标记。
+      surface.hidden = false;
+      window.TASK25C_UI?.rememberDialogFocus?.("characterPanel");
+      window.TASK25C_UI?.syncOverlayScrollLock?.();
       try {
         await renderCharacterSetup();
         if (next === "memories") await loadMemoryPane();
@@ -2150,8 +2156,6 @@
       markCharacterPaneReady(next);
     } finally {
       surface.hidden = false;
-      window.TASK25C_UI?.rememberDialogFocus?.("characterPanel");
-      window.TASK25C_UI?.syncOverlayScrollLock?.();
     }
   }
 
