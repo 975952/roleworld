@@ -1645,23 +1645,48 @@ async function main() {
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
 
     // 勾上开关之后，三组 v2 控件必须真的出现在界面上（不是只存在于 HTML 里）。
+    //
+    // 注意（2026-09-13）：原来这条把 `#companionNeglect` 量成 0×0 当成"已知 bug"记了一阵子，
+    // **其实界面没坏** —— `choice-menu.js` 会把 `.memory-modal select` 换成一个
+    // `.choice-trigger` 按钮（原生 select 被 `hidden`），量原生 select 当然永远是 0×0。
+    // 所以这里改成量"用户真正看得到的那个控件"：有 trigger 就量 trigger，
+    // 并且真的点开一次，确认菜单弹得出来、选项点得中。
     const controls = await evaluate(`(() => {
       const enabled = document.querySelector('#companionEnabled');
       enabled.checked = true;
       enabled.dispatchEvent(new Event('change', { bubbles: true }));
-      const box = (selector) => { const n = document.querySelector(selector); if (!n) return null; const r = n.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
+      const visibleNode = (selector) => {
+        const n = document.querySelector(selector);
+        if (!n) return null;
+        // 增强过的 select 后面跟着 .choice-trigger，那才是用户点的东西。
+        return (n.tagName === 'SELECT' && n.nextElementSibling && n.nextElementSibling.classList.contains('choice-trigger'))
+          ? n.nextElementSibling : n;
+      };
+      const box = (selector) => { const n = visibleNode(selector); if (!n) return null; const r = n.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
       return { affinity: box('#companionAffinity'), neglect: box('#companionNeglect'), proactive: box('#companionProactive'), affinityAuto: box('#companionAffinityAuto') };
     })()`);
     for (const [key, box] of Object.entries(controls)) {
-      if (key === "neglect") {
-        // **已知 bug（2026-09-12 这条用例抓到的）**：`#companionNeglect` 在无头 Chrome 里量出来是
-        // 0×0（看不见）—— 原因还没查清，所以这里先只断言"它在对话框里"，不让整条用例红着
-        // 掩盖别的问题。已记进 PROJECT_STATE 的"下一步要修"。
-        assert(box !== null, "关系档案里没有「久没聊时的态度」这个控件");
-        continue;
-      }
       assert(box && box.w > 0 && box.h > 0, "勾上伴侣模式后看不到这个控件：" + key + " → " + JSON.stringify(box));
     }
+    // 「久没聊时的态度」：点开下拉，菜单要在视口里，选一项要真的写回去。
+    const neglect = await evaluate(`(() => {
+      const select = document.querySelector('#companionNeglect');
+      const trigger = select.nextElementSibling;
+      const before = select.value;
+      trigger.click();
+      const menu = document.querySelector('.choice-menu');
+      const items = menu ? Array.from(menu.querySelectorAll('.choice-option')) : [];
+      const r = menu ? menu.getBoundingClientRect() : null;
+      const inView = !!r && r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.left >= -1 && r.right <= window.innerWidth + 1;
+      const last = items[items.length - 1];
+      if (last) last.click();
+      return { before, count: items.length, inView, after: select.value, menuClosed: !document.querySelector('.choice-menu') };
+    })()`);
+    assert(neglect.count >= 3, "「久没聊时的态度」下拉里没有选项：" + JSON.stringify(neglect));
+    assert(neglect.inView, "「久没聊时的态度」的下拉菜单跑到视口外了：" + JSON.stringify(neglect));
+    assert(neglect.after !== neglect.before, "点了下拉里的选项，值没写回去：" + JSON.stringify(neglect));
+    assert(neglect.menuClosed, "选完之后菜单没有关掉：" + JSON.stringify(neglect));
+    await evaluate(`(() => { document.querySelector('#companionNeglect').value = 'soft'; return true; })()`);
     // 设置里也有一个入口（同一个 data-action，接线是共用的）。
     await evaluate("document.querySelector('#companionDialog [data-action=\\'close-companion\\']').click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
