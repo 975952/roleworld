@@ -31,6 +31,54 @@
       "-" + pad(now.getHours()) + pad(now.getMinutes());
   }
 
+  /** 本机概况：角色 / 对话 / 记忆书各多少 + 最近一次导出时间。
+   *  数字全部来自本机数据库，读不到就写"读不到"，不编。 */
+  async function renderDataSummary() {
+    const nodes = pick("data-summary");
+    if (!nodes.length) return;
+    const adapter = global.RoleWorld;
+    if (!adapter) return;
+    // 走数据层（store）而不是适配层的包装：这几个读法在两边都有，
+    // 但 store 一定存在（适配层的导出列表里不一定每个都再导出一遍 —— 这条踩过）。
+    const store = adapter.store || adapter;
+    let characters = 0;
+    let chats = 0;
+    let worlds = 0;
+    try {
+      const cards = await store.listCharacters();
+      const list = Array.isArray(cards) ? cards : [];
+      characters = list.length;
+      for (const card of list) {
+        if (!card || !card.avatar) continue;
+        try {
+          const rows = await store.listChats(card.avatar);
+          chats += Array.isArray(rows) ? rows.length : 0;
+        } catch (_) { /* 单个角色读不到就跳过 */ }
+      }
+      const books = await store.listWorlds();
+      worlds = Array.isArray(books) ? books.length : 0;
+    } catch (_) { /* 下面照样显示已知的部分 */ }
+    const text = `角色 ${characters} 个 · 对话 ${chats} 段 · 记忆书 ${worlds} 本`;
+    nodes.forEach((node) => { node.textContent = text; });
+  }
+
+  /** 最近一次成功导出的时间：导出成功时记在本机 KV 里（只有时间，不含任何内容）。 */
+  async function renderLastBackup() {
+    const nodes = pick("last-backup");
+    if (!nodes.length) return;
+    let at = "";
+    try {
+      const stored = await global.RoleWorld.store.getKV(LAST_EXPORT_KEY, null);
+      at = stored && stored.at ? String(stored.at) : "";
+    } catch (_) { at = ""; }
+    if (!at) { nodes.forEach((node) => { node.textContent = "还没有导出过"; }); return; }
+    const when = new Date(at);
+    const text = Number.isNaN(when.getTime())
+      ? "导出过（时间读不出来）"
+      : "上次导出：" + when.toLocaleString("zh-CN", { hour12: false });
+    nodes.forEach((node) => { node.textContent = text; });
+  }
+
   function download(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -55,6 +103,12 @@
       }
       const zip = Zip.write(entries);
       download(zip, "roleworld-" + stamp() + ".zip");
+      // 记下"上次导出时间"（只有时间戳，不含任何内容）——「数据与备份」那一页要显示它。
+      try {
+        await adapter.store.setKV("archive:last-export", { at: new Date().toISOString(), bytes: zip.size || 0 });
+      } catch (_) { /* 记不下只是少一行提示 */ }
+      await renderLastBackup();
+      await renderDataSummary();
       setStatus("已导出 " + (dump.data.characters || []).length + " 个角色、" +
         (dump.data.chats || []).length + " 段对话。存档里不含 API Key，换机器后需要重新填一次。", false);
     } catch (error) {
@@ -113,9 +167,21 @@
     return bytes;
   }
 
+  function refreshDataPanels() {
+    renderDataSummary().catch(() => {});
+    renderLastBackup().catch(() => {});
+  }
+
   function bind() {
     pick("export").forEach((node) => node.addEventListener("click", exportAll));
     pick("wipe").forEach((node) => node.addEventListener("click", wipe));
+    // 打开「数据与备份」那一页时刷新概况（数字与上次导出时间都是现读的）。
+    // 只在启动时读一次会全是 0 —— 那时候库还没准备好（用例当场抓到过）。
+    refreshDataPanels();
+    global.addEventListener("roleworld:settings-changed", () => { refreshDataPanels(); });
+    document.querySelectorAll('[data-settings-section="local-data"]').forEach((node) => {
+      node.addEventListener("click", () => { refreshDataPanels(); });
+    });
     // 「关于」面板里的「再看一次教程」由 onboarding.js 提供，这里只负责接线。
     pick("tutorial").forEach((node) => node.addEventListener("click", () => {
       if (global.RoleWorldOnboarding && typeof global.RoleWorldOnboarding.show === "function") {
@@ -150,5 +216,5 @@
     bind();
   }
 
-  global.RoleWorldArchiveUI = { exportAll, importFile, wipe };
+  global.RoleWorldArchiveUI = { exportAll, importFile, wipe, refresh: refreshDataPanels };
 })(typeof globalThis !== "undefined" ? globalThis : this);

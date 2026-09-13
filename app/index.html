@@ -368,7 +368,7 @@
           <button class="settings-nav-item" type="button" data-settings-section="connection">连接方式</button>
           <button class="settings-nav-item" type="button" data-settings-section="advanced">高级设置</button>
           <button class="settings-nav-item" type="button" data-settings-section="about">关于</button>
-          <button class="settings-nav-item" type="button" data-settings-section="local-data">本地数据</button>
+          <button class="settings-nav-item" type="button" data-settings-section="local-data">数据与备份</button>
         </nav>
         <div class="settings-content">
           <section class="settings-section is-active" id="settings-appearance" data-settings-panel="appearance">
@@ -461,14 +461,41 @@
             <div class="settings-card">
               <div class="settings-row"><div><strong>本地档案</strong><span>这台设备上的一个档案：没有密码、不会同步。称呼与显示名都在下面改。</span></div><span class="settings-value">仅本机</span></div>
             </div>
-            <div class="settings-card"><div class="settings-row"><div><strong>备份与迁移</strong><span>导出全部角色、对话与记忆书为一个 .zip；换电脑时再导入回来。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="export">导出存档</button><button class="plain-button" type="button" data-roleworld="import">导入存档</button><button class="danger-button" type="button" data-roleworld="wipe">清空本机数据</button></div></div><p class="settings-empty rw-status" data-roleworld="archive-status"></p></div>
+            <div class="settings-card"><div class="settings-row settings-action-row"><div><strong>数据与备份</strong><span>角色、对话、记忆书都在本机；导出、导入、归档与清空现在统一在「数据与备份」那一页，只有一个入口。</span></div><button class="plain-button" type="button" data-action="goto-data-backup">去数据与备份</button></div></div>
             <div class="settings-card"><div class="settings-row"><div><strong>称呼</strong><span>角色在对话与剧情模式里怎么叫你，随时可改。</span></div><input id="nicknameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="我" aria-label="你的称呼"></div><div class="settings-row"><div><strong>显示名</strong><span>只在本机使用，随时可改。</span></div><span class="settings-value" id="settingsUserName">我</span></div><div class="settings-row"><div><strong>档案标识</strong><span>本地档案，不是账号：没有密码，也不会同步到任何服务器。</span></div><span class="settings-value" id="settingsUserHandle">@local</span></div><div class="settings-row"><div><strong>运行方式</strong><span>当前是直连模型服务商，还是经过体验卡中转——在「连接方式」里看和改。</span></div><span class="settings-value" id="settingsUserRole">本地</span></div></div>
           </section>
 
           <section class="settings-section" id="settings-local-data" data-settings-panel="local-data">
-            <div class="settings-section-heading"><h2>本地数据</h2><p>这里管的是这台设备上的文件与偏好：归档、重置偏好。导出/导入在「关于 → 备份与迁移」。</p></div>
-            <div class="settings-card"><div class="settings-row settings-action-row"><div><strong>重置本账户界面偏好</strong><span>恢复主题、密度、动效、发送方式和布局默认值，不删除聊天。</span></div><button class="plain-button" id="resetPreferencesButton" type="button">重置偏好</button></div></div>
+            <div class="settings-section-heading"><h2>数据与备份</h2><p>这台设备上有多少东西、上次什么时候备份的、怎么导出与恢复。日常备份和"清空"分开放，别手滑。</p></div>
+
+            <!-- 概览：一眼看清"我有什么、上次备份是什么时候"。数字来自本机数据库，不编。 -->
+            <div class="settings-card">
+              <div class="settings-card-heading"><div><strong>本机概况</strong><span class="rw-status" data-roleworld="data-summary">正在读取…</span></div></div>
+              <div class="settings-row settings-action-row"><div><strong>最近一次导出</strong><span class="rw-status" data-roleworld="last-backup">还没有导出过</span></div><span class="settings-value">仅本机</span></div>
+            </div>
+
+            <!-- 备份：日常操作。导出/导入在同一张卡里，说明写清楚导入是"整份替换"。 -->
+            <div class="settings-card">
+              <div class="settings-card-heading"><div><strong>备份与恢复</strong><span>导出一个 .zip（角色卡、全部对话与记忆书；<b>不含 API Key</b>，换机器要重新填一次）。</span></div></div>
+              <div class="settings-row settings-action-row"><div><strong>导出存档</strong><span>把现在这份完整打包下载到本机。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="export">导出存档</button></div></div>
+              <div class="settings-row settings-action-row"><div><strong>导入存档</strong><span><b>整份替换</b>：导入会用存档里的内容覆盖这台设备现有的角色、对话与记忆书；
+                现在这份如果还想要，<b>先导出一次</b>再导入。导入不会动你的 API Key 与界面偏好。</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="import">导入存档</button></div></div>
+              <p class="settings-empty rw-status" data-roleworld="archive-status"></p>
+            </div>
+
+            <!-- 归档：不是删除，随时能恢复。 -->
             <div class="settings-card"><div class="settings-card-heading"><div><strong>归档对话 <span class="settings-count" id="archivedChatCount">0 个</span></strong><span>已归档对话只在这里显示，可恢复到主列表。</span></div><label class="settings-search"><span class="sr-only">搜索归档对话</span><input id="archivedChatSearch" type="search" autocomplete="off" placeholder="搜索标题或文件名" aria-label="搜索归档对话"></label></div><div id="archivedChatList"></div><p class="settings-empty" id="archivedChatEmpty">暂无归档对话</p></div>
+
+            <!-- 偏好重置：跟数据无关，单独一张。 -->
+            <div class="settings-card"><div class="settings-row settings-action-row"><div><strong>重置本账户界面偏好</strong><span>恢复主题、密度、动效、发送方式和布局默认值，不删除聊天。</span></div><button class="plain-button" id="resetPreferencesButton" type="button">重置偏好</button></div></div>
+
+            <!-- 危险区：清空单独放最后、单独一张卡、还要输入确认词。
+                 用户要求「将清空全部与日常备份按钮分开，优先考虑可恢复操作」。 -->
+            <div class="settings-card settings-danger-zone">
+              <div class="settings-card-heading"><div><strong>危险操作</strong><span>这一区的东西不可恢复。日常备份在上面那张卡里。</span></div></div>
+              <div class="settings-row settings-action-row"><div><strong>清空本机数据</strong><span>删掉这台设备上的<b>全部角色、对话与记忆书</b>（API Key 与界面偏好也会清）。
+                删完没法撤销 —— 要做之前先在上面「导出存档」。</span></div><button class="danger-button" type="button" data-roleworld="wipe">清空本机数据</button></div>
+            </div>
           </section>
         </div>
       </div>

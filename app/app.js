@@ -593,6 +593,11 @@ function setSettingsSection(section) {
     persistAccountPreferences();
   }
   if (allowed === "characters") refreshCharacterManagement();
+  // 「数据与备份」那页的数字与"上次导出时间"是现读的：切到这一页时刷新一次
+  // （只在启动时读会全是 0 —— 那时库还没准备好）。
+  if (allowed === "local-data" && window.RoleWorldArchiveUI && typeof window.RoleWorldArchiveUI.refresh === "function") {
+    try { window.RoleWorldArchiveUI.refresh(); } catch (_) { /* 概况读不到不影响这一页的按钮 */ }
+  }
 }
 
 function setUserContext(user) {
@@ -1129,6 +1134,11 @@ function bindSettings() {
   }
   $("#resetLayoutButton")?.addEventListener("click", resetLayout);
   $("#resetPreferencesButton")?.addEventListener("click", resetPreferences);
+  // 「关于 → 数据与备份」那颗按钮：跳到同一个入口（不再在关于页重复放导出/导入/清空，
+  // 免得同一件事有两个地方、还挨着"清空"）。
+  document.querySelectorAll("[data-action='goto-data-backup']").forEach((node) => {
+    node.addEventListener("click", () => setSettingsSection("local-data"));
+  });
   $("#clearGeneralAiButton")?.addEventListener("click", clearGeneralAiData);
   $("#archivedChatSearch")?.addEventListener("input", (event) => window.TASK21?.setArchivedChatSearch?.(event.target.value));
   document.querySelectorAll("[data-settings-section]").forEach((button) => button.addEventListener("click", () => setSettingsSection(button.dataset.settingsSection)));

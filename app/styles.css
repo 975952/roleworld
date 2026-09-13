@@ -309,6 +309,10 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .settings-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--hairline); }
 .settings-card-heading > div { display: grid; gap: 4px; }
 .settings-card-heading strong { color: var(--main-text); font-size: 12px; font-weight: 620; }
+/* 危险区（「数据与备份」页最下面那张卡）：跟日常备份拉开距离，边框给一点警示色 ——
+   用户要求「将清空全部与日常备份按钮分开，优先考虑可恢复操作」。 */
+.settings-danger-zone { margin-top: 28px; border-color: color-mix(in srgb, var(--error) 32%, var(--hairline)); }
+.settings-danger-zone .settings-card-heading strong { color: var(--error); }
 .settings-card-heading span, .settings-empty { color: var(--muted-text); font-size: 10px; line-height: 1.45; }
 .settings-count { margin-left: 5px; color: var(--muted-text) !important; font-size: 10px !important; font-weight: 500 !important; }
 .settings-search { flex: 0 1 220px; min-width: 140px; }

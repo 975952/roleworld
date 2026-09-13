@@ -3535,6 +3535,51 @@ async function main() {
 
   console.log("== 消息旁的操作（本轮第 ③ 项）==");
 
+  await check("数据与备份：一个入口看数量与上次导出，清空和日常备份分开", async () => {
+    await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
+    // 从「关于」页那颗按钮跳过去（关于页不再重复放导出/导入/清空）。
+    await evaluate("window.TASK25C_UI.setSettingsSection('about'); true");
+    await waitFor("!!document.querySelector('[data-action=\"goto-data-backup\"]')", 8000);
+    await evaluate("document.querySelector('[data-action=\"goto-data-backup\"]').click(); true");
+    await waitFor("document.querySelector('#settings-local-data').classList.contains('is-active')", 8000);
+    // 概况是切换分页之后**异步**读出来的：初始文案是"正在读取…"，
+    // 所以不能只等"有文字"，要等读到真实数量（这一条自己踩过一次）。
+    await waitFor("(function(){ var t = (document.querySelector('[data-roleworld=\"data-summary\"]') || {}).textContent || ''; return /角色 [1-9]/.test(t); })()", 15000);
+
+    const page = await evaluate(`(() => {
+      const section = document.querySelector('#settings-local-data');
+      const summary = section.querySelector('[data-roleworld="data-summary"]').textContent;
+      const last = section.querySelector('[data-roleworld="last-backup"]').textContent;
+      const danger = section.querySelector('.settings-danger-zone');
+      const wipe = section.querySelector('[data-roleworld="wipe"]');
+      const exportBtn = section.querySelector('[data-roleworld="export"]');
+      const importRow = section.querySelector('[data-roleworld="import"]').closest('.settings-row').textContent;
+      const aboutSection = document.querySelector('#settings-account');
+      return {
+        heading: section.querySelector('h2').textContent,
+        summary, last,
+        hasExport: !!exportBtn,
+        hasImportRowText: importRow.indexOf('整份替换') >= 0,
+        wipeInDanger: !!(danger && wipe && danger.contains(wipe)),
+        exportOutsideDanger: !!(danger && exportBtn && !danger.contains(exportBtn)),
+        aboutHasNoWipe: !aboutSection.querySelector('[data-roleworld="wipe"]'),
+        aboutHasNoExport: !aboutSection.querySelector('[data-roleworld="export"]'),
+      };
+    })()`);
+    assert(page.heading.indexOf('数据与备份') >= 0, "这一页没改名：" + page.heading);
+    assert(/角色 \d+ 个 · 对话 \d+ 段 · 记忆书 \d+ 本/.test(page.summary), "概况数字没出来：" + page.summary);
+    assert(page.summary.indexOf('角色 0 个') < 0, "概况应当读到真实数量：" + page.summary);
+    assert(/上次导出：|还没有导出过/.test(page.last), "最近一次导出的说明不对：" + page.last);
+    assert(page.hasExport, "数据与备份页里没有导出按钮");
+    assert(page.hasImportRowText, "导入那一行没写清是「整份替换」：" + page.hasImportRowText);
+    assert(page.wipeInDanger, "「清空本机数据」没有放进危险区");
+    assert(page.exportOutsideDanger, "导出按钮不该放在危险区里");
+    assert(page.aboutHasNoWipe && page.aboutHasNoExport, "关于页里还留着导出/清空，等于两个入口");
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
+  });
+
   await check("伴侣模式开关就在角色自己那一行：给谁开点谁，不用先切过去", async () => {
     // 用户 2026-09-13：「现在的是什么当前角色啥的我要做到每个角色本身的上面」。
     // 这条盯的是「设置 → 角色管理」里每一行那个开关：
