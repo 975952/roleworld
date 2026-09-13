@@ -380,7 +380,7 @@ async function main() {
       await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
     });
 
-    await check(`${viewport.label}：发送前预估那一行不挤坏输入区`, async () => {
+    await check(`${viewport.label}：花费与预估不在输入区，改在「本次请求」里读`, async () => {
       await evaluate(`(() => {
         const input = document.querySelector('#messageInput');
         input.value = '预估一下这句大概会发多少内容出去';
@@ -388,35 +388,63 @@ async function main() {
         return true;
       })()`);
       await new Promise((r) => setTimeout(r, 500));
+      // 用户 2026-09-12：「这些信息不要显示在那个界面上，换个地方，看着有点乱」。
+      // 先钉死"不许再挂回输入区"，再看它们在新家（本次请求面板）里读得全。
+      const inComposer = await evaluate(`(() => {
+        const box = document.querySelector('.composer-box');
+        return ['#chatEstimateLine', '#chatCostLine']
+          .filter((sel) => box.contains(document.querySelector(sel)));
+      })()`);
+      assert(inComposer.length === 0, "预估/台账又跑回输入区了：" + JSON.stringify(inComposer));
+      const composer = await evaluate(`(() => {
+        const send = document.querySelector('#sendButton');
+        const box = document.querySelector('.composer-box');
+        const s = send.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        return {
+          sendWidth: Math.round(s.width),
+          sendInside: s.left >= b.left - 1 && s.right <= b.right + 1,
+          boxHeight: Math.round(b.height),
+        };
+      })()`);
+      assert(composer.sendWidth >= 28 && composer.sendInside,
+        "输入区被撑坏了：" + JSON.stringify(composer));
+      assert(composer.boxHeight <= 220, "输入区太高（信息没搬干净）：" + JSON.stringify(composer));
+
+      await evaluate("window.TASK21.openRequestPeek(); true");
+      await waitFor("document.querySelector('#requestPeek').hidden === false", 8000);
       const info = await evaluate(`(() => {
+        const surface = document.querySelector('#requestPeek');
         const node = document.querySelector('#chatEstimateLine');
         const cost = document.querySelector('#chatCostLine');
-        const send = document.querySelector('#sendButton');
+        const card = surface.querySelector('.request-peek-card');
         const r = node.getBoundingClientRect();
         const c = cost.getBoundingClientRect();
-        const s = send.getBoundingClientRect();
-        const overlap = (a, b) => !(a.right <= b.left + 0.5 || b.right <= a.left + 0.5
-          || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5);
+        const k = card.getBoundingClientRect();
         return {
+          inPanel: surface.contains(node) && surface.contains(cost),
           hidden: node.hidden,
           display: getComputedStyle(node).display,
           text: node.textContent,
-          sendWidth: Math.round(s.width),
-          overlapsCost: node.hidden ? false : overlap(r, c),
-          overlapsSend: node.hidden ? false : overlap(r, s),
+          costText: cost.textContent,
+          costDisplay: getComputedStyle(cost).display,
+          insideCard: node.hidden ? true : (r.left >= k.left - 1 && r.right <= k.right + 1),
           inViewport: node.hidden ? true : (r.left >= -1 && r.right <= window.innerWidth + 1),
+          textOverflow: node.hidden ? 0 : Math.max(0, node.scrollWidth - node.clientWidth),
         };
       })()`);
-      if (viewport.width <= 560) {
-        // 窄屏上它让位（发送键和输入框优先），但不能把发送键挤小。
-        assert(info.display === "none" || info.hidden, "窄屏上预估行应当让位：" + JSON.stringify(info));
-      } else {
-        assert(info.hidden === false, "宽屏上应当显示预估行：" + JSON.stringify(info));
-        assert(/这次约|输出上限/.test(info.text), "预估行内容不对：" + info.text);
-      }
-      assert(info.overlapsCost === false && info.overlapsSend === false && info.inViewport,
-        "预估行压到了别的控件：" + JSON.stringify(info));
-      assert(info.sendWidth >= 28, "预估行把发送键挤小了：" + JSON.stringify(info));
+      assert(info.inPanel, "预估/台账没搬进「本次请求」面板");
+      assert(info.hidden === false, "面板里应当显示预估行：" + JSON.stringify(info));
+      assert(/这次约|输出上限/.test(info.text), "预估行内容不对：" + info.text);
+      assert(info.display !== "none", "面板里预估行被 CSS 藏了");
+      assert(info.insideCard && info.inViewport, "预估行溢出了面板/视口：" + JSON.stringify(info));
+      assert(info.textOverflow <= 2, "预估行文字被截断（横向溢出 " + info.textOverflow + "px）：" + info.text);
+      // 台账那一行在面板里也得真的看得见（输入区时代它被窄屏规则藏掉过，别再来一次）。
+      assert(info.costDisplay !== "none" && info.costText.length > 0,
+        "面板里台账行是空的或者被藏了：" + JSON.stringify(info));
+      assert(/token/.test(info.costText), "台账行没有 token 数字：" + info.costText);
+      await evaluate("document.querySelector(\"[data-action='close-request-peek']\").click(); true");
+      await waitFor("document.querySelector('#requestPeek').hidden === true", 8000);
       await evaluate(`(() => {
         const input = document.querySelector('#messageInput');
         input.value = '';
@@ -482,6 +510,55 @@ async function main() {
         assert(probe.h >= 20 && probe.w >= 20,
           "桌面标记按钮命中区过小：" + JSON.stringify(probe));
       }
+    });
+
+    // 设置面板：滚到底时最后一行不能被底部导航挡住。
+    // 用户 2026-09-12 报了两次都没修好 —— 前两版把 padding 加在 .settings-scroll / .settings-body 上，
+    // 这两个类名在 index.html 里根本不存在，等于没改。所以这里量的是**结果**：
+    // 每个分区滚到底，最后可见元素的底边必须在底栏之上，且它中心点的命中测试要落在它自己身上。
+    await check(`${viewport.label}：设置每个分区滚到底，最后一行不被底部一栏挡住`, async () => {
+      await evaluate(`(() => { const b = document.querySelector('[data-action="open-settings"]'); if (b) b.click(); return true; })()`);
+      await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
+      const sections = await evaluate(`Array.from(document.querySelectorAll('.settings-nav-item')).map((b) => b.dataset.settingsSection)`);
+      assert(sections.length >= 5, "设置分区太少，测试没意义：" + JSON.stringify(sections));
+      const bad = [];
+      for (const section of sections) {
+        await evaluate(`(() => { const b = document.querySelector('[data-settings-section="${section}"]'); if (b) b.click(); return true; })()`);
+        await new Promise((r) => setTimeout(r, 300));
+        const row = await evaluate(`(() => {
+          const layout = document.querySelector('.settings-layout');
+          layout.scrollTop = layout.scrollHeight;
+          const nav = document.querySelector('.mobile-bottom-nav');
+          const navVisible = nav && getComputedStyle(nav).display !== 'none';
+          const navTop = navVisible ? Math.round(nav.getBoundingClientRect().top) : window.innerHeight;
+          const panel = document.querySelector('[data-settings-panel="${section}"]');
+          const nodes = Array.from(panel.querySelectorAll('*')).filter((n) => {
+            const r = n.getBoundingClientRect();
+            const s = getComputedStyle(n);
+            return r.height > 0 && r.width > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+          });
+          const last = nodes[nodes.length - 1];
+          if (!last) return { section: '${section}', empty: true };
+          const r = last.getBoundingClientRect();
+          const cx = Math.min(window.innerWidth - 2, Math.max(2, r.left + r.width / 2));
+          const cy = Math.min(window.innerHeight - 2, Math.max(2, r.top + r.height / 2));
+          const hit = document.elementFromPoint(cx, cy);
+          return {
+            section: '${section}',
+            tag: last.tagName.toLowerCase() + (last.id ? '#' + last.id : ''),
+            bottom: Math.round(r.bottom),
+            navTop,
+            hiddenBehindNav: Math.round(r.bottom) > navTop + 1,
+            reachable: hit === last || (hit && last.contains(hit)),
+            hitTag: hit ? hit.tagName.toLowerCase() + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().split(/\\s+/)[0] : '') : 'null',
+          };
+        })()`);
+        if (row.empty) continue;
+        if (row.hiddenBehindNav || !row.reachable) bad.push(row);
+      }
+      assert(bad.length === 0, "这些分区滚到底还是被挡住/点不到：" + JSON.stringify(bad));
+      await evaluate(`(() => { const b = document.querySelector('[data-action="close-settings"]'); if (b) b.click(); return true; })()`);
+      await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
     });
 
     // 每个视口检查完把弹层状态清掉，避免影响下一个视口

@@ -225,6 +225,16 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .narration-line { margin: 0 0 3px; color: var(--muted-text); font-size: 13px; font-style: italic; line-height: 1.65; white-space: pre-wrap; }
 .composer-cost { color: var(--muted-text); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
 .composer-cost:empty { display: none; }
+/* 花费与预估已从输入区搬到「本次请求」面板（2026-09-12 用户要求）。
+   面板里那两行给一点样式，别像说明书一样糊成一片。 */
+.request-peek-cost { display: grid; gap: 5px; margin: 0 0 12px; }
+.request-peek-cost .composer-estimate { color: var(--secondary-text); font-size: 12px; line-height: 1.65; }
+.request-peek-cost .composer-cost { font-size: 12px; line-height: 1.65; }
+.request-peek-cost .composer-estimate:empty, .request-peek-cost .composer-cost:empty { display: none; }
+/* 只有真有内容时才画上面那条分隔线（估算通常在第一行；它空着时由台账顶上），
+   否则面板还没发过请求时会多出一条空线。 */
+.request-peek-cost .composer-estimate:not(:empty),
+.request-peek-cost .composer-estimate:empty + .composer-cost:not(:empty) { padding-top: 10px; border-top: 1px solid var(--hairline); }
 .typing-note { display: flex; align-items: center; min-height: 32px; margin: 0 0 28px 46px; }
 .typing-note[hidden] { display: none; }
 .typing-note-label { margin-left: 10px; color: var(--muted-text); font-size: 12px; }
@@ -261,15 +271,11 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .message-refs-item { padding: 6px 9px; color: var(--secondary-text); font-size: 10px; line-height: 1.5; text-align: left; border: 1px dashed var(--hairline); border-radius: 8px; background: transparent; cursor: pointer; }
 .message-refs-item:hover { color: var(--main-text); border-color: var(--strong-line); }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-/* 发送前预估：输入 token / 费用 / 输出上限。窄屏上先让位给发送键。 */
-.composer-estimate { flex: 0 1 auto; min-width: 0; color: var(--secondary-text); font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
-.composer-estimate[hidden] { display: none; }
-@media (max-width: 560px) { .composer-estimate { display: none; } }
-/* 手机上这两行**保持单行省略**：允许换行会把输入框和发送键挤出视口
-   （2026-09-12 实测，viewport 套件当场抓到）。桌面上才是"换行不截断"。 */
-@media (max-width: 760px) {
-  .composer-cost, .composer-estimate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-}
+/* 发送前预估（输入 token / 费用 / 输出上限）已搬进「本次请求」面板，
+   这里只保留"万一还被放回输入区"时的兜底样式；面板内由 .request-peek-cost 接管，
+   窄屏不再隐藏（面板是弹层，不受输入区宽度限制）。 */
+.composer-footer .composer-estimate { flex: 0 1 auto; min-width: 0; color: var(--secondary-text); font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
+.composer-footer .composer-estimate[hidden] { display: none; }
 .send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--canvas); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
 /* 图标色用 --canvas（页面底色）：底色是 --main-text（正文色）—— 这一对在任何主题里
    天然互为反色，不会出现"浅底浅字"（用户 2026-09-12：不同外观风格下发送按钮颜色有 bug）。 */
@@ -352,8 +358,8 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .memory-summary strong, .memory-summary span { display: block; }
 .memory-summary strong { font-size: 16px; font-weight: 620; }
 .memory-summary span { margin-top: 3px; color: var(--muted-text); font-size: 9px; }
-.memory-list { display: grid; gap: 8px; }
-.memory-book { overflow: hidden; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
+.memory-list { display: grid; gap: 12px; }
+.memory-book { overflow: hidden; border: 1px solid var(--hairline); border-radius: 11px; background: var(--raised); }
 .memory-book-header { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 10px; color: var(--main-text); text-align: left; border: 0; background: transparent; cursor: pointer; transition: background var(--hover-motion) ease; }
 .memory-book-header:hover { background: var(--hover); }
 .book-emblem { display: grid; place-items: center; width: 28px; height: 28px; color: var(--muted-text); border: 1px solid var(--strong-line); border-radius: 7px; }
@@ -846,16 +852,19 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .character-picker-item, .character-picker-action { font-size: 14px; }
 
   .mobile-bottom-nav { min-height: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom)); padding-top: 0; background: var(--canvas); box-shadow: none; backdrop-filter: none; }
-  /* 设置面板滚到底时，最后一行以前会被底部导航条压住（用户 2026-09-12：「下滑的最下面会被下面一栏挡住，看不见」）。
-     给滚动容器补一段等于底栏高度的下边距。 */
-  .settings-surface .settings-scroll,
-  .settings-surface .settings-body,
-  .settings-surface .settings-content { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 16px); }
+  /* 设置滚到底时最后一行被底部导航压住（用户 2026-09-12 报了两次都没修好）。
+     0.1.46 / 0.1.47 两版把 padding 加在 .settings-scroll / .settings-body 上 ——
+     这两个类名在 index.html 里**根本不存在**，等于什么都没改；
+     真正能滚动的只有 .settings-layout，装内容的是 .settings-content，露在底栏下面的是 .settings-surface。
+     三层一起量：① surface 先把底栏高度从自己盒子里扣掉，内容区不再伸到底栏底下；
+     ② content 补一段底边距，滚到底时最后一行整体上移；③ 滚动容器 .settings-layout 同步补 + scroll-padding。 */
+  .settings-surface { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom)); }
+  .settings-surface .settings-content { padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 28px); }
   .mobile-bottom-nav-item { position: relative; min-height: 57px; gap: 4px; padding: 6px; font-size: 11px; border-radius: 0; }
   .mobile-bottom-nav-item.is-active, .mobile-bottom-nav-item[aria-current="page"] { background: transparent; }
   .mobile-bottom-nav-item[aria-current="page"]::after { content: ''; position: absolute; top: 0; left: calc(50% - 12px); width: 24px; height: 2px; background: var(--main-text); border-radius: 0 0 2px 2px; }
 
-  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 24px + var(--mobile-safe-bottom)) max(16px, var(--mobile-safe-left)); }
+  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 28px + var(--mobile-safe-bottom)) max(16px, var(--mobile-safe-left)); scroll-padding-bottom: calc(var(--mobile-bottom-nav-height) + 28px + var(--mobile-safe-bottom)); }
   .settings-nav { gap: 16px; min-height: 45px; margin: 0; padding: 0; border-bottom: 1px solid var(--hairline); scrollbar-width: none; }
   .settings-nav-item { min-height: 44px; padding: 0 2px; border-bottom: 2px solid transparent; border-radius: 0; font-size: 13px; }
   .settings-nav-item.is-active, .settings-nav-item:hover { background: transparent; }

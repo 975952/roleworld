@@ -871,7 +871,12 @@
     const button = document.querySelector("#requestPeekButton");
     if (!button) return;
     const has = !!(liveState.lastPayload && liveState.lastRequest);
-    button.hidden = !(has && visible !== false);
+    // 2026-09-12：花费与预估搬进这个面板之后，面板成了看它们**唯一**的入口。
+    // 老规矩是"发过消息才露出入口"，那样第一条消息就没有"发送前预估"可看了。
+    // 所以再加一条：输入框里有草稿就算（那时候预估已经算出来了）。
+    const draft = document.querySelector("#messageInput");
+    const hasDraft = !!(draft && !draft.disabled && draft.value.trim());
+    button.hidden = !((has || hasDraft) && visible !== false);
   }
 
   /** 「本次请求」面板里的一行：输入占了多少上下文、输出上限是多少（两件事分开写）。 */
@@ -2160,10 +2165,13 @@
   function renderSendEstimate() {
     const node = document.querySelector("#chatEstimateLine");
     if (!node) return;
+    // 花费与预估搬进「本次请求」面板之后，这个入口就是看它们唯一的门：
+    // 估值一算完（或者输入框里已有草稿）就把门露出来，别让第一条消息看不到预估。
+    const revealEntry = () => { try { setRequestPeekVisible(); } catch (_) { /* 入口不影响对话 */ } };
     const pricing = window.RoleWorldPricing;
     const core = window.TASK22_CORE;
     const estimate = estimateNextRequest();
-    if (!pricing || !core || !estimate) { node.hidden = true; node.textContent = ""; return; }
+    if (!pricing || !core || !estimate) { node.hidden = true; node.textContent = ""; revealEntry(); return; }
     const outputNote = `输出上限 ${pricing.formatTokens(estimate.output)}`;
     const contextNote = `上下文 ${pricing.formatTokens(estimate.context)}`;
     if (!estimate.known) {
@@ -2171,6 +2179,7 @@
       node.textContent = `输出上限 ${pricing.formatTokens(estimate.output)} · 上下文 ${pricing.formatTokens(estimate.context)}`;
       node.title = "还没有上一轮可对照：发出第一轮之后，这里会显示「这次大约要发多少输入、大概多少钱」。";
       node.hidden = false;
+      revealEntry();
       return;
     }
     const share = estimate.context > 0 ? Math.round((estimate.input / estimate.context) * 100) : 0;
@@ -2189,6 +2198,7 @@
       "上一轮的真实用量见下方「本对话 N 轮」与「本次请求」面板。",
     ].join("\n");
     node.hidden = false;
+    revealEntry();
   }
 
   /* ---------- Task-29A：角色注册表与单角色绑定 ---------- */

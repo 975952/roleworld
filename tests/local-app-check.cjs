@@ -553,10 +553,26 @@ async function main() {
     })()`, 25000);
   }
 
-  await check("「本次请求」平时不出现，发过消息后才露出入口", async () => {
-    // 这条要放在第一次发送之前；发送后入口应该自己出来。
-    assert(await evaluate("document.querySelector('#requestPeekButton').hidden === true"), "还没发消息就出现了入口");
+  await check("「本次请求」平时不出现，打字或发过消息后才露出入口", async () => {
+    // 这条要放在第一次发送之前。2026-09-12 起：花费与预估搬进了这个面板，
+    // 所以"输入框里已有草稿"也算一次可看的机会（否则第一条消息看不到发送前预估）。
+    assert(await evaluate("document.querySelector('#requestPeekButton').hidden === true"), "还没打字就出现了入口");
     assert(await evaluate("document.querySelector('#requestPeek').hidden === true"), "面板初始就是打开的");
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '看看这次请求';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    // 预估有 250ms 防抖，等它算完入口才该露出来。
+    await waitFor("document.querySelector('#requestPeekButton').hidden === false", 8000);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await new Promise((r) => setTimeout(r, 600));
     await evaluate(`(() => {
       const input = document.querySelector('#messageInput');
       input.value = '看看这次请求';

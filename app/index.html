@@ -204,8 +204,6 @@
             </div>
             <textarea id="messageInput" rows="1" placeholder="给 Harry 发消息" aria-label="消息输入"></textarea>
             <div class="composer-footer">
-              <span class="composer-estimate" id="chatEstimateLine" hidden></span>
-              <span class="composer-cost" id="chatCostLine" title="按官方单价估算，实际以账单为准"></span>
               <button class="composer-peek" id="requestPeekButton" type="button" hidden>本次请求</button>
               <span class="composer-hint" hidden></span>
               <span class="composer-engine" id="composerEngine" hidden></span>
@@ -227,6 +225,12 @@
           <button class="plain-button" type="button" data-action="close-request-peek">关闭</button>
         </header>
         <p class="request-peek-note">这是上一次真正发给模型的内容构成，按来源分段统计。只在这台设备上显示，不会保存，也不含 API Key。</p>
+        <!-- 花费与预估从输入框那边搬到这里（2026-09-12 用户：「这些信息不要显示在那个界面上，换个地方」）。
+             内容仍由 integration.js 写进这两个节点，只是改在面板里显示。 -->
+        <div class="request-peek-cost">
+          <span class="composer-estimate" id="chatEstimateLine"></span>
+          <span class="composer-cost" id="chatCostLine"></span>
+        </div>
         <div class="request-peek-body" id="requestPeekBody"></div>
       </div>
     </section>
