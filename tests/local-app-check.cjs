@@ -3361,7 +3361,7 @@ async function main() {
       };
     })()`);
     assert(probe.tokensLoaded, "tokens.css 没有加载");
-    assert(probe.style === "default", "风格属性和偏好不一致：" + probe.style);
+    assert(probe.style === "default", "风格属性和偏好不一致（默认应为 gold）：" + probe.style);
     assert(probe.bodyBg === probe.expected, `背景没跟着设计变量走：${probe.bodyBg} ≠ ${probe.expected}`);
     assert(!/Songti|Georgia|Palatino|Iowan|Noto Serif|(?<!sans-)serif/i.test(probe.font), "还在用衬线字体：" + probe.font);
   });

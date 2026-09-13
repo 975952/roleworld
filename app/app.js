@@ -20,7 +20,7 @@ const routes = window.TASK31_ROUTING;
 const THEME_ACCOUNT_HINT_KEY = "task27a.current-account-handle.v1";
 const defaultAccountPreferences = () => accountCore
   ? accountCore.defaultPreferences({ prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches })
-  : { version: 1, theme: "dark", density: "comfortable", motion: "full", sendMode: "enter", lastSettingsSection: "appearance", harry: { sidebarCollapsed: false, sidebarWidth: 248, memoryOpen: false, memoryWidth: 420 }, general: { sidebarCollapsed: false, sidebarWidth: 248 } };
+  : { version: 1, theme: "light", density: "comfortable", motion: "full", sendMode: "enter", lastSettingsSection: "appearance", style: "gold", harry: { sidebarCollapsed: false, sidebarWidth: 248, memoryOpen: false, memoryWidth: 420 }, general: { sidebarCollapsed: false, sidebarWidth: 248 } };
 
 const state = {
   engine: "A",

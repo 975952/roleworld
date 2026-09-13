@@ -42,6 +42,9 @@
     style: ["default", "paper", "ink", "forest", "sakura", "gold"],
     lastSettingsSection: ["appearance", "conversation", "memory", "characters", "connection", "advanced", "about", "local-data"],
   });
+  /** 新默认配色：白 + 返校金（2026-09-13 用户要求）。 */
+  const APPEARANCE_BASE = "light+gold";
+
   /** 当前这一档叫「100%」—— 2026-09-13 从 1 改成 0.9。 */
   const SCALE_BASE = "0.9";
   /** 老存档的迁移：**只把旧默认（1）搬到新默认（0.9）**。
@@ -79,14 +82,15 @@
     const opts = options || {};
     return {
       version: VERSION,
-      theme: "dark",
+      // 2026-09-13 用户：「应该是默认白色加返校金」——默认配色改成白色底 + 返校金。
+      theme: "light",
       density: "comfortable",
       motion: opts.prefersReducedMotion === true ? "reduced" : "full",
       sendMode: "enter",
       // 默认就是新基准 0.9（界面上的「100%」）。老存档的档位在 readPreferences() 里整体下一格。
       scale: SCALE_BASE,
       scaleBase: SCALE_BASE,
-      style: "default",
+      style: "gold",
       ambient: false,
       // 侧栏显示哪些角色：null = 从未设置（引导用户挑），数组 = 用户的选择（可为空）
       sidebarCharacters: null,
@@ -156,6 +160,8 @@
     return {
       version: VERSION,
       theme: enumValue(raw.theme, ENUMS.theme, defaults.theme),
+      // 配色基准标记：老存档没有它时，把"还是旧默认（黑 + 石墨）"的那批搬到新默认（白 + 返校金）。
+      appearanceBase: APPEARANCE_BASE,
       density: enumValue(raw.density, ENUMS.density, defaults.density),
       motion: enumValue(raw.motion, ENUMS.motion, defaults.motion),
       sendMode: enumValue(raw.sendMode, ENUMS.sendMode, defaults.sendMode),
@@ -259,10 +265,24 @@
 
     const existing = parseJson(safeGet(storage, key), null);
     if (existing && typeof existing === "object") {
-      const preferences = normalizePreferences(existing, options);
+      let preferences = normalizePreferences(existing, options);
       // 2026-09-13 界面大小重新定基准（1 → 0.9，并且 0.9 叫「100%」）：
       // 老存档里的档位整体下一格，否则"默认用户"（存着 1）根本不会变小 ——
       // 这次改动的全部意义就没了。scaleBase 标记保证只搬一次，搬完立刻落盘。
+      // 配色：老存档里"黑 + 石墨"= 从没动过设置 → 搬到新的默认（白 + 返校金）；
+      // 用户自己挑过的配色一律不动。（注意不要给 const preferences 重新赋值 —— 会抛 TypeError。）
+      if (existing.appearanceBase !== APPEARANCE_BASE) {
+        const wantsNewLook = existing.theme === "dark" && (existing.style === undefined || existing.style === "default");
+        const withLook = Object.assign({}, preferences, {
+          theme: wantsNewLook ? "light" : preferences.theme,
+          style: wantsNewLook ? "gold" : preferences.style,
+          appearanceBase: APPEARANCE_BASE,
+        });
+        safeSet(storage, key, JSON.stringify(withLook));
+        // 不要在这里 return：下面还有"界面大小基准"的迁移要跑。
+        preferences = Object.assign({}, withLook);
+        existing.appearanceBase = APPEARANCE_BASE;
+      }
       if (existing.scaleBase !== SCALE_BASE) {
         const rebased = Object.assign({}, preferences, {
           scale: rebaseScale(existing.scale, preferences.scale),
