@@ -3370,7 +3370,7 @@ async function main() {
     await goto(base + "/index.html");
     await waitFor("window.TASK21_READY === true", 30000);
     const before = await evaluate("document.documentElement.dataset.style");
-    assert(before === "default", "初始风格不对：" + before);
+    assert(before === "gold", "初始风格不对（新默认是返校金）：" + before);
     await evaluate(`(() => {
       const select = document.querySelector('#styleSelect');
       select.value = 'gold';
