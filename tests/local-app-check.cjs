@@ -1600,17 +1600,31 @@ async function main() {
     // 用户 2026-09-12：「什么伴侣模式根本看不到啊」。入口以前只有"记忆面板里那颗"，
     // 而且三组 v2 控件要**先勾开关**才出现 —— 这次把入口也放进「设置 → 角色管理」，
     // 并且用**真界面点击**（不是内部函数）走一遍。
-    await evaluate("window.TASK21.openMemoryPanel(); true");
-    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
-    const memoryEntry = await evaluate(`(() => {
-      const node = document.querySelector("#memoryPanel [data-action='open-companion']");
+    // 用户 2026-09-12：「面板里点关系档案根本没有」—— 因为那时它只在**弹层**
+    // （顶栏「记忆」打开的那个）里，而右侧常驻的记忆栏是另一个界面。
+    // 这条同时盯两处入口：右侧常驻记忆栏、记忆弹层。
+    // （设置 → 角色管理 里那个入口另有用例在点它；这里不重复量，免得把设置面板停在别的段上
+    //   污染后面的用例 —— 真踩过：留在"角色管理"段会让生成参数那条用例找不到面板。）
+    const probeEntry = (selector) => `(() => {
+      const node = document.querySelector(${JSON.stringify(selector)});
       if (!node) return { exists: false };
       const r = node.getBoundingClientRect();
-      const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
-      return { exists: true, reachable: !!(top && (top === node || node.contains(top))), w: Math.round(r.width), h: Math.round(r.height) };
-    })()`);
-    assert(memoryEntry.exists && memoryEntry.reachable && memoryEntry.w > 0,
-      "记忆面板里的「关系档案」点不到：" + JSON.stringify(memoryEntry));
+      const visible = r.width > 0 && r.height > 0;
+      const top = visible ? document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)) : null;
+      return { exists: true, visible: visible, reachable: !!(top && (top === node || node.contains(top))) };
+    })()`;
+    const columnEntry = await evaluate(probeEntry(".inspector-column [data-action='open-companion']"));
+    assert(columnEntry.exists, "右侧记忆栏里没有「关系档案」入口");
+    assert(columnEntry.visible, "右侧记忆栏里的入口看不见（0 尺寸）");
+    assert(columnEntry.reachable, "右侧记忆栏里的入口点不到（被别的元素盖住）");
+
+    // ② 弹层里的入口（要先打开弹层才量得到）
+    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
+    const modalEntry = await evaluate(probeEntry("#memoryPanel [data-action='open-companion']"));
+    assert(modalEntry.exists && modalEntry.visible && modalEntry.reachable,
+      "记忆弹层里的「关系档案」点不到：" + JSON.stringify(modalEntry));
+
     await evaluate("document.querySelector(\"#memoryPanel [data-action='open-companion']\").click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
 
