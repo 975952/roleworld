@@ -835,7 +835,9 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .character-picker-trigger { min-height: 44px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }
   .character-picker-trigger:hover { background: var(--hover); }
   .composer-box textarea { grid-column: 1; grid-row: 2; min-width: 0; min-height: 44px; max-height: 132px; padding: 10px 6px; line-height: 1.5; }
-  .composer-footer { grid-column: 2; grid-row: 2; align-self: end; gap: 0; }
+  /* 手机上这一列（本次请求 / 停止 / 发送）以前是 gap:0，「本次请求」会**贴住**发送键
+     （用户 2026-09-12：「本次请求离那个发送按钮太近了」）。给它一个竖排间距。 */
+  .composer-footer { grid-column: 2; grid-row: 2; align-self: end; gap: 8px; flex-direction: column; align-items: flex-end; }
   .composer-footer .stop-button { min-width: 44px; width: 44px; }
   .character-picker-menu { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; width: 100%; max-height: min(58vh, max(88px, calc(var(--visual-viewport-height, 100dvh) - var(--mobile-topbar-height) - var(--mobile-bottom-nav-height) - var(--mobile-safe-bottom) - 220px))); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
   .character-picker-item, .character-picker-action { font-size: 14px; }

@@ -498,6 +498,10 @@ function openInspector(view) {
       window.TASK21.openMemoryPanel();
       return;
     }
+    // 兜底：万一主流程还没挂上（启动早期/异常路径），至少把弹层直接打开，
+    // 别让"点了没反应"再次发生 —— 用户 2026-09-12 连报两次。
+    const modal = document.querySelector("#memoryPanel");
+    if (modal) { modal.hidden = false; return; }
   }
   setMemoryPanelOpen(true);
 }

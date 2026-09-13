@@ -306,6 +306,31 @@ async function main() {
       await sleep(300);
     });
 
+    await check(`${viewport.label}：「本次请求」和发送键不挤在一起`, async () => {
+      // 用户 2026-09-12：「手机版的本次请求离那个发送按钮太近了」。
+      // 手机上 .composer-footer 原来是 gap:0 → 两者贴住。这里要求两者之间有实实在在的间距，
+      // 并且不重叠（矩形相交直接算失败）。
+      const gapInfo = await evaluate(`(() => {
+        const peek = document.querySelector('#requestPeekButton');
+        const send = document.querySelector('#sendButton');
+        if (!peek || !send) return { missing: true };
+        if (peek.hidden || getComputedStyle(peek).display === 'none') return { peekHidden: true };
+        const a = peek.getBoundingClientRect();
+        const b = send.getBoundingClientRect();
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        const overlaps = overlapX > 1 && overlapY > 1;
+        // 同一个方向上的净间距：竖排取上下，横排取左右。
+        const vertical = overlapX > 1;
+        const gap = vertical ? Math.round(Math.min(Math.abs(b.top - a.bottom), Math.abs(a.top - b.bottom)))
+          : Math.round(Math.min(Math.abs(b.left - a.right), Math.abs(a.left - b.right)));
+        return { overlaps: overlaps, vertical: vertical, gap: gap, peek: [Math.round(a.left), Math.round(a.top), Math.round(a.width), Math.round(a.height)], send: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)] };
+      })()`);
+      if (gapInfo.missing || gapInfo.peekHidden) return;   // 还没发过消息时这个入口不显示
+      assert(!gapInfo.overlaps, "「本次请求」和发送键重叠了：" + JSON.stringify(gapInfo));
+      assert(gapInfo.gap >= 6, "「本次请求」离发送键太近（" + gapInfo.gap + "px）：" + JSON.stringify(gapInfo));
+    });
+
     await check(`${viewport.label}：「本次请求」弹层能开、能关、内容可滚动`, async () => {
       await evaluate("window.TASK21.openRequestPeek(); true");
       await waitFor("document.querySelector('#requestPeek').hidden === false", 8000);
