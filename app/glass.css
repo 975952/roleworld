@@ -390,6 +390,18 @@
   box-shadow: none;
 }
 .settings-surface .settings-row select { padding-right: 28px; }
+
+/* 下拉框统一收一下箭头：用户 2026-09-12「有反着的 ^ 这种符号的地方，这个符号一般都会和框的右边连在一起，很不好看」。
+   浏览器自带的箭头贴边且各平台长得不一样 —— 自己画一个，右边留出 12px，选中文字也留够空间。 */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 15px center, right 10px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
 .settings-surface .plain-button, .settings-surface .danger-button { border: 0; }
 .settings-surface .settings-row input:focus-visible,
 .settings-surface .settings-row textarea:focus-visible,

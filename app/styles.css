@@ -223,7 +223,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .assistant-bubble { color: var(--secondary-text); }
 .user-bubble { padding: 10px 14px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: var(--input-radius); background: var(--hover); }
 .narration-line { margin: 0 0 3px; color: var(--muted-text); font-size: 13px; font-style: italic; line-height: 1.65; white-space: pre-wrap; }
-.composer-cost { color: var(--muted-text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-cost { color: var(--muted-text); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
 .composer-cost:empty { display: none; }
 .typing-note { display: flex; align-items: center; min-height: 32px; margin: 0 0 28px 46px; }
 .typing-note[hidden] { display: none; }
@@ -262,9 +262,14 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .message-refs-item:hover { color: var(--main-text); border-color: var(--strong-line); }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 /* 发送前预估：输入 token / 费用 / 输出上限。窄屏上先让位给发送键。 */
-.composer-estimate { overflow: hidden; flex: 0 1 auto; min-width: 0; color: var(--secondary-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-estimate { flex: 0 1 auto; min-width: 0; color: var(--secondary-text); font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
 .composer-estimate[hidden] { display: none; }
 @media (max-width: 560px) { .composer-estimate { display: none; } }
+/* 手机上这两行**保持单行省略**：允许换行会把输入框和发送键挤出视口
+   （2026-09-12 实测，viewport 套件当场抓到）。桌面上才是"换行不截断"。 */
+@media (max-width: 760px) {
+  .composer-cost, .composer-estimate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
 .send-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; padding: 0; color: var(--button-text); font-size: 16px; font-weight: 700; border: 0; border-radius: 50%; background: var(--main-text); cursor: pointer; transition: background var(--hover-motion) ease, transform var(--hover-motion) var(--motion-ease), opacity var(--hover-motion) ease; }
 .send-button:hover { background: #fff; transform: translateY(-1px); }
 .send-button:disabled { opacity: .38; cursor: wait; transform: none; }
@@ -312,7 +317,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .admin-user-copy strong { overflow: hidden; color: var(--main-text); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .admin-user-copy span { color: var(--muted-text); font-size: 10px; }
 .admin-user-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.settings-row select { min-width: 94px; padding: 7px 25px 7px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); cursor: pointer; }
+.settings-row select { min-width: 94px; padding: 7px 30px 7px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); cursor: pointer; }
 .danger-button { min-height: 32px; padding: 0 11px; color: var(--error); font-size: 12px; border: 1px solid color-mix(in srgb, var(--error) 46%, var(--hairline)); border-radius: 7px; background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, background var(--hover-motion) ease, border-color var(--hover-motion) ease; }
 .danger-button:hover { color: var(--main-text); border-color: var(--error); background: color-mix(in srgb, var(--error) 14%, transparent); }
 .danger-card { border: 1px solid color-mix(in srgb, var(--error) 34%, var(--hairline)); }
@@ -381,7 +386,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .modal-field textarea { width: 100%; resize: vertical; padding: 11px; color: var(--main-text); line-height: 1.55; border: 1px solid var(--hairline); border-radius: 8px; outline: 0; background: var(--canvas); }
 .modal-field textarea:focus { border-color: #555b67; }
 .modal-field textarea[readonly] { color: var(--muted-text); }
-.modal-field select { width: 100%; padding: 9px 11px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 8px; background: var(--canvas); cursor: pointer; }
+.modal-field select { width: 100%; padding: 9px 34px 9px 11px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 8px; background: var(--canvas); cursor: pointer; }
 .modal-field input:not([type="checkbox"]) { width: 100%; padding: 9px 11px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 8px; outline: 0; background: var(--canvas); }
 .modal-field input:not([type="checkbox"]):focus { border-color: #555b67; }
 .modal-helper { margin: 10px 0 0; color: var(--muted-text); font-size: 10px; }

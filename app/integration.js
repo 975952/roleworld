@@ -2064,7 +2064,11 @@
     const unit = prices.output > 0
       ? ` · 单价 ¥${prices.input}/¥${prices.output} 每百万 tokens（${prices.period}时段）`
       : "";
+    // 用户 2026-09-12：「输入框里面的这些字太多了，而且还显示不全」。
+    // 这一轮先把**显示不全**解决掉（见 styles.css `.composer-meta-line` 允许换行）；
+    // 文案精简要连测试口径一起改（有几条用例断言这里必须有 token 数字），留到下一轮。
     node.textContent = `本对话 ${totals.turns} 轮 · 输入 ${pricing.formatTokens(totals.input)} / 输出 ${pricing.formatTokens(totals.output)} tokens · 累计 ${approx}${pricing.formatCost(totals.cost)}${unit}`;
+    node.title = "这一行的细账：轮数 / 输入输出 token / 累计费用 / 单价与时段。实际账单以服务商为准。";
   }
 
   /* ---------- P2-1 发送前预估 / P2-2 输出上限与上下文分开 ----------

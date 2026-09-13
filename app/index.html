@@ -277,13 +277,14 @@
             <em class="companion-hint" id="companionAffinityHint"></em>
           </div>
 
-          <label class="modal-field"><span>久没聊时的态度</span>
+          <div class="modal-field companion-v2">
+            <span>久没聊时的态度</span>
             <select id="companionNeglect">
               <option value="off">照旧，不提这件事</option>
               <option value="soft">会想你，但很轻（默认）</option>
               <option value="full">会想你、也会闹别扭</option>
             </select>
-          </label>
+          </div>
 
           <div class="modal-field companion-v2">
             <label class="companion-inline"><input type="checkbox" id="companionProactive"> 你回来时让它先开口（主动消息）</label>
@@ -357,7 +358,7 @@
           <section class="settings-section" id="settings-characters" data-settings-panel="characters">
             <div class="settings-section-heading"><h2>角色管理</h2><p>创建、导入或删除当前账户的角色卡。删除会同时删除该角色的全部聊天，不可恢复。</p></div>
             <div class="settings-card">
-              <div class="character-manage-toolbar"><span id="characterManageCount">0 个角色</span><button class="plain-button" type="button" data-action="character-ai-create">AI 创建角色</button><button class="plain-button" type="button" data-action="character-import">导入角色文件</button><button class="plain-button" type="button" data-action="character-refresh">刷新</button></div>
+              <div class="character-manage-toolbar"><span id="characterManageCount">0 个角色</span><button class="plain-button" type="button" data-action="open-companion">伴侣模式（当前角色）</button><button class="plain-button" type="button" data-action="character-ai-create">AI 创建角色</button><button class="plain-button" type="button" data-action="character-import">导入角色文件</button><button class="plain-button" type="button" data-action="character-refresh">刷新</button></div>
               <div class="character-manage-list" id="characterManageList"></div>
               <p class="settings-empty" id="characterManageEmpty">正在加载角色…</p>
             </div>
