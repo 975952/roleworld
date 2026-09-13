@@ -545,7 +545,13 @@ html[data-theme="light"] .rw-ob{
     // 卡用户也记上「开场看过了」——他走的是卡那套，不该再被"填 Key"那套拦一次。
     if (mode === "card") patch[CARD_SEEN_KEY] = true;
     if (chinese) patch.language_mode = chinese.checked === true ? "zh" : "auto";
-    close();
+    // **先落盘，再关浮层。**
+    // 关掉浮层是"这一步结束了"的对外信号（用户看的是它，自动化等的也是它），
+    // 而这中间还有两次 await（读体验卡状态、写本机设置）。原来的顺序是先 close() 再写，
+    // 于是"浮层已经消失、标记还没落盘"存在一个真实窗口：
+    //   · 用户正好在这时刷新 / 关标签页 → 下次打开又弹一次开场；
+    //   · 自动化正好在这时读设置 → 读到旧值（2026-09-13 那条偶发用例就卡在这里）。
+    // 顺序调过来之后，"浮层没了"就等价于"标记已经写下去了"，两边都不再有窗口。
     try {
       // 自己配 Key 的路上顺手用了体验卡（引导第二步那个入口）：卡说明他已经看过，
       // 别再在下一次启动时弹一遍卡开场。
@@ -557,6 +563,7 @@ html[data-theme="light"] .rw-ob{
     try {
       await global.RoleWorld.saveLocalSettings(patch);
     } catch (_) { /* 存不下也不能卡住用户 */ }
+    close();
     notifySettings();
     global.dispatchEvent(new global.CustomEvent("roleworld:nickname-changed", { detail: { nickname } }));
   }

@@ -2825,6 +2825,13 @@ async function main() {
       assert(ready.indexOf("剩 4 次") >= 0, "最后一步没再报一次额度：" + ready.slice(0, 200));
       await evaluate("document.querySelector('[data-ob=\"next\"]').click()");
       await waitFor("!document.querySelector('.rw-ob')", 8000);
+      // 浮层消失 = 这一步真的完成了：标记必须**已经**落盘。
+      // 这里断言的是"顺序"本身（不是"再等一会儿"）—— 以前 finish() 先 close() 再写设置，
+      // 中间隔着两次 await，于是存在"浮层没了、标记还没写"的窗口：
+      // 用户正好这时刷新会重看一次开场，自动化读到旧值（2026-09-13 那条偶发就卡在这里）。
+      const markerAtClose = await evaluate("(async () => (await RoleWorld.getLocalSettings()).card_welcome_seen)()");
+      assert(markerAtClose === true,
+        "浮层消失时「开场看过」的标记还没落盘：关浮层与落盘的顺序又反了");
 
       // ④ 开场里做的事要落盘：称呼、语言、以及"开场看过"这个标记
       const after = await evaluate("(async () => await RoleWorld.getLocalSettings())()");
