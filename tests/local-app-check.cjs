@@ -67,6 +67,8 @@ function startServer() {
   // 停止生成需要一条"慢慢吐字"的流：只在这条用例里打开，避免影响其它断言。
   let slowStream = false;
 let truncateNext = false;
+  // 「失败 → 重试」用例用：下一次模型请求直接 500。
+  let failNext = false;
   // 下一次回复的内容可以由测试指定：用来验证 [[记住: …]] 这条真实链路。
   const replyQueue = [];
   const server = http.createServer(async (req, res) => {
@@ -103,6 +105,14 @@ let truncateNext = false;
       truncateNext = !truncateNext;
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(truncateNext ? "on" : "off");
+      return;
+    }
+
+    // 让下一次模型请求直接失败（用来验证"失败 → 重试"这条链路）。
+    if (p === "/__fail-next") {
+      failNext = true;
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("on");
       return;
     }
 
@@ -153,6 +163,13 @@ let truncateNext = false;
       for await (const chunk of req) raw += chunk;
       let body = {};
       try { body = JSON.parse(raw); } catch (_) { /* 保持空对象 */ }
+      // 「失败 → 重试」用例用：这一次直接 500，而且不记进 requests（就当没发生过）。
+      if (failNext) {
+        failNext = false;
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: { message: "测试用的失败：上游暂时不可用" } }));
+        return;
+      }
       // AI 写角色分两步：先扩写提示词，再照提示词写卡。两者靠系统提示词区分。
       const systemText = (Array.isArray(body.messages) ? body.messages : [])
         .filter((m) => m && m.role === "system").map((m) => String(m.content || "")).join("\n");
@@ -3718,7 +3735,180 @@ async function main() {
     assert(back.stored.swipes[1].indexOf("改过的第二版") >= 0, "第二版没留在 swipes 里：" + JSON.stringify(back.stored.swipes));
   });
 
+  await check("编辑与分支：改最后一条就地生效；改更早的会开新分支且原对话不动", async () => {
+    const readChats = async () => evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      const out = [];
+      for (const row of list) {
+        const fileName = row.fileName || row.file_name || row.id || '';
+        if (!fileName) continue;
+        let lines = [];
+        try { lines = await window.STApi.getChat('Harry Potter (EN).png', fileName) || []; } catch (_) { lines = []; }
+        const messages = (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === 'string');
+        out.push({ fileName, count: messages.length, first: (messages[0] || {}).mes || '', last: (messages[messages.length - 1] || {}).mes || '' });
+      }
+      return out;
+    })()`);
+    const before = await readChats();
+    const totalBefore = before.reduce((sum, row) => sum + row.count, 0);
+    assert(before.length >= 1 && totalBefore >= 2, "这一条需要已有对话内容：" + JSON.stringify(before));
 
+    // ① 编辑最后一条用户消息：就地改，不新增消息。
+    const edit = await evaluate(`(async () => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-user'));
+      const row = rows[rows.length - 1];
+      const index = Number(row.dataset.messageIndex);
+      const ok = await window.TASK21.editMessageText(index, '改过之后的这一句');
+      return { index, ok };
+    })()`);
+    assert(edit.ok === true, "编辑最后一条用户消息没有生效：" + JSON.stringify(edit));
+    const afterEdit = await readChats();
+    const totalAfterEdit = afterEdit.reduce((sum, row) => sum + row.count, 0);
+    assert(totalAfterEdit === totalBefore, "编辑不该改变消息条数：" + totalBefore + " → " + totalAfterEdit);
+    const shownEdited = await evaluate("document.querySelector('#dynamicMessages').textContent.indexOf('改过之后的这一句') >= 0");
+    // 编辑的那条在对话中间，不是首尾 —— 所以要扫全部对话的全部消息来找它。
+    const storedEdited = await evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      let hits = 0;
+      for (const row of (Array.isArray(rows) ? rows : [])) {
+        const fileName = row.fileName || row.file_name || row.id || '';
+        if (!fileName) continue;
+        let lines = [];
+        try { lines = await window.STApi.getChat('Harry Potter (EN).png', fileName) || []; } catch (_) { lines = []; }
+        hits += (Array.isArray(lines) ? lines : []).filter((line) => line && line.mes === '改过之后的这一句').length;
+      }
+      return hits;
+    })()`);
+    assert(storedEdited === 1, "改完的内容没有落盘（应当正好一条）：" + storedEdited);
+    assert(shownEdited, "改完的内容没有反映到界面上");
+
+    // ② 从一条较早的消息开分支：多出一个对话文件，原对话一条都没少。
+    const branch = await evaluate(`(async () => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row'));
+      const row = rows[Math.max(0, rows.length - 3)] || rows[0];
+      const index = Number(row.dataset.messageIndex);
+      const beforeList = await window.STApi.listChats('Harry Potter (EN).png');
+      const beforeCount = (Array.isArray(beforeList) ? beforeList : []).length;
+      const ok = await window.TASK21.branchFromMessage(index);
+      await new Promise((r) => setTimeout(r, 800));
+      const afterList = await window.STApi.listChats('Harry Potter (EN).png');
+      return { index, ok, beforeCount, afterCount: (Array.isArray(afterList) ? afterList : []).length, toast: (document.querySelector('#toast') || {}).textContent || '' };
+    })()`);
+    assert(branch.ok === true, "开分支失败：" + JSON.stringify(branch));
+    assert(branch.afterCount === branch.beforeCount + 1, "分支应当是**多出一个对话文件**：" + JSON.stringify(branch));
+    assert(branch.toast.indexOf("分支") >= 0 && branch.toast.indexOf("原对话没有改动") >= 0,
+      "开分支之后没说清楚发生了什么：" + branch.toast);
+
+    const after = await readChats();
+    const originalBefore = before.slice().sort((a, b) => b.count - a.count)[0];
+    const originalAfter = after.find((row) => row.fileName === originalBefore.fileName);
+    assert(originalAfter && originalAfter.count === originalBefore.count,
+      "原对话被改动了：" + JSON.stringify({ was: originalBefore, now: originalAfter }));
+    const branchRow = after.find((row) => !before.some((old) => old.fileName === row.fileName));
+    assert(branchRow, "没有找到新建的分支对话：" + JSON.stringify(after));
+    assert(branchRow.count >= 1 && branchRow.count <= originalBefore.count,
+      "分支内容不对（应当是从那条消息截断的前缀）：" + JSON.stringify({ branch: branchRow, original: originalBefore }));
+  });
+
+  await check("失败重试：原话留在屏幕上，重试不产生重复的用户消息", async () => {
+    const userRowsBefore = await evaluate("document.querySelectorAll('#dynamicMessages .message-row-user').length");
+    await fetch(base + "/__fail-next", { method: "POST" });
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '这一句会失败';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    await waitFor("document.querySelector('.turn-failure') !== null", 10000);
+
+    const card = await evaluate(`(() => {
+      const node = document.querySelector('.turn-failure');
+      const retry = node.querySelector("[data-action='retry-turn']");
+      const r = retry.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
+      const top = document.elementFromPoint(cx, cy);
+      return {
+        text: node.querySelector('.turn-failure-text').textContent,
+        why: node.querySelector('.turn-failure-why').textContent,
+        retryVisible: r.width > 0 && r.height > 0,
+        retryReachable: !!(top && (top === retry || retry.contains(top))),
+        userText: retry.dataset.userText || '',
+      };
+    })()`);
+    assert(card.text.indexOf('这一句会失败') >= 0, "失败卡片上没有保留用户原话：" + card.text);
+    assert(card.why.indexOf('原因') >= 0, "失败卡片没说原因：" + card.why);
+    assert(card.retryVisible && card.retryReachable, "重试按钮点不到：" + JSON.stringify(card));
+    assert(card.userText === '这一句会失败', "重试按钮没记住要重发的那句话：" + card.userText);
+    assert(await evaluate("document.querySelectorAll('#dynamicMessages .message-row-user').length") === userRowsBefore,
+      "失败的那一轮不该在对话里留下一条用户消息");
+
+    // 点重试 → 这次成功。同一句话只能出现一次（不是"再发一遍"）。
+    await fetch(base + "/__reply-clear", { method: "POST" });
+    await fetch(base + "/__reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: "这次成功了。" }) });
+    await evaluate("document.querySelector(\"[data-action='retry-turn']\").click(); true");
+    await waitTurnSettled();
+    await waitFor("document.querySelector('.turn-failure') === null", 8000);
+    const after = await evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      const newest = list.slice().sort((a, b) => String(b.lastMessageAt || b.updatedAt || '').localeCompare(String(a.lastMessageAt || a.updatedAt || '')))[0];
+      const fileName = (newest && (newest.fileName || newest.file_name || newest.id)) || '';
+      const lines = fileName ? await window.STApi.getChat('Harry Potter (EN).png', fileName) : [];
+      const messages = (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === 'string');
+      return {
+        sameText: messages.filter((line) => line.mes === '这一句会失败').length,
+        userRows: document.querySelectorAll('#dynamicMessages .message-row-user').length,
+        failures: document.querySelectorAll('.turn-failure').length,
+      };
+    })()`);
+    assert(after.sameText === 1, "重试之后这句话被写了两遍：" + JSON.stringify(after));
+    assert(after.userRows === userRowsBefore + 1, "重试之后界面上应当多一条用户消息：" + JSON.stringify(after));
+    assert(after.failures === 0, "重试成功后失败卡片应当消失：" + JSON.stringify(after));
+  });
+
+
+
+  await check("刷新之后版本与分支都还在（存的就是看到的）", async () => {
+    // 多版本消息可能在**任意一段对话**里（分支用例还会新建对话），所以扫全部对话找，
+    // 不要只看"最近更新的那一段"（这一条自己踩过一次）。
+    const scan = `(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      let swipes = 0;
+      const versions = [];
+      for (const row of list) {
+        const fileName = row.fileName || row.file_name || row.id || '';
+        if (!fileName) continue;
+        let lines = [];
+        try { lines = await window.STApi.getChat('Harry Potter (EN).png', fileName) || []; } catch (_) { lines = []; }
+        for (const line of (Array.isArray(lines) ? lines : [])) {
+          if (line && Array.isArray(line.swipes) && line.swipes.length > 1) { swipes += 1; versions.push(line.swipes.length); }
+        }
+      }
+      return {
+        chats: list.length,
+        swipes: swipes,
+        versions: versions,
+        labels: Array.from(document.querySelectorAll('#dynamicMessages .message-version-label')).map((n) => n.textContent),
+        branchFiles: list.filter((row) => String(row.fileName || row.file_name || row.id || '').indexOf('分支') >= 0).length,
+      };
+    })()`;
+    const before = await evaluate(scan);
+    assert(before.swipes >= 1, "刷新前就没有多版本消息，这条用例没意义：" + JSON.stringify(before));
+
+    await goto(base + "/index.html?onboarding=off&surprise=off");
+    await waitFor("window.TASK21_READY === true", 30000);
+    await waitFor("document.querySelectorAll('#dynamicMessages .message-row').length > 0", 15000);
+
+    const after = await evaluate(scan);
+    assert(after.chats === before.chats, "刷新后对话文件数变了（分支丢了？）：" + before.chats + " → " + after.chats);
+    assert(after.swipes === before.swipes && JSON.stringify(after.versions) === JSON.stringify(before.versions),
+      "刷新后版本丢了：" + JSON.stringify({ before, after }));
+    assert(after.branchFiles === before.branchFiles, "刷新后分支对话不见了：" + JSON.stringify({ before, after }));
+  });
 
   await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
     await evaluate(`(async () => {
