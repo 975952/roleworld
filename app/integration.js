@@ -101,6 +101,8 @@
     memoryRows: [],
     memoryEntries: {},
     memoryPanelOpen: false,
+    // 角色面板停在哪个分页（设定 / 记忆 / 关系）。记住它，关掉再点角色名回到原来那页。
+    characterTab: "setup",
     // 伴侣模式：正在编辑关系档案的那个角色（保存时用它，避免中途切角色写错人）。
     companionEntry: null,
     // 设置页刚改、还没落盘完成的值：整量重读时不能被旧值盖回去。
@@ -393,6 +395,20 @@
     const full = entry && (entry.charName || entry.avatar) ? (entry.charName || entry.avatar) : "Harry Potter";
     const title = document.querySelector("#topbarTitle");
     if (title) title.textContent = full;
+    // 顶栏那个"角色名按钮"上的小头像（点它开角色面板）。取不到图就留空白圆圈，不编图。
+    const avatar = document.querySelector("#topbarCharacterAvatar");
+    if (avatar) {
+      const file = (entry && entry.avatar) || "";
+      let url = "";
+      if (file && window.STApi && typeof window.STApi.assetUrlSync === "function") {
+        try { url = window.STApi.assetUrlSync(file) || ""; } catch (_) { url = ""; }
+      }
+      if (url) { avatar.style.backgroundImage = `url("${String(url).replace(/"/g, "%22")}")`; }
+      else { avatar.style.backgroundImage = ""; }
+      avatar.hidden = !url;
+    }
+    const button = document.querySelector("#topbarCharacterButton");
+    if (button) button.setAttribute("aria-label", `${full}：设定、记忆与关系`);
     const brand = document.querySelector("#sidebarBrandName");
     if (brand) brand.textContent = "角色世界";
     // 语言是"每个角色一个"的：换了角色，顶栏那个下拉也要跟着换（同一个函数，别处不用再管）。
@@ -1225,10 +1241,8 @@
    * 模型自己记的要点以前是"只进不出"的黑盒。这里让它可见、可改、可删。
    * 删除是真的从记忆书里删掉 —— 后续请求不会再带上它。
    */
-  async function openMemoryPanel() {
-    const surface = document.querySelector("#memoryPanel");
-    if (!surface) return;
-    surface.hidden = false;
+  /** 读当前角色的记忆并画进「记忆」分页（原来叫 openMemoryPanel，只负责数据 + 渲染）。 */
+  async function loadMemoryPane() {
     const entry = activeCharacterEntry();
     const subtitle = document.querySelector("#memoryPanelSubtitle");
     const list = document.querySelector("#memoryList");
@@ -1249,6 +1263,11 @@
         + `（上限 ${autoMemoryMax()} 条，超出会挤掉最旧的）`;
     }
     renderMemoryList();
+  }
+
+  /** 顶栏「记忆」= 一步到当前角色的记忆页（面板的第二个分页）。 */
+  async function openMemoryPanel() {
+    await openCharacterPanel("memories");
   }
 
   function renderMemoryList() {
@@ -1594,8 +1613,202 @@
   }
 
   function closeMemoryPanel() {
-    const surface = document.querySelector("#memoryPanel");
+    closeCharacterPanel();
+  }
+
+  /* ---------- 角色面板：设定 / 记忆 / 关系（2026-09-13 合并三个入口） ----------
+   * 为什么要合并：以前要改"这个角色的东西"，得先分清三个地方 ——
+   *   「角色记忆」弹窗（模型自己记的）、右侧「记忆书」栏（你手写的）、「关系档案」弹窗（伴侣模式）。
+   * 用户的原话是"用户需要理解几个相近概念，才能修改同一个角色的相关信息"。
+   * 现在它们是一个面板的三个分页，入口只有两个：点角色名（默认设定页）、顶栏「记忆」（记忆页）。
+   * **数据与能力一个都没动**：三个分页用的还是原来那些渲染函数与存储。
+   */
+  const CHARACTER_TABS = ["setup", "memories", "relationship"];
+
+  function characterPanel() {
+    return document.querySelector("#characterPanel");
+  }
+
+  /** 切分页（不动数据，只动显示与标题）。 */
+  function setCharacterPanelTab(tab) {
+    const next = CHARACTER_TABS.indexOf(tab) >= 0 ? tab : "setup";
+    liveState.characterTab = next;
+    // 分页内容要异步读：`data-ready` 记"哪一页已经填好了"，
+    // 界面上的"正在读取…"和自动化检查都看它，不用猜时间。
+    const surface = characterPanel();
+    if (surface) surface.dataset.ready = "";
+    document.querySelectorAll("[data-character-tab]").forEach((button) => {
+      const on = button.dataset.characterTab === next;
+      button.classList.toggle("is-active", on);
+      button.setAttribute("aria-selected", String(on));
+    });
+    document.querySelectorAll("[data-character-pane]").forEach((pane) => {
+      pane.hidden = pane.dataset.characterPane !== next;
+    });
+    const hint = document.querySelector("#characterPanelHint");
+    if (hint) hint.textContent = CHARACTER_TAB_HINTS[next] || "";
+    return next;
+  }
+
+  /** 分页内容填完之后打标记（见 setCharacterPanelTab 的说明）。 */
+  function markCharacterPaneReady(tab) {
+    const surface = characterPanel();
+    if (surface) surface.dataset.ready = tab;
+  }
+
+  /** 切到某一页并把内容读出来（标签按钮与"去记忆/去关系"按钮共用这一条路）。 */
+  async function showCharacterTab(tab) {
+    const next = setCharacterPanelTab(tab);
+    if (next === "memories") await loadMemoryPane();
+    if (next === "relationship") await loadCompanionPane();
+    markCharacterPaneReady(next);
+    return next;
+  }
+
+  const CHARACTER_TAB_HINTS = {
+    setup: "这是角色卡里写的设定（只读）。要换成别的角色卡，用「设置 → 角色管理」里的导入或 AI 创建。",
+    memories: "上面是模型自己记的（自动记忆），下面是你手写的记忆书。每条都能看来源、确认、改写、删除。",
+    relationship: "关系档案是你亲手写的真实信息，和模型自己记的分开存；伴侣模式只对这个角色生效。",
+  };
+
+  /** 设定页：把角色卡的原文摊开给用户看（只读），旁边给出能改的那几项在哪。 */
+  async function renderCharacterSetup() {
+    const pane = document.querySelector("#characterPaneSetup");
+    if (!pane) return;
+    pane.textContent = "";
+    const entry = activeCharacterEntry();
+    if (!entry || !entry.avatar) {
+      const empty = document.createElement("p");
+      empty.className = "request-peek-empty";
+      empty.textContent = "还没有选中的角色。";
+      pane.appendChild(empty);
+      return;
+    }
+    // 角色卡的正文要从数据层读（liveState.characters 里只有 avatar 与名字）。
+    // 读不到就说读不到，不编内容。
+    let card = (liveState.cardCache && liveState.cardCache.get(entry.avatar)) || null;
+    if (!card && window.STApi && typeof window.STApi.getCharacter === "function") {
+      try {
+        card = await window.STApi.getCharacter(entry.avatar);
+        if (card && liveState.cardCache) liveState.cardCache.set(entry.avatar, card);
+      } catch (_) { card = null; }
+    }
+    if (pane.dataset.avatar !== entry.avatar) { pane.dataset.avatar = entry.avatar; }
+    const data = (card && (card.data || card)) || {};
+    const rows = [
+      ["名字", (card && (card.name || data.name)) || entry.charName || entry.avatar],
+      ["它是谁", data.description || ""],
+      ["性格", data.personality || ""],
+      ["场景", data.scenario || ""],
+      ["开场白", data.first_mes || ""],
+      ["示例对话", data.mes_example || ""],
+    ];
+    const tags = Array.isArray(data.tags) ? data.tags.filter(Boolean) : [];
+    if (tags.length) rows.push(["标签", tags.join("、")]);
+    rows.push(["角色卡文件", entry.avatar]);
+    // 内置包里来的，还是自己导入的。内置角色会在内容包更新时自动刷新，说清楚免得用户以为能改。
+    let pack = null;
+    try {
+      const packs = window.RoleWorldPacks && typeof window.RoleWorldPacks.listPacks === "function"
+        ? await window.RoleWorldPacks.listPacks() : [];
+      pack = (Array.isArray(packs) ? packs : []).find((item) => {
+        const files = (item && item.files) || {};
+        return Array.isArray(files.characters) && files.characters.includes(entry.avatar);
+      }) || null;
+    } catch (_) { pack = null; }
+    rows.push(["来源", pack
+      ? `内置内容包「${pack.name || pack.id || "内置"}」（内容包更新时会自动刷新，你的对话与记忆不受影响）`
+      : "导入的角色卡"]);
+    if (!card) rows.push(["提示", "读不到这张角色卡的正文（可能还没从内容包同步）。这里不显示猜测内容。"]);
+
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "character-setup-row";
+      const key = document.createElement("strong");
+      key.textContent = label;
+      const body = document.createElement("div");
+      const text = String(value === undefined || value === null ? "" : value).trim();
+      if (text) body.textContent = text;
+      else { body.textContent = "（角色卡里没写）"; body.classList.add("is-empty"); }
+      row.append(key, body);
+      pane.appendChild(row);
+    });
+
+    // 能改的那几项：都指到已有的入口，不在这里另做一套。
+    const actions = document.createElement("div");
+    actions.className = "character-setup-actions";
+    const memoryButton = document.createElement("button");
+    memoryButton.type = "button";
+    memoryButton.className = "plain-button";
+    memoryButton.textContent = "看它的记忆";
+    memoryButton.setAttribute("data-action", "character-tab-memories");
+    const relationButton = document.createElement("button");
+    relationButton.type = "button";
+    relationButton.className = "plain-button";
+    relationButton.textContent = "关系 / 伴侣模式";
+    relationButton.setAttribute("data-action", "character-tab-relationship");
+    actions.append(memoryButton, relationButton);
+    pane.appendChild(actions);
+
+    const note = document.createElement("p");
+    note.className = "character-setup-note";
+    note.textContent = "角色的语言、是否显示在左侧栏，在「设置 → 角色管理」里按角色改；"
+      + "记忆的开关与条数上限在「设置 → 记忆」（对所有角色生效）。";
+    pane.appendChild(note);
+  }
+
+  /** 打开角色面板。tab 省略时沿用上次那个分页（默认设定）。 */
+  async function openCharacterPanel(tab) {
+    const surface = characterPanel();
+    if (!surface) return;
+    const entry = activeCharacterEntry();
+    const title = document.querySelector("#characterPanelTitle");
+    if (title) title.textContent = entry && entry.avatar ? (entry.charName || entry.name || "角色") : "角色";
+    // 两个入口各自落在固定的页：点角色名 = 设定（角色的"家"），顶栏「记忆」= 记忆。
+    // 不记"上次停在哪一页" —— 那样点角色名可能开到关系页，用户会以为点错了。
+    const next = setCharacterPanelTab(tab || "setup");
+    // 内容先备好再露面：这三个分页读的东西（角色卡 / 记忆书 / 关系档案 / 内容包清单）都是异步的，
+    // 先显示再填会出现"打开了但里面是空的"这一帧 —— 真人看不出问题，但任何基于 DOM 的检查
+    // （包括本项目的回归用例）都会当场读到空内容。调用方 await 这次打开即可。
+    await renderCharacterSetup();
+    // 记忆页要用真实数据，打开时现读（和以前 openMemoryPanel 的行为一致）。
+    if (next === "memories") await loadMemoryPane();
+    if (next === "relationship") await loadCompanionPane();
+    markCharacterPaneReady(next);
+    surface.hidden = false;
+    window.TASK25C_UI?.rememberDialogFocus?.("characterPanel");
+    window.TASK25C_UI?.syncOverlayScrollLock?.();
+  }
+
+  function closeCharacterPanel() {
+    const surface = characterPanel();
     if (surface) surface.hidden = true;
+    const memory = document.querySelector("#memoryPanel");
+    if (memory) memory.hidden = true;
+    const companion = document.querySelector("#companionDialog");
+    if (companion) companion.hidden = true;
+    liveState.companionEntry = null;
+    window.TASK25C_UI?.syncOverlayScrollLock?.();
+    window.TASK25C_UI?.restoreDialogFocus?.("characterPanel");
+  }
+
+  async function loadCompanionPane() {
+    const entry = activeCharacterEntry();
+    const subtitle = document.querySelector("#companionSubtitle");
+    if (!entry || !entry.avatar) {
+      showToast("先选一个角色，再写关系档案");
+      setCharacterPanelTab("setup");
+      return;
+    }
+    liveState.companionEntry = entry;
+    const profile = await loadCompanion(entry);
+    if (subtitle) {
+      subtitle.textContent = `${entry.charName || entry.name}：这部分是你自己写的，模型不能改口；`
+        + "它和「记忆」页的东西分开存，清空记忆也不会动它。开关只对这个角色生效。";
+    }
+    fillCompanionForm(profile);
+    const error = document.querySelector("#companionError");
+    if (error) { error.textContent = ""; error.hidden = true; }
   }
 
   /* ---------- 伴侣模式：关系档案（用户亲手写的那一份） ----------
@@ -1829,36 +2042,13 @@
       : "你自己定的。系统不会偷偷改它；想交回系统就勾上「跟随系统建议」。";
   }
 
+  /** 「关系档案」入口 → 角色面板的「关系」分页（不再单开一个弹窗）。 */
   async function openCompanionDialog() {
-    const surface = document.querySelector("#companionDialog");
-    const entry = activeCharacterEntry();
-    const subtitle = document.querySelector("#companionSubtitle");
-    if (!surface) return;
-    if (!entry || !entry.avatar) {
-      showToast("先选一个角色，再写关系档案");
-      return;
-    }
-    closeMemoryPanel();
-    liveState.companionEntry = entry;
-    const profile = await loadCompanion(entry);
-    if (subtitle) {
-      subtitle.textContent = `${entry.charName || entry.name}：这部分是你自己写的，模型不能改口；`
-        + "它和「角色记忆」分开存，清空记忆不会动它。";
-    }
-    fillCompanionForm(profile);
-    const error = document.querySelector("#companionError");
-    if (error) { error.textContent = ""; error.hidden = true; }
-    window.TASK25C_UI?.rememberDialogFocus?.("companionDialog");
-    surface.hidden = false;
-    window.TASK25C_UI?.syncOverlayScrollLock?.();
+    await openCharacterPanel("relationship");
   }
 
   function closeCompanionDialog() {
-    const surface = document.querySelector("#companionDialog");
-    if (surface) surface.hidden = true;
-    liveState.companionEntry = null;
-    window.TASK25C_UI?.syncOverlayScrollLock?.();
-    window.TASK25C_UI?.restoreDialogFocus?.("companionDialog");
+    closeCharacterPanel();
   }
 
   async function submitCompanionDialog() {
@@ -4496,6 +4686,10 @@
     closeRequestPeek,
     openMemoryPanel,
     closeMemoryPanel,
+    // 统一角色面板（设定 / 记忆 / 关系）：三个分页一个入口。
+    openCharacterPanel,
+    closeCharacterPanel,
+    showCharacterTab,
     // 伴侣模式：关系档案（用户亲手写的那一份）。
     openCompanionDialog,
     // 主动开口为什么没发生（诊断用；测试与"设置 → 关于"都能看）。
@@ -4650,30 +4844,46 @@
         if (book) { event.preventDefault(); toggleBookEntries(book).catch(() => {}); }
       });
     }
-    // 记忆面板：关闭按钮、点背景关、手动加一条。
-    document.querySelectorAll("[data-action='close-memory']").forEach((node) => {
-      node.addEventListener("click", closeMemoryPanel);
+    // 角色面板：关闭、分页、点背景关、以及设定页里那两个"去记忆/去关系"的按钮。
+    document.querySelectorAll("[data-action='close-character-panel'], [data-action='close-memory'], [data-action='close-companion']").forEach((node) => {
+      node.addEventListener("click", closeCharacterPanel);
     });
+    document.querySelectorAll("[data-action='open-character-panel']").forEach((node) => {
+      node.addEventListener("click", () => { openCharacterPanel().catch(() => {}); });
+    });
+    document.querySelectorAll("[data-action='open-character-memories']").forEach((node) => {
+      node.addEventListener("click", () => { openCharacterPanel("memories").catch(() => {}); });
+    });
+    document.querySelectorAll("[data-character-tab]").forEach((node) => {
+      node.addEventListener("click", () => { showCharacterTab(node.dataset.characterTab).catch(() => {}); });
+    });
+    const setupPane = document.querySelector("#characterPaneSetup");
+    if (setupPane) {
+      // 设定页的按钮是每次渲染时新建的，所以用委托而不是逐个绑定。
+      setupPane.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-action]");
+        if (!button) return;
+        if (button.dataset.action === "character-tab-memories") showCharacterTab("memories").catch(() => {});
+        if (button.dataset.action === "character-tab-relationship") showCharacterTab("relationship").catch(() => {});
+      });
+    }
+    const characterSurface = characterPanel();
+    if (characterSurface) {
+      characterSurface.addEventListener("click", (event) => {
+        if (event.target === characterSurface) closeCharacterPanel();
+      });
+    }
+    // 记忆分页：手动加一条。
     document.querySelectorAll("[data-action='add-memory']").forEach((node) => {
       node.addEventListener("click", () => { addMemoryEntry(); });
     });
-    const memorySurface = document.querySelector("#memoryPanel");
-    if (memorySurface) {
-      memorySurface.addEventListener("click", (event) => { if (event.target === memorySurface) closeMemoryPanel(); });
-    }
     // 伴侣模式：关系档案的开关、保存、以及"边写边看这一轮会多带多少"。
     renderCompanionRules();
     bindChatRecap();
-    bindSendEstimate();    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
+    bindSendEstimate();
+    document.querySelectorAll("[data-action='open-companion']").forEach((node) => {
       node.addEventListener("click", () => { openCompanionDialog().catch(() => {}); });
     });
-    document.querySelectorAll("[data-action='close-companion']").forEach((node) => {
-      node.addEventListener("click", closeCompanionDialog);
-    });
-    const companionSurface = document.querySelector("#companionDialog");
-    if (companionSurface) {
-      companionSurface.addEventListener("click", (event) => { if (event.target === companionSurface) closeCompanionDialog(); });
-    }
     const companionSave = document.querySelector("#companionSaveButton");
     if (companionSave) companionSave.addEventListener("click", () => { submitCompanionDialog().catch(() => {}); });
     const companionRelation = document.querySelector("#companionRelation");
@@ -4705,10 +4915,8 @@
     });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      const memory = document.querySelector("#memoryPanel");
-      if (memory && !memory.hidden) { event.preventDefault(); closeMemoryPanel(); return; }
-      const companion = document.querySelector("#companionDialog");
-      if (companion && !companion.hidden) { event.preventDefault(); closeCompanionDialog(); }
+      const panel = characterPanel();
+      if (panel && !panel.hidden) { event.preventDefault(); closeCharacterPanel(); }
     });
     document.addEventListener("keydown", (event) => {
       const surface = document.querySelector("#requestPeek");

@@ -920,7 +920,7 @@ async function main() {
   });
 
   await check("记忆能删：删掉后后续请求里真的不再带上它", async () => {
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     await waitFor("document.querySelectorAll('#memoryList .memory-list li').length > 0", 8000);
     const before = await evaluate("document.querySelector('#memoryList').textContent");
@@ -934,7 +934,7 @@ async function main() {
       return true;
     })()`);
     await waitFor("document.querySelector('#memoryList').textContent.indexOf('玩家叫小林') < 0", 10000);
-    await evaluate("document.querySelector(\"[data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
 
     // 下一轮请求里不能再出现这条记忆
     await evaluate(`(() => {
@@ -952,7 +952,7 @@ async function main() {
 
   await check("改口：说一次「不喜欢了」，旧记忆被替换而不是两条并存", async () => {
     // 先清掉 fixture 里那条合成记忆，从干净状态开始。
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     await waitFor("document.querySelectorAll('#memoryList .memory-list li').length >= 0", 5000);
     const rows = await evaluate("document.querySelectorAll('#memoryList .memory-list li').length");
@@ -964,7 +964,7 @@ async function main() {
       })()`);
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
-    await evaluate("document.querySelector(\"[data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
 
     // 第一轮：模型记下「玩家喜欢咖啡」
     await fetch(base + "/__reply", {
@@ -1303,7 +1303,7 @@ async function main() {
     }
 
     // 弹层里也不该混进示例数据（它只显示该角色自己的自动记忆）
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     const panelText = await evaluate("document.querySelector('#memoryPanel #memoryList').textContent");
     for (const fake of ["霍格沃茨五年级学生", "旧教室谈起借扫帚", "扫帚会在使用后归还"]) {
@@ -1311,7 +1311,7 @@ async function main() {
     }
     assert(await evaluate("!!document.querySelector('#memoryPanel #memoryList #memoryOrientation')"),
       "记忆面板里应当有记忆取向选择器");
-    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
   });
 
   await check("记忆面板按主题分组、能折叠、显示用量", async () => {
@@ -1329,7 +1329,7 @@ async function main() {
       await store.putWorld(book, { entries });
       return true;
     })()`);
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     await waitFor("document.querySelectorAll('#memoryList .memory-group').length >= 2", 8000);
 
@@ -1358,11 +1358,11 @@ async function main() {
     await waitFor("document.querySelector('#memoryList .memory-group .memory-list').hidden === true", 5000);
     await evaluate("document.querySelector('.memory-group-toggle').click(); true");
     await waitFor("document.querySelector('#memoryList .memory-group .memory-list').hidden === false", 5000);
-    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
   });
 
   await check("一键清空该角色全部记忆：清完后面板为空、下一轮请求不再带上", async () => {
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     await waitFor("document.querySelector('.memory-panel-foot .danger-button') !== null", 8000);
 
@@ -1379,7 +1379,7 @@ async function main() {
     const left = await evaluate("(async () => (await window.STApi.getWorld('MB Harry — 自动记忆')).entries)()");
     assert(Object.keys(left || {}).length === 0, "清空后记忆书里还有条目：" + JSON.stringify(Object.keys(left || {})));
 
-    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
     await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
 
     // 下一轮请求的系统提示里不该再有被清掉的内容
@@ -1414,7 +1414,7 @@ async function main() {
       await store.putWorld(book, { entries });
       return true;
     })()`);
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     const link = await waitFor("document.querySelector('.memory-source-link') !== null", 8000);
     assert(link, "没有「看原话」入口");
@@ -1469,12 +1469,15 @@ async function main() {
 
   await check("伴侣模式：关系、称呼、起点、时间感与硬规矩都进了请求", async () => {
     // 走用户真正会走的那条路：角色记忆面板 → 关系档案。
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     assert(await evaluate("document.querySelector(\"#memoryPanel [data-action='open-companion']\") !== null"),
       "记忆面板里没有「关系档案」入口");
     await evaluate("document.querySelector(\"#memoryPanel [data-action='open-companion']\").click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
+    // 关系页的内容是异步读出来的（角色档案 + 当前表单状态）：等面板报"这一页填好了"再断言，
+    // 否则读到的是空壳 —— 这条以前就踩过（合并分页当天）。
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'relationship'", 8000);
     assert(await evaluate("document.querySelector('#memoryPanel').hidden === true"), "打开关系档案后记忆面板应当让开");
     assert(await evaluate("document.querySelector('#companionPreview').textContent.indexOf('一个字符都不会多带') >= 0"),
       "没打开时应当说清楚不会多带内容");
@@ -1534,6 +1537,91 @@ async function main() {
     assert(await evaluate("document.querySelector('#companionEnabled').checked === true"), "保存后复选框状态不对");
   });
 
+  await check("统一角色面板：点角色名一步进去，设定 / 记忆 / 关系三页各就各位", async () => {
+    // 本轮（2026-09-13）用户要求：把「角色记忆」弹窗、右侧「记忆书」栏、「关系档案」弹窗
+    // 合成一个入口 —— 点对话顶栏的角色名打开，分「设定 / 记忆 / 关系」三页；
+    // 顶栏「记忆」一步到记忆页；伴侣模式开关就在关系页，并写清对哪个角色生效。
+    await evaluate("window.TASK21.closeCharacterPanel(); true");
+
+    // ① 顶栏那颗按钮就是入口：真点击它（不是调内部函数）。
+    const entry = await evaluate(`(() => {
+      const node = document.querySelector('#topbarCharacterButton');
+      if (!node) return { exists: false };
+      const r = node.getBoundingClientRect();
+      const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+      return { exists: true, w: Math.round(r.width), h: Math.round(r.height), reachable: !!(top && (top === node || node.contains(top))), label: node.getAttribute('aria-label') || '' };
+    })()`);
+    assert(entry.exists, "顶栏没有角色入口按钮");
+    assert(entry.w > 0 && entry.h > 0 && entry.reachable, "顶栏角色入口点不到：" + JSON.stringify(entry));
+    await evaluate("document.querySelector('#topbarCharacterButton').click(); true");
+    await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'setup'", 8000);
+
+    // ② 默认落在「设定」页，而且真的读到了角色卡的正文（不是空壳）。
+    const setup = await evaluate(`(() => {
+      const pane = document.querySelector('#characterPaneSetup');
+      const rows = Array.from(pane.querySelectorAll('.character-setup-row')).map((row) => ({
+        label: row.querySelector('strong').textContent,
+        text: row.querySelector('div').textContent,
+        empty: row.querySelector('div').classList.contains('is-empty'),
+      }));
+      const title = document.querySelector('#characterPanelTitle').textContent;
+      const tabs = Array.from(document.querySelectorAll('[data-character-tab]')).map((b) => b.dataset.characterTab + (b.classList.contains('is-active') ? '*' : ''));
+      const active = Array.from(document.querySelectorAll('[data-character-pane]')).filter((p) => !p.hidden).map((p) => p.dataset.characterPane);
+      return { title, tabs, active, rows };
+    })()`);
+    assert(setup.tabs.join(",") === "setup*,memories,relationship", "分页不对：" + setup.tabs.join(","));
+    assert(setup.active.join(",") === "setup", "默认页应当是设定：" + setup.active.join(","));
+    assert(setup.title.indexOf("Harry") >= 0, "面板标题没写是哪个角色：" + setup.title);
+    const nameRow = setup.rows.find((row) => row.label === "名字");
+    const whoRow = setup.rows.find((row) => row.label === "它是谁");
+    assert(nameRow && !nameRow.empty && nameRow.text.indexOf("Harry") >= 0, "设定页没读到角色名字：" + JSON.stringify(nameRow));
+    assert(whoRow && !whoRow.empty, "设定页没读到角色卡正文（它是谁）：" + JSON.stringify(whoRow));
+    assert(setup.rows.some((row) => row.label === "角色卡文件") && setup.rows.some((row) => row.label === "来源"),
+      "设定页应当写明角色卡文件与来源：" + JSON.stringify(setup.rows.map((r) => r.label)));
+
+    // ③ 设定页里的「看它的记忆」= 切到记忆页，并且内容已经读好（data-ready）。
+    await evaluate("document.querySelector(\"[data-action='character-tab-memories']\").click(); true");
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'memories'", 8000);
+    const memoryTab = await evaluate(`(() => ({
+      memoryVisible: document.querySelector('#memoryPanel').hidden === false,
+      setupHidden: document.querySelector('#characterPaneSetup').hidden === true,
+      hasList: !!document.querySelector('#memoryPanel #memoryList'),
+      hasOrientation: !!document.querySelector('#memoryPanel #memoryList #memoryOrientation'),
+    }))()`);
+    assert(memoryTab.memoryVisible && memoryTab.setupHidden, "切到记忆页没生效：" + JSON.stringify(memoryTab));
+    assert(memoryTab.hasList && memoryTab.hasOrientation, "记忆页没有内容：" + JSON.stringify(memoryTab));
+
+    // ④ 关系页：伴侣模式开关在这里，并且说清对哪个角色生效。
+    await evaluate("document.querySelector(\"[data-character-tab='relationship']\").click(); true");
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'relationship'", 8000);
+    const relation = await evaluate(`(() => {
+      const subtitle = document.querySelector('#companionSubtitle').textContent;
+      const hint = document.querySelector('#characterPanelHint').textContent;
+      const check = document.querySelector('#companionEnabled');
+      const r = check.closest('label').getBoundingClientRect();
+      return { subtitle, hint, switchVisible: check.getBoundingClientRect().width > 0, rowH: Math.round(r.height), switchText: check.closest('label').textContent.trim() };
+    })()`);
+    assert(relation.switchVisible, "关系页里看不到伴侣模式开关");
+    assert(relation.subtitle.indexOf("Harry") >= 0, "关系页没写这份档案属于哪个角色：" + relation.subtitle);
+    assert(relation.hint.indexOf("只对这个角色生效") >= 0 || relation.subtitle.indexOf("只对这个角色生效") >= 0,
+      "关系页没说明伴侣模式的作用范围：" + relation.hint);
+    assert(relation.switchText.indexOf("给这个角色") >= 0, "开关文案没说清是对哪个角色：" + relation.switchText);
+
+    // ⑤ 顶栏「记忆」= 一步到当前角色的记忆页（真点击顶栏那颗按钮）。
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
+    await waitFor("document.querySelector('#characterPanel').hidden === true", 8000);
+    await evaluate("document.querySelector(\"[data-action='open-memories']\").click(); true");
+    await waitFor("document.querySelector('#characterPanel').hidden === false", 8000);
+    await waitFor("document.querySelector('#characterPanel').dataset.ready === 'memories'", 8000);
+    assert(await evaluate("document.querySelector('#memoryPanel').hidden === false"),
+      "顶栏「记忆」没有落到记忆页");
+    assert(await evaluate("document.querySelector('#characterPanelTitle').textContent.indexOf('Harry') >= 0"),
+      "顶栏「记忆」打开的应当是当前角色的记忆");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
+    await waitFor("document.querySelector('#characterPanel').hidden === true", 8000);
+  });
+
   await check("伴侣模式只属于这个角色：换个角色既没有档案，也没有它的段落", async () => {
     const other = await evaluate(`(async () => {
       const profile = await window.TASK21.loadCompanion({ avatar: 'Hermione Granger (EN).png', charName: 'Hermione Granger' });
@@ -1551,7 +1639,7 @@ async function main() {
   });
 
   await check("关系档案：改口后以新的为准，而且是每轮都重新读一次", async () => {
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     await evaluate(`(() => {
       const node = document.querySelector('#companionCharCallsUser');
@@ -1576,7 +1664,7 @@ async function main() {
   });
 
   await check("关掉伴侣模式：下一轮就不再带上关系档案", async () => {
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     await evaluate(`(() => {
       const node = document.querySelector('#companionEnabled');
@@ -1600,7 +1688,7 @@ async function main() {
     assert(text.indexOf("叫对方「小林」") < 0, "关掉后仍然带上了关系档案");
 
     // 重新打开，后面的用例（英文卡语言）还要用。
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     await evaluate(`(() => {
       const node = document.querySelector('#companionEnabled');
@@ -1635,7 +1723,7 @@ async function main() {
     assert(columnEntry.reachable, "右侧记忆栏里的入口点不到（被别的元素盖住）");
 
     // ② 弹层里的入口（要先打开弹层才量得到）
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     const modalEntry = await evaluate(probeEntry("#memoryPanel [data-action='open-companion']"));
     assert(modalEntry.exists && modalEntry.visible && modalEntry.reachable,
@@ -1669,8 +1757,11 @@ async function main() {
       assert(box && box.w > 0 && box.h > 0, "勾上伴侣模式后看不到这个控件：" + key + " → " + JSON.stringify(box));
     }
     // 「久没聊时的态度」：点开下拉，菜单要在视口里，选一项要真的写回去。
+    // 先把它滚进视野 —— 真人也是滚动之后才点得到的；点一个屏幕外的控件再怪菜单位置不对，
+    // 那不是界面的问题（2026-09-13 合并角色面板时就误判过一次）。
     const neglect = await evaluate(`(() => {
       const select = document.querySelector('#companionNeglect');
+      select.scrollIntoView({ block: 'center' });
       const trigger = select.nextElementSibling;
       const before = select.value;
       trigger.click();
@@ -1688,7 +1779,7 @@ async function main() {
     assert(neglect.menuClosed, "选完之后菜单没有关掉：" + JSON.stringify(neglect));
     await evaluate(`(() => { document.querySelector('#companionNeglect').value = 'soft'; return true; })()`);
     // 设置里也有一个入口（同一个 data-action，接线是共用的）。
-    await evaluate("document.querySelector('#companionDialog [data-action=\\'close-companion\\']').click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
     await evaluate("document.querySelector('[data-action=\"open-settings\"]').click()");
     await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
@@ -1720,7 +1811,7 @@ async function main() {
     const shown = await evaluate("document.querySelector('#dynamicMessages').textContent");
     assert(shown.indexOf("你都不理我了") >= 0, "合成回复没进对话，自检就没意义了");
 
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     const check = await evaluate("document.querySelector('#companionCheck').textContent");
     assert(check.indexOf("内疚话术") >= 0, "自检没有指出内疚话术：" + check);
@@ -1728,13 +1819,13 @@ async function main() {
     // 只报告，不改写：原话应该还在对话里。
     assert((await evaluate("document.querySelector('#dynamicMessages').textContent")).indexOf("你都不理我了") >= 0,
       "自检把模型的话改掉了");
-    await evaluate("document.querySelector('#companionDialog [data-action=\\'close-companion\\']').click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
     await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
   });
 
   await check("伴侣 v2：亲近度 / 冷落档 / 主动消息三个控件能存能读（默认关、有上限）", async () => {
     // 2026-09-12 用户拍板：伴侣类可以有主动消息 / 亲近度 / 冷落反应，条件是提示词符合类型。
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     const form = await evaluate(`(() => {
       const seen = (selector) => !!document.querySelector(selector);
@@ -1970,7 +2061,7 @@ async function main() {
     assert(picked, "选择器里没有英文卡");
     await waitFor("document.querySelector('#characterPickerName').textContent.indexOf('Hermione') >= 0", 8000);
 
-    await evaluate("window.TASK21.openCompanionDialog(); true");
+    await evaluate("window.TASK21.openCompanionDialog()");
     await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
     // 先确认换人之后表单是空的：别人的档案不该跟过来。
     assert(await evaluate("document.querySelector('#companionCharCallsUser').value === ''"),
@@ -2145,7 +2236,7 @@ async function main() {
     assert(JSON.stringify(rejected).indexOf("魔杖") < 0, "平衡取向下剧情不该进记忆");
 
     // 面板上的取向选择器：切成剧情
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     const options = await evaluate("Array.from(document.querySelectorAll('#memoryOrientation option')).map((o) => o.value + ':' + o.textContent)");
     assert(options.length === 3, "取向应当有三档：" + JSON.stringify(options));
@@ -2156,7 +2247,7 @@ async function main() {
       return true;
     })()`);
     await waitFor("(async () => (await RoleWorld.store.getKV('memory-orientation:Harry Potter (EN).png', '')) === 'story')()", 8000);
-    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
 
     // 剧情取向下再记一次：这次应当收下，并且标成剧情
     await fetch(base + "/__reply", {
@@ -2199,7 +2290,7 @@ async function main() {
   });
 
   await check("「说得对」：标过的记忆不会被上限挤掉", async () => {
-    await evaluate("window.TASK21.openMemoryPanel(); true");
+    await evaluate("window.TASK21.openMemoryPanel()");
     await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
     // 只点"这一条"的按钮：组标题那一层也有 .memory-actions（那是清空整组，会弹 confirm，
     // 而无头环境里 confirm 会一直挂着 —— 这个坑踩过一次）。
@@ -2241,7 +2332,7 @@ async function main() {
     })()`);
     assert(trimmed.some((row) => row.indexOf("(确认)") >= 0),
       "上限挤占时把确认过的条目也挤掉了：" + JSON.stringify(trimmed));
-    await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+    await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
   });
 
   await check("撞上输出上限：明确提示被截断，并给一个「接着说」", async () => {

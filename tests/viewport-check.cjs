@@ -345,7 +345,7 @@ async function main() {
         "点了「记忆」什么都没打开：" + JSON.stringify(opened));
       // 收尾：把打开的东西关上，别影响后面的用例。
       await evaluate(`(() => {
-        const close = document.querySelector("#memoryPanel [data-action='close-memory']");
+        const close = document.querySelector("[data-action='close-character-panel']");
         if (close && document.querySelector('#memoryPanel').hidden === false) close.click();
         return true;
       })()`);
@@ -404,25 +404,35 @@ async function main() {
       await waitFor("document.querySelector('#requestPeek').hidden === true", 8000);
     });
 
-    await check(`${viewport.label}：「角色记忆」面板能开、能关`, async () => {
-      await evaluate("window.TASK21.openMemoryPanel(); true");
+    await check(`${viewport.label}：角色面板的「记忆」页能开、能关`, async () => {
+      await evaluate("window.TASK21.openMemoryPanel()");
       await waitFor("document.querySelector('#memoryPanel').hidden === false", 8000);
       const info = await evaluate(`(() => {
-        const card = document.querySelector('#memoryPanel .request-peek-card');
-        const close = document.querySelector("#memoryPanel [data-action='close-memory']");
+        const surface = document.querySelector('#characterPanel');
+        const card = surface.querySelector('.request-peek-card');
+        const pane = document.querySelector('#memoryPanel');
+        const close = document.querySelector("[data-action='close-character-panel']");
         const r = card.getBoundingClientRect();
         const c = close.getBoundingClientRect();
+        const p = pane.getBoundingClientRect();
         const doc = document.documentElement;
         return {
           inView: r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.left >= -1 && r.right <= window.innerWidth + 1,
           closeReachable: c.top >= 0 && c.bottom <= window.innerHeight && c.width >= 28,
+          // 记忆页自己必须是滚动容器：条目多了不能把面板撑出屏幕。
+          paneScrollable: pane.scrollHeight <= pane.clientHeight + 1 || getComputedStyle(pane).overflowY === 'auto',
+          paneInView: p.top >= r.top - 1 && p.bottom <= r.bottom + 1,
+          tabs: Array.from(document.querySelectorAll('[data-character-tab]')).map((b) => b.dataset.characterTab),
           overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
         };
       })()`);
-      assert(info.inView, "记忆面板超出视口");
-      assert(info.closeReachable, "记忆面板关闭按钮不可达");
-      assert(info.overflow <= 4, "打开记忆面板后出现横向溢出：" + info.overflow);
-      await evaluate("document.querySelector(\"#memoryPanel [data-action='close-memory']\").click(); true");
+      assert(info.inView, "角色面板超出视口");
+      assert(info.closeReachable, "角色面板关闭按钮不可达");
+      assert(info.paneScrollable, "记忆页不能滚动，条目多时下面的内容看不到");
+      assert(info.paneInView, "记忆页跑到面板外面了：" + JSON.stringify(info));
+      assert(info.tabs.join(",") === "setup,memories,relationship", "三个分页不对：" + info.tabs.join(","));
+      assert(info.overflow <= 4, "打开角色面板后出现横向溢出：" + info.overflow);
+      await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
       await waitFor("document.querySelector('#memoryPanel').hidden === true", 8000);
     });
 
@@ -499,33 +509,40 @@ async function main() {
       })()`);
     });
 
-    await check(`${viewport.label}：「关系档案」表单能开、能滚、按钮点得到`, async () => {
-      await evaluate("window.TASK21.openCompanionDialog(); true");
+    await check(`${viewport.label}：「关系」页表单能开、能滚、按钮点得到`, async () => {
+      await evaluate("window.TASK21.openCompanionDialog()");
       await waitFor("document.querySelector('#companionDialog').hidden === false", 8000);
       const info = await evaluate(`(() => {
-        const surface = document.querySelector('#companionDialog');
-        const card = surface.querySelector('.memory-modal');
+        const surface = document.querySelector('#characterPanel');
+        const pane = document.querySelector('#companionDialog');
+        const card = surface.querySelector('.request-peek-card');
         const save = document.querySelector('#companionSaveButton');
         const enabled = document.querySelector('#companionEnabled');
         const doc = document.documentElement;
         const r = card.getBoundingClientRect();
+        const p = pane.getBoundingClientRect();
         const s = save.getBoundingClientRect();
         return {
           // 表单比屏幕高时必须自己滚，否则底部的"保存"永远点不到。
-          scrollable: card.scrollHeight <= card.clientHeight + 1 || getComputedStyle(card).overflowY === 'auto',
+          scrollable: pane.scrollHeight <= pane.clientHeight + 1 || getComputedStyle(pane).overflowY === 'auto',
           cardInView: r.top >= -1 && r.left >= -1 && r.right <= window.innerWidth + 1,
+          paneInView: p.top >= r.top - 1 && p.bottom <= r.bottom + 1,
+          // 保存按钮在滚动区里：滚到底必须够得着（真人就是这么点的）。
+          saveInPane: pane.contains(save),
           saveReachable: s.width >= 28 && s.height >= 24,
           // 开关本身要能被点到（窄屏上很容易被挤成一条缝）。
           enabledHit: (() => { const e = enabled.getBoundingClientRect(); return e.width >= 13 && e.height >= 13; })(),
           overflow: Math.max(0, doc.scrollWidth - doc.clientWidth),
         };
       })()`);
-      assert(info.scrollable, "表单不可滚动，矮屏上保存按钮会点不到");
-      assert(info.cardInView, "表单横向超出视口：" + JSON.stringify(info));
+      assert(info.scrollable, "关系页不可滚动，矮屏上保存按钮会点不到");
+      assert(info.cardInView, "面板横向超出视口：" + JSON.stringify(info));
+      assert(info.paneInView, "关系页跑到面板外面了：" + JSON.stringify(info));
+      assert(info.saveInPane, "保存按钮不在关系页的滚动区里");
       assert(info.saveReachable, "保存按钮不可达");
       assert(info.enabledHit, "伴侣模式开关太小，点不到");
-      assert(info.overflow <= 4, "打开关系档案后出现横向溢出：" + info.overflow);
-      await evaluate("document.querySelector(\"#companionDialog [data-action='close-companion']\").click(); true");
+      assert(info.overflow <= 4, "打开关系页后出现横向溢出：" + info.overflow);
+      await evaluate("document.querySelector(\"[data-action='close-character-panel']\").click(); true");
       await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
     });
 
@@ -612,6 +629,14 @@ async function main() {
     // 后面几条就全都点到 `div.confirm-backdrop`/设置层上，报出一串看不懂的错
     // （2026-09-13 缩放改成 0.9 时亲眼见过：1 个真问题带出 5 个假失败）。
     await evaluate("try { window.TASK21.closeRequestPeek(); window.TASK21.closeMemoryPanel(); window.TASK21.closeCompanionDialog(); } catch (_) {} true");
+    await evaluate(`(() => {
+      const panel = document.querySelector('#characterPanel');
+      if (panel && panel.hidden === false) {
+        const close = document.querySelector("[data-action='close-character-panel']");
+        if (close) close.click();
+      }
+      return true;
+    })()`);
     await evaluate(`(() => {
       const surface = document.querySelector('#settingsSurface');
       if (surface && surface.hidden === false) {

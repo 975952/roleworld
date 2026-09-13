@@ -490,20 +490,19 @@ function closeUtilities() {
 function openInspector(view) {
   state.inspector = view;
   if (view !== "memories") return;
-  // 窄屏（手机）上没有右侧记忆栏 —— 它是 display:none，而且 setMemoryPanelOpen 里的
-  // `innerWidth >= utilityCloseWidth` 在手机上永远为假，于是"点得到、但什么都没发生"
-  // （用户 2026-09-12 实测：「记忆能点但是没有任何反应」）。这里改成打开**记忆弹层**。
-  if (window.innerWidth < layoutConfig.utilityCloseWidth) {
-    if (window.TASK21 && typeof window.TASK21.openMemoryPanel === "function") {
-      window.TASK21.openMemoryPanel();
-      return;
-    }
-    // 兜底：万一主流程还没挂上（启动早期/异常路径），至少把弹层直接打开，
+  // 2026-09-13 合并入口：顶栏「记忆」= 一步进入**当前角色的记忆**（统一角色面板的第 2 页）。
+  // 桌面上同时把右侧常驻「记忆书」栏打开 —— 那是这个按钮原来的行为，不该因为合并入口而消失。
+  if (window.TASK21 && typeof window.TASK21.openMemoryPanel === "function") {
+    window.TASK21.openMemoryPanel();
+  } else {
+    // 兜底：万一主流程还没挂上（启动早期/异常路径），至少把记忆页直接显示出来，
     // 别让"点了没反应"再次发生 —— 用户 2026-09-12 连报两次。
     const modal = document.querySelector("#memoryPanel");
-    if (modal) { modal.hidden = false; return; }
+    const panel = document.querySelector("#characterPanel");
+    if (panel) panel.hidden = false;
+    if (modal) modal.hidden = false;
   }
-  setMemoryPanelOpen(true);
+  if (window.innerWidth >= layoutConfig.utilityCloseWidth) setMemoryPanelOpen(true);
 }
 
 function setUserMenuOpen(open, options = {}) {

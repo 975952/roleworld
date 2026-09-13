@@ -97,7 +97,12 @@
       const down = below >= Math.min(menu.scrollHeight, 280) || below >= above;
       menu.style.maxHeight = `${Math.max(60, down ? below : above)}px`;
       menu.style.left = `${Math.max(left + 12, Math.min(rect.right - menu.offsetWidth, left + width - menu.offsetWidth - 12))}px`;
-      menu.style.top = `${down ? rect.bottom + 8 : Math.max(top + 12, rect.top - menu.offsetHeight - 8)}px`;
+      // 目标控件本身可能在滚动区外面（比如角色面板的关系页要往下滚才看得到那一栏）。
+      // 这时无论朝上还是朝下算出来的位置都可能落在视口外 —— 菜单一旦跑出去就点不到了，
+      // 所以最后统一夹回视口内（上下各留 8px）。
+      const desired = down ? rect.bottom + 8 : Math.max(top + 12, rect.top - menu.offsetHeight - 8);
+      const maxTop = top + height - menu.offsetHeight - 8;
+      menu.style.top = `${Math.max(top + 8, Math.min(desired, Math.max(top + 8, maxTop)))}px`;
       active = { trigger, menu };
       trigger.setAttribute("aria-expanded", "true");
       const selected = items.find(item => item.getAttribute("aria-selected") === "true");
@@ -128,7 +133,10 @@
       }
     });
   }
-  document.querySelectorAll(".settings-surface select, #chatModelSelect, .memory-modal select").forEach(enhance);
+  // 哪些下拉换成本项目的样式。2026-09-13：关系档案并进了角色面板，
+  // 它的 select 原来靠 `.memory-modal` 命中，现在要显式带上 `#companionDialog` ——
+  // 否则那几个下拉会悄悄退回系统原生样式（合并当天就被用例抓到一次）。
+  document.querySelectorAll(".settings-surface select, #chatModelSelect, .memory-modal select, #companionDialog select").forEach(enhance);
   document.addEventListener("pointerdown", event => {
     if (active && !active.menu.contains(event.target) && !active.trigger.contains(event.target)) close();
   });
