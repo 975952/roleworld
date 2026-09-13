@@ -240,7 +240,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .recap-dismiss { flex: 0 0 auto; padding: 0 7px; }
 @media (max-width: 560px) { .recap-text { white-space: normal; } }
 .composer-box:focus-within { border-color: #505560; box-shadow: 0 12px 38px rgba(0,0,0,.34); transform: translateY(-1px); }
-.composer-box textarea { width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; }
+.composer-box textarea { width: 100%; max-width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; overflow-wrap: anywhere; word-break: break-word; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 /* 撞上输出上限时的那一行：说明 + 一个「接着说」。 */
@@ -364,9 +364,12 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .book-toggle { color: var(--muted-text); transition: transform var(--hover-motion) ease; }
 .memory-book.is-open .book-toggle { transform: rotate(180deg); }
 .book-entries { display: none; padding: 8px; border-top: 1px solid var(--hairline); }
-.memory-book.is-open .book-entries { display: grid; gap: 6px; }
+.memory-book.is-open .book-entries { display: grid; gap: 10px; padding: 2px 8px 10px; }
+/* 记忆条目以前一个挨一个贴得很紧（用户 2026-09-12：「记忆里面很多挨在一起的框」）：
+   把间距拉开、给条目内部多一点呼吸，并在左侧留一条细线把它们归到同一本书里。 */
+.memory-book .book-entries { border-left: 1px solid var(--hairline); margin: 0 10px 0 12px; }
 .memory-book-actions { display: flex; justify-content: flex-end; gap: 6px; padding-top: 2px; }
-.memory-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; width: 100%; padding: 10px; color: var(--secondary-text); text-align: left; border: 1px solid transparent; border-radius: 7px; background: var(--navigation); cursor: pointer; transition: border-color var(--hover-motion) ease, background var(--hover-motion) ease; }
+.memory-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; width: 100%; padding: 12px; color: var(--secondary-text); text-align: left; border: 1px solid var(--hairline); border-radius: 9px; background: var(--navigation); cursor: pointer; transition: border-color var(--hover-motion) ease, background var(--hover-motion) ease; }
 .memory-entry:hover { border-color: var(--strong-line); background: var(--hover); }
 .memory-entry.is-superseded { opacity: .55; }
 .memory-entry-copy strong, .memory-entry-copy span { display: block; }
