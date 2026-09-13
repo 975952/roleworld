@@ -103,6 +103,9 @@
     memoryPanelOpen: false,
     // 角色面板停在哪个分页（设定 / 记忆 / 关系）。记住它，关掉再点角色名回到原来那页。
     characterTab: "setup",
+    // 重新回答（regenerate）时的目标位置：非整数 = 不是重新回答。
+    regenerateIndex: null,
+    regenerateSaved: null,
     // 伴侣模式：正在编辑关系档案的那个角色（保存时用它，避免中途切角色写错人）。
     companionEntry: null,
     // 设置页刚改、还没落盘完成的值：整量重读时不能被旧值盖回去。
@@ -765,7 +768,115 @@
     return box;
   }
 
-  function messageRow(message) {
+  /* ---------- 消息旁的操作（2026-09-13 本轮第 ③ 项） ----------
+   * 用户要求：桌面悬停或键盘聚焦、手机点击就能打开消息操作；按消息类型给适用操作
+   * （复制 / 编辑 / 重新回答 / 从这里开分支），失败消息旁给重试并保留用户输入；
+   * 重新回答要保留旧版本可切换；从旧消息开分支要保留原对话并说清新分支从哪开始。
+   * 存储上不新造结构：
+   *   - "旧版本"用 SillyTavern 本来就有的 `swipes` + `swipe_id`（`mes` 始终等于当前选中的那一版，
+   *     所以下一轮上下文自动用当前版本，导出/导入也原样带着）；
+   *   - "分支"就是**另一个对话文件**：原对话一个字都不改。
+   */
+  const MESSAGE_COPY_DONE = "已复制这条消息";
+
+  async function copyText(text) {
+    const value = String(text || "");
+    if (!value) return false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch (_) { /* 下面用兜底 */ }
+    try {
+      const area = document.createElement("textarea");
+      area.value = value;
+      area.setAttribute("readonly", "readonly");
+      area.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch (_) { return false; }
+  }
+
+  /** 每条消息右下角的操作入口。菜单是行内绝对定位的，不用浮层库。 */
+  function buildMessageActions(message, index, total) {
+    const wrap = document.createElement("div");
+    wrap.className = "message-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "message-menu-button";
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-label", "这条消息的操作");
+    button.title = "这条消息的操作";
+    button.textContent = "⋯";
+    const menu = document.createElement("div");
+    menu.className = "message-menu";
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+
+    const isUser = !!message.is_user;
+    const items = [{ action: "copy", label: "复制" }];
+    if (isUser) items.push({ action: "edit", label: "编辑" });
+    else items.push({ action: "regenerate", label: "重新回答" });
+    items.push({ action: "branch", label: "从这里开分支" });
+    for (const item of items) {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = "message-menu-item";
+      node.setAttribute("role", "menuitem");
+      node.dataset.messageAction = item.action;
+      node.dataset.messageIndex = String(index);
+      node.textContent = item.label;
+      menu.appendChild(node);
+    }
+    wrap.append(button, menu);
+    return wrap;
+  }
+
+  function closeMessageMenus(except) {
+    document.querySelectorAll(".message-menu").forEach((menu) => {
+      if (except && menu === except) return;
+      menu.hidden = true;
+      const button = menu.parentElement && menu.parentElement.querySelector(".message-menu-button");
+      if (button) button.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function renderMessageVersions(stack, message, index) {
+    const swipes = Array.isArray(message.swipes) ? message.swipes.filter((one) => typeof one === "string" && one) : [];
+    if (swipes.length < 2) return;
+    const current = Math.min(Math.max(Number(message.swipe_id) || 0, 0), swipes.length - 1);
+    const bar = document.createElement("div");
+    bar.className = "message-versions";
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.className = "message-version-step";
+    prev.dataset.versionStep = "-1";
+    prev.dataset.messageIndex = String(index);
+    prev.textContent = "‹";
+    prev.setAttribute("aria-label", "上一个版本");
+    prev.disabled = current <= 0;
+    const label = document.createElement("span");
+    label.className = "message-version-label";
+    label.textContent = `${current + 1} / ${swipes.length}`;
+    label.title = "这条回复有多个版本（重新回答会新增一版，旧的不会被删掉）";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "message-version-step";
+    next.dataset.versionStep = "1";
+    next.dataset.messageIndex = String(index);
+    next.textContent = "›";
+    next.setAttribute("aria-label", "下一个版本");
+    next.disabled = current >= swipes.length - 1;
+    bar.append(prev, label, next);
+    stack.appendChild(bar);
+  }
+
+  function messageRow(message, index = -1, total = 0) {
     const row = document.createElement("article");
     const isUser = !!message.is_user;
     row.className = `message-row message-row-${isUser ? "user" : "assistant"}`;
@@ -779,6 +890,8 @@
     // 助手消息旁边给一个很轻的标记入口：记错 / 编造。**只由人点，机器不自动判定。**
     const turnId = !isUser && message.extra && message.extra.roleworld_turn_id ? String(message.extra.roleworld_turn_id) : "";
     if (turnId) meta.appendChild(buildFlagControls(turnId));
+    // 每条消息一个操作菜单（复制 / 编辑 / 重新回答 / 从这里开分支）。
+    if (index >= 0) meta.appendChild(buildMessageActions(message, index, total));
     stack.appendChild(meta);
     if (isUser) {
       const bubble = document.createElement("div");
@@ -795,6 +908,8 @@
       const refs = message.extra && Array.isArray(message.extra.roleworld_refs) ? message.extra.roleworld_refs : [];
       if (refs.length) stack.appendChild(buildRefList(refs));
       if (message.extra && message.extra.roleworld_truncated === true) stack.appendChild(buildTruncationNotice());
+      // 「重新回答」留下的旧版本：带页码切换，上下文用当前选中的那一版（mes 就是它）。
+      if (index >= 0) renderMessageVersions(stack, message, index);
       const avatar = document.createElement("div");
       avatar.className = "message-avatar assistant-avatar";
       avatar.setAttribute("aria-label", liveState.charName);
@@ -802,6 +917,7 @@
       row.appendChild(avatar);
     }
     row.appendChild(stack);
+    if (index >= 0) row.dataset.messageIndex = String(index);
     return row;
   }
 
@@ -821,12 +937,259 @@
       container.appendChild(loading);
       return;
     }
-    for (const message of (Array.isArray(messages) ? messages : []).slice(-30)) container.appendChild(messageRow(message));
+    // 只画最近 30 条，但索引要按**整段对话**算（编辑 / 重新回答 / 分支都按绝对位置操作）。
+    const all = Array.isArray(messages) ? messages : [];
+    const visible = all.slice(-30);
+    const offset = all.length - visible.length;
+    visible.forEach((message, i) => container.appendChild(messageRow(message, offset + i, all.length)));
     scroll.scrollTop = scroll.scrollHeight;
   }
 
-  function syncActiveSession() {
-    const session = liveState.chatModel && liveState.chatModel.getActive();
+  function messageAt(index) {
+    const messages = (liveState.activeSession && liveState.activeSession.messages) || liveState.chatMessages || [];
+    return messages[Number(index)] || null;
+  }
+
+  /** 重新渲染当前对话（改完文字、切完版本之后都要走一遍）。 */
+  function refreshChatMessages() {
+    syncActiveSession();
+    renderLiveMessages(liveState.chatMessages);
+  }
+
+  /** 把"对话头 + 这批消息"拼成存储要的 JSONL 结构。
+   *  **注意**：不能直接拿 `buildSavePayload(session.lines, …)` 的结果再拼消息 ——
+   *  那个函数返回的是"整段旧对话 + 追加的两条"，于是会把每条消息写两遍
+   *  （2026-09-13 新加的落盘用例当场抓到：条数 3 → 6）。这里只借它的"补头"逻辑。 */
+  function buildChatPayload(session, messages, title) {
+    const lines = (session && session.lines) || [];
+    const first = lines[0];
+    const hasHeader = first && typeof first === "object" && Object.prototype.hasOwnProperty.call(first, "chat_metadata");
+    let head;
+    if (hasHeader) {
+      head = Object.assign({}, first);
+      head.chat_metadata = Object.assign({}, first.chat_metadata || {});
+      delete head.chat_metadata.integrity;
+      if (title) head.chat_metadata.ui_title = title;
+    } else {
+      head = {
+        chat_metadata: title ? { ui_title: title } : {},
+        user_name: liveState.userName || "",
+        character_name: (session && session.charName) || liveState.charName || "",
+      };
+    }
+    return [head].concat(Array.isArray(messages) ? messages : []);
+  }
+
+  /** 把整段对话写回存储。编辑 / 切版本 / 加版本都从这里走，保证"存的就是看到的"。 */
+  async function persistMessages(messages, note) {
+    const session = liveState.activeSession;
+    if (!session || !session.avatar) throw new Error("chat unavailable");
+    const fileName = session.storageFileName || session.fileName;
+    const payload = buildChatPayload(session, messages);
+    await window.STApi.saveChat(session.avatar, fileName, payload);
+    // 同一个会话对象（模型里的"活动会话"就是它），一起更新，避免内存与磁盘两套。
+    session.lines = payload;
+    session.messages = messages;
+    session.updatedAt = new Date().toISOString();
+    // 检索用的历史缓存要作废，否则刚改的内容最多 30 秒后才可见。
+    // 这个函数在文件的另一段作用域里（同一份文件有两段），所以按存在性调用，别硬引用。
+    try { if (typeof invalidateHistoryCache === "function") invalidateHistoryCache(); } catch (_) { /* 缓存 30 秒自己过期 */ }
+    syncActiveSession();
+    return note;
+  }
+
+  /** 编辑一条消息的文字（不动其它消息）。 */
+  async function editMessageText(index, text) {
+    const messages = ((liveState.activeSession && liveState.activeSession.messages) || []).slice();
+    const message = messages[index];
+    if (!message) return false;
+    const next = String(text || "").trim();
+    if (!next) { showToast("内容不能为空"); return false; }
+    if (next === String(message.mes || "")) return false;
+    message.mes = next;
+    // 改过的那一版就是当前版本：如果这条有旧版本，把新版覆盖进当前 swipe，保持一致。
+    if (Array.isArray(message.swipes) && message.swipes.length) {
+      const current = Math.min(Math.max(Number(message.swipe_id) || 0, 0), message.swipes.length - 1);
+      message.swipes[current] = next;
+    }
+    await persistMessages(messages, "已改这一条");
+    refreshChatMessages();
+    return true;
+  }
+
+  /** 切换某个回复的版本（上下文自动用选中的那一版，因为 mes 就是它）。 */
+  async function switchMessageVersion(index, step) {
+    const messages = ((liveState.activeSession && liveState.activeSession.messages) || []).slice();
+    const message = messages[index];
+    const swipes = message && Array.isArray(message.swipes) ? message.swipes : null;
+    if (!swipes || swipes.length < 2) return false;
+    const current = Math.min(Math.max(Number(message.swipe_id) || 0, 0), swipes.length - 1);
+    const next = Math.min(Math.max(current + Number(step || 0), 0), swipes.length - 1);
+    if (next === current) return false;
+    message.swipe_id = next;
+    message.mes = swipes[next];
+    await persistMessages(messages, `已切到第 ${next + 1} 版`);
+    refreshChatMessages();
+    return true;
+  }
+
+  /** 从这里开分支：**新建一个对话文件**，原对话一个字都不改。
+   *  为什么用"新文件"而不是在同一份里做树：导出的存档就是对话文件本身，
+   *  新文件天然跟着导出/导入走，也不会把原对话置于半改状态。 */
+  async function branchFromMessage(index) {
+    const session = liveState.activeSession;
+    if (!session || !session.avatar) { showToast("先选一个角色"); return false; }
+    const messages = (session.messages || []).slice();
+    const at = Number(index);
+    if (!(at >= 0) || at >= messages.length) { showToast("这条消息已经不在了"); return false; }
+    const kept = messages.slice(0, at + 1).map((message) => Object.assign({}, message));
+    const baseTitle = session.title || "新对话";
+    const stamp = new Date().toISOString().slice(5, 16).replace("T", " ");
+    const title = `${baseTitle} · 分支 ${stamp}`;
+    try {
+      // 保留原对话的头部元数据（角色绑定就在里面），只换标题与正文。
+      const payload = buildChatPayload(session, kept, title);
+      const fileName = window.TASK22_CORE.newChatFileName();
+      await window.STApi.saveChat(session.avatar, fileName, payload, true);
+      await liveState.chatModel.refresh({ preserveUnsaved: false });
+      await liveState.chatModel.select(fileName);
+      syncActiveSession();
+      showToast(`已从这条消息开了一个新对话《${title}》（共 ${kept.length} 条）——原对话没有改动`);
+      return true;
+    } catch (error) {
+      showToast("开分支失败：" + String((error && error.message) || error));
+      return false;
+    }
+  }
+
+  /** 就地编辑一条用户消息。
+   *  策略（用户要求"涉及后续内容时给出清楚的处理方式，不能静默删除"）：
+   *   - 改的是**最后一条**用户消息：直接改，并提示可以「重新回答」让它按新问题重答；
+   *   - 改的是**更早**的消息：不动原对话，改成"从这里开分支"（分支里带上你改过的这一句），
+   *     并在提示里说清楚这件事 —— 悄悄重写历史会让后面的对话对不上。 */
+  async function startEditMessage(index) {
+    const message = messageAt(index);
+    if (!message || !message.is_user) return false;
+    const row = document.querySelector(`#dynamicMessages article[data-message-index="${index}"]`);
+    if (!row) return false;
+    const messages = (liveState.activeSession && liveState.activeSession.messages) || [];
+    const isLastUser = messages.slice(index + 1).every((one) => one && one.is_user !== true);
+    const bubble = row.querySelector(".user-bubble") || row.querySelector(".message-stack");
+    if (!bubble || row.querySelector(".message-edit")) return false;
+    const box = document.createElement("div");
+    box.className = "message-edit";
+    const area = document.createElement("textarea");
+    area.className = "message-edit-input";
+    area.value = String(message.mes || "");
+    area.rows = Math.min(10, Math.max(2, String(message.mes || "").split("\n").length + 1));
+    const actions = document.createElement("div");
+    actions.className = "message-edit-actions";
+    const note = document.createElement("span");
+    note.className = "message-edit-note";
+    note.textContent = isLastUser
+      ? "改完点保存：这一句会被改写。想让角色按新问题重答，保存后点「重新回答」。"
+      : "这是更早的消息：直接改写会让后面的对话对不上，所以保存会**从这一句开一个新分支**，原对话不动。";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "primary-button";
+    save.textContent = isLastUser ? "保存" : "改并开分支";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "plain-button";
+    cancel.textContent = "取消";
+    actions.append(note, cancel, save);
+    box.append(area, actions);
+    bubble.replaceWith(box);
+    area.focus();
+    area.setSelectionRange(area.value.length, area.value.length);
+    const close = () => { box.replaceWith(bubble); };
+    cancel.addEventListener("click", close);
+    area.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close(); }
+    });
+    save.addEventListener("click", () => {
+      const text = area.value.trim();
+      if (!text) { showToast("内容不能为空"); return; }
+      if (isLastUser) {
+        editMessageText(index, text).then((ok) => { if (ok) showToast("已改这一条；想让它重答就点「重新回答」"); }).catch(() => {});
+      } else {
+        const keptOriginal = text;
+        openMessageBranch(index, keptOriginal).catch(() => {});
+      }
+      close();
+    });
+    return true;
+  }
+
+  /** 更早的消息被编辑：开分支，并在分支里把那一句换成改后的文字。 */
+  async function openMessageBranch(index, editedText) {
+    const ok = await branchFromMessage(index);
+    if (!ok) return;
+    if (typeof editedText === "string" && editedText.trim()) {
+      await editMessageText(index, editedText.trim());
+    }
+    showToast("新分支已打开：这一句就是改过之后的版本，接着往下聊即可");
+  }
+
+  /** 重新回答某条回复：**旧版本不删**，新的一版追加成 swipe 并选中它。
+   *  走的是同一条发送链路（同一个 sendLive），只是把"这一轮的用户话"换成已有的那一句、
+   *  把"上一轮上下文"截到这条回复之前，落盘时写版本而不是追加一轮。 */
+  async function regenerateReply(index) {
+    if (liveState.pending || liveState.switching) { showToast("正在生成，等这一轮结束再试"); return false; }
+    const messages = (liveState.activeSession && liveState.activeSession.messages) || [];
+    const at = Number(index);
+    const target = messages[at];
+    if (!target || target.is_user) { showToast("这条不是角色的回复，不能重新回答"); return false; }
+    const ask = messages[at - 1];
+    if (!ask || ask.is_user !== true) { showToast("这条回复前面没有对应的问题，不能重新回答"); return false; }
+    liveState.regenerateIndex = at;
+    const started = sendLive().catch(() => false);
+    return started;
+  }
+
+  /** 重新回答的落盘：新版本进 swipes，mes 指向它（下一轮上下文自动用这一版）。 */
+  async function saveRegeneratedReply(index, replyText, turnId) {
+    const messages = ((liveState.activeSession && liveState.activeSession.messages) || []).slice();
+    const message = messages[index];
+    if (!message) throw new Error("message gone");
+    const previous = Array.isArray(message.swipes) && message.swipes.length
+      ? message.swipes.slice()
+      : [String(message.mes || "")];
+    previous.push(String(replyText || ""));
+    message.swipes = previous;
+    message.swipe_id = previous.length - 1;
+    message.mes = String(replyText || "");
+    message.extra = Object.assign({}, message.extra || {}, turnId ? { roleworld_turn_id: turnId } : {});
+    await persistMessages(messages, "regenerated");
+    return { versions: previous.length };
+  }
+
+  /** 失败那一轮下面那张卡片：保留原话 + 一个「重试」。 */
+  function renderTurnFailure(userText, error) {
+    const container = document.querySelector("#dynamicMessages");
+    if (!container) return;
+    const why = String((error && (error.message || error.statusText)) || "未知原因").slice(0, 160);
+    const card = document.createElement("div");
+    card.className = "turn-failure";
+    const text = document.createElement("p");
+    text.className = "turn-failure-text";
+    text.textContent = `这一句没发出去：${userText}`;
+    const note = document.createElement("p");
+    note.className = "turn-failure-why";
+    note.textContent = `原因：${why}（这一轮没有写进对话，重试不会重复发送）`;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "plain-button";
+    retry.dataset.action = "retry-turn";
+    retry.dataset.userText = userText;
+    retry.textContent = "重试";
+    card.append(text, note, retry);
+    container.appendChild(card);
+    const scroll = document.querySelector("#chatScroll");
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  }
+
+  function syncActiveSession() {    const session = liveState.chatModel && liveState.chatModel.getActive();
     liveState.activeSession = session || null;
     liveState.chatFile = session && session.serverSaved ? session.fileName : null;
     liveState.chatLines = session ? session.lines : [];
@@ -3581,8 +3944,15 @@
   async function sendLive() {
     const input = $("#messageInput");
     const originalInput = input && input.value || "";
-    const text = originalInput.trim();
+    // 「重新回答」：不读输入框，用这条回复前面那句用户话当这一轮的输入；
+    // 上下文截到这条回复之前（也就是把要重答的那一版先摘掉）。
+    const regenIndex = Number.isInteger(liveState.regenerateIndex) ? liveState.regenerateIndex : -1;
+    const regenSession = liveState.activeSession;
+    const regenMessages = (regenSession && regenSession.messages) || [];
+    const regenAsk = regenIndex >= 0 ? regenMessages[regenIndex - 1] : null;
+    const text = regenAsk ? String(regenAsk.mes || "").trim() : originalInput.trim();
     if (!text || liveState.pending || liveState.switching || !liveState.activeSession) return;
+    if (regenIndex >= 0 && (!regenAsk || regenAsk.is_user !== true)) { liveState.regenerateIndex = null; return; }
     if (!liveState.templateReady) {
       setChatTemplateGate(liveState.templateError ? "error" : "loading");
       return;
@@ -3602,13 +3972,17 @@
       updateComposerLive();
       return;
     }
-    const previousMessages = targetSession.messages.slice();
+    // 重新回答：上下文截到"要重答的那条回复"之前（那句用户话已经在里面了），
+    // 所以这里既不新增用户消息，界面上也不重复显示那句话。
+    const previousMessages = regenIndex >= 0 ? targetSession.messages.slice(0, regenIndex) : targetSession.messages.slice();
     // 本轮标识（重发同一句会沿用同一个）：只有在「上一轮保存结果不确定」时才用它去查回执。
     const turnId = liveState.pendingTurnId || newTurnId();
     liveState.pendingTurnId = turnId;
     liveState.cancelRequested = false;
-    restoreInput("");
-    renderLiveMessages(previousMessages.concat([{ name: liveState.userName, is_user: true, mes: text }]));
+    if (regenIndex < 0) restoreInput("");
+    renderLiveMessages(regenIndex >= 0
+      ? previousMessages
+      : previousMessages.concat([{ name: liveState.userName, is_user: true, mes: text }]));
     setLiveBusy(true);
     liveState.pendingText = text;
     const controller = new AbortController();
@@ -3940,12 +4314,18 @@
       // 先把「这一轮发出去了」记下来：万一下面结果不确定，重发时才知道要去确认。
       markSaveAttempted(targetSession, turnId);
       try {
-        const saved = await saveLiveChat(text, finalText, undefined, {
-          charName: entry.charName,
-          turnId,
-          extra: extraForMessage,
-        });
-        if (saved && saved.duplicate) duplicateTurn = true;
+        if (regenIndex >= 0) {
+          // 重新回答：写成这条回复的新版本（旧版本留在 swipes 里，可切回去）。
+          const regen = await saveRegeneratedReply(regenIndex, finalText, turnId);
+          liveState.regenerateSaved = regen;
+        } else {
+          const saved = await saveLiveChat(text, finalText, undefined, {
+            charName: entry.charName,
+            turnId,
+            extra: extraForMessage,
+          });
+          if (saved && saved.duplicate) duplicateTurn = true;
+        }
       } catch (saveError) {
         if (bound) liveState.chatModel.unbindActive();
         // 打上标记：这条回复是**存不上**（不是"请求失败"）。桌面版偶尔会遇到
@@ -4053,8 +4433,11 @@
         showToast("这一条上次其实已经保存过了，没有重复写入");
         return;
       }
-      if (err && err.name === "AbortError") showToast("已停止");
-      else if (err && err.cardMessage) {
+      // 失败的那一轮**整轮都没落盘**（用户话与回复是一起写的），所以"重试"原样再发一次
+      // 不会产生重复的用户消息。给一张可点的卡片，把原话留在上面（用户要求：
+      // 「失败消息旁提供重试，并保留用户输入」）。
+      if (!(err && err.name === "AbortError") && regenIndex < 0) renderTurnFailure(text, err);
+      if (err && err.name === "AbortError") showToast("已停止");      else if (err && err.cardMessage) {
         // 体验卡的问题（次数用完 / 被停用 / 已到期）：把中转的原话显示出来，并刷新徽标。
         showToast(err.cardMessage);
         renderCardChip().catch(() => {});
@@ -4140,6 +4523,15 @@
       // 这一次发送彻底结束：本轮标识作废。
       // 只有"失败后原样重发"（不会走到这里的 finally）才该沿用同一个标识。
       liveState.pendingTurnId = "";
+      // 重新回答这一轮结束了：标记清空，并把"现在是第几版"告诉用户。
+      if (regenIndex >= 0) {
+        const regen = liveState.regenerateSaved;
+        liveState.regenerateSaved = null;
+        liveState.regenerateIndex = null;
+        if (regen && regen.versions > 1 && !liveState.cancelRequested) {
+          showToast(`已重新回答（第 ${regen.versions} 版，旧版本还在，可以用消息下面的 ‹ › 切回去）`);
+        }
+      }
       setLiveBusy(false);
       updateComposerLive();
     }
@@ -4690,6 +5082,11 @@
     openCharacterPanel,
     closeCharacterPanel,
     showCharacterTab,
+    // 消息旁的操作（本轮第 ③ 项）：复制在界面上直接做，这几个是编辑 / 重答 / 分支 / 版本。
+    regenerateReply,
+    branchFromMessage,
+    editMessageText,
+    switchMessageVersion,
     // 伴侣模式：关系档案（用户亲手写的那一份）。
     openCompanionDialog,
     // 主动开口为什么没发生（诊断用；测试与"设置 → 关于"都能看）。
@@ -4873,6 +5270,62 @@
         if (event.target === characterSurface) closeCharacterPanel();
       });
     }
+    /* 消息操作菜单：一个委托监听管住所有消息（消息是动态渲染的，逐个绑定会漏）。
+       点 ⋯ 开/关；点菜单项执行；点别处或按 Esc 关。 */
+    const messageArea = document.querySelector("#dynamicMessages");
+    if (messageArea) {
+      messageArea.addEventListener("click", (event) => {
+        const toggle = event.target.closest(".message-menu-button");
+        if (toggle) {
+          const menu = toggle.parentElement.querySelector(".message-menu");
+          const willOpen = menu && menu.hidden;
+          closeMessageMenus(willOpen ? menu : null);
+          if (menu) {
+            menu.hidden = !willOpen;
+            toggle.setAttribute("aria-expanded", String(willOpen));
+          }
+          return;
+        }
+        const item = event.target.closest(".message-menu-item");
+        if (item) {
+          const index = Number(item.dataset.messageIndex);
+          const action = item.dataset.messageAction;
+          closeMessageMenus();
+          if (action === "copy") {
+            const message = messageAt(index);
+            copyText(message && message.mes).then((ok) => showToast(ok ? MESSAGE_COPY_DONE : "复制失败，可以手动选中复制"));
+          }
+          if (action === "edit") startEditMessage(index).catch(() => {});
+          if (action === "regenerate") regenerateReply(index).catch(() => {});
+          if (action === "branch") branchFromMessage(index).catch(() => {});
+          return;
+        }
+        const step = event.target.closest(".message-version-step");
+        if (step) {
+          switchMessageVersion(Number(step.dataset.messageIndex), Number(step.dataset.versionStep)).catch(() => {});
+          return;
+        }
+        // 失败那一轮的「重试」：把原话放回输入框再发一次。
+        // 失败的一轮没有落盘（整轮一起写），所以重发不会产生重复的用户消息。
+        const retry = event.target.closest("[data-action='retry-turn']");
+        if (retry) {
+          const text = retry.dataset.userText || "";
+          if (!text) return;
+          restoreInput(text);
+          const card = retry.closest(".turn-failure");
+          if (card) card.remove();
+          sendLive().catch(() => {});
+        }
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".message-actions")) closeMessageMenus();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeMessageMenus();
+      });
+    }
+    // 失败那一轮的「重试」按钮是**动态**渲染的（renderTurnFailure），
+    // 所以接线在上面 #dynamicMessages 的委托监听里，不在这里逐个绑定。
     // 记忆分页：手动加一条。
     document.querySelectorAll("[data-action='add-memory']").forEach((node) => {
       node.addEventListener("click", () => { addMemoryEntry(); });

@@ -1095,6 +1095,47 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .message-row:hover .message-flag, .message-flag:focus-visible { opacity: 1; }
 .message-flag:hover { color: var(--secondary-text); background: var(--hover); }
 .message-flag.flag-on { opacity: 1; color: var(--error); }
+
+/* ===== 消息旁的操作（2026-09-13 本轮第 ③ 项） =====
+   桌面：悬停或键盘聚焦才显形（不喧宾夺主）；手机：常显 —— 手机没有悬停，
+   用户的原话是"手机端不依赖悬停才能操作"。
+   菜单用行内绝对定位（不引浮层库），z-index 高于消息但低于弹层。 */
+.message-actions { position: relative; display: inline-flex; }
+.message-menu-button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 20px; padding: 0 4px; color: var(--quiet-text); font: inherit; font-size: 14px; line-height: 1; border: 0; border-radius: 5px; background: none; cursor: pointer; opacity: 0; transition: opacity var(--hover-motion) ease, color var(--hover-motion) ease, background var(--hover-motion) ease; }
+.message-row:hover .message-menu-button, .message-menu-button:focus-visible, .message-menu-button[aria-expanded="true"] { opacity: 1; }
+.message-menu-button:hover { color: var(--main-text); background: var(--hover); }
+.message-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; display: grid; gap: 2px; min-width: 132px; padding: 5px; border: 1px solid var(--strong-line); border-radius: 10px; background: var(--raised); box-shadow: 0 12px 32px rgba(0,0,0,.35); }
+.message-menu[hidden] { display: none; }
+.message-menu-item { padding: 7px 10px; color: var(--main-text); font: inherit; font-size: 13px; text-align: left; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
+.message-menu-item:hover, .message-menu-item:focus-visible { background: var(--hover); }
+.message-meta-user .message-menu { left: auto; right: 0; }
+/* 窄屏给足命中区并且常显：不只看 (hover: none) —— 有些环境（含无头浏览器）会把 hover
+   报成 hover，只按媒体查询会让手机拿到一个透明的按钮（和 .message-flag 同一个坑）。
+   宽度是最可靠的判据：窄屏 = 可能用手指点。 */
+@media (max-width: 760px) {
+  .message-menu-button { min-width: var(--tap, 49px); min-height: var(--tap, 49px); font-size: 18px; opacity: .6; }
+  .message-menu-item { min-height: var(--tap, 49px); font-size: 14px; }
+  .message-version-step { min-width: var(--tap, 49px); min-height: var(--tap, 49px); }
+}
+
+/* 重新回答留下的旧版本：‹ 1/2 ›（mes 始终等于选中的那一版，上下文跟着走）。 */
+.message-versions { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; color: var(--quiet-text); font-size: 11px; }
+.message-version-step { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; min-height: 22px; padding: 0; color: var(--secondary-text); font: inherit; font-size: 13px; line-height: 1; border: 1px solid var(--hairline); border-radius: 6px; background: transparent; cursor: pointer; }
+.message-version-step:hover:not(:disabled) { color: var(--main-text); border-color: var(--strong-line); }
+.message-version-step:disabled { opacity: .35; cursor: default; }
+.message-version-label { font-variant-numeric: tabular-nums; }
+
+/* 就地编辑一条消息。 */
+.message-edit { display: grid; gap: 8px; }
+.message-edit-input { width: 100%; min-height: 64px; max-height: 220px; padding: 10px 12px; color: var(--main-text); font: inherit; font-size: 14px; line-height: 1.7; border: 1px solid var(--strong-line); border-radius: var(--input-radius); background: var(--canvas); resize: vertical; }
+.message-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.message-edit-note { flex: 1 1 220px; color: var(--muted-text); font-size: 11px; line-height: 1.6; }
+
+/* 失败那一轮：原话 + 原因 + 重试（这一轮没落盘，重试不会重复发送）。 */
+.turn-failure { display: grid; gap: 6px; margin: 0 0 26px 46px; padding: 12px 14px; border: 1px solid var(--strong-line); border-left: 3px solid var(--error); border-radius: 0 var(--base-radius) var(--base-radius) 0; background: var(--raised); }
+.turn-failure-text { margin: 0; color: var(--main-text); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.turn-failure-why { margin: 0; color: var(--muted-text); font-size: 11px; line-height: 1.6; }
+.turn-failure button { justify-self: start; }
 @media (hover: none) { .message-flag { opacity: .6; } }
 /* 窄屏给足命中区：不只看 (hover: none) —— 有些环境（含无头浏览器）会把
    hover 报成 hover，只按媒体查询会让手机拿到 24px 的小按钮。

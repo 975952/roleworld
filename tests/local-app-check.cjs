@@ -82,6 +82,15 @@ let truncateNext = false;
       return;
     }
 
+    // 清空待用回复队列：用例想"下一轮一定是这句"时先清一下，
+    // 否则前面用例排队的回复会先被取走（队列是先进先出）。
+    if (p === "/__reply-clear") {
+      replyQueue.length = 0;
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("ok");
+      return;
+    }
+
     if (p === "/__slow-stream") {
       slowStream = true;
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
@@ -3500,7 +3509,216 @@ async function main() {
     assert(after.chats === before.chatCount, "刷新不该动对话记录：刷新前 " + before.chatCount + "，刷新后 " + after.chats);
   });
 
-  console.log("== 空库（停用内容包后的状态）==");
+  console.log("== 消息旁的操作（本轮第 ③ 项）==");
+
+  await check("消息菜单：每条消息都有入口，手机上不用悬停也点得到，复制真的复制到了", async () => {
+    await goto(base + "/index.html?onboarding=off&surprise=off");
+    await waitFor("window.TASK21_READY === true", 30000);
+    // 这一条自带端点设置：前面的用例可能把服务商/地址留在别的状态（比如体验卡那条），
+    // 用这里明确指定的假端点，别让本轮测试依赖"上一条留下的状态"。
+    await evaluate(`(async () => {
+      await RoleWorld.saveLocalSettings({ provider: "deepseek", endpoint: "${base}/v1/chat/completions", model: "deepseek-flash", card_relay: "" });
+      window.dispatchEvent(new CustomEvent("roleworld:settings-changed", { detail: { provider: "deepseek", endpoint: "${base}/v1/chat/completions" } }));
+      return true;
+    })()`);
+    // 先造出两轮对话（用户消息 + 角色回复）。清空待用队列，保证这一轮拿到的是我们指定的那句。
+    await fetch(base + "/__reply-clear", { method: "POST" });
+    await evaluate(`fetch('/__reply', { method: 'POST', body: JSON.stringify({ content: '第一版回答。' }) }).then(() => true)`);
+    await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      input.value = '第一条消息';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendButton').click();
+      return true;
+    })()`);
+    await waitTurnSettled();
+    const diag = await evaluate(`(() => ({
+      url: location.pathname,
+      rows: document.querySelectorAll('#dynamicMessages .message-row').length,
+      failures: document.querySelectorAll('.turn-failure').length,
+      toast: (document.querySelector('#toast') || {}).textContent || '',
+      status: (document.querySelector('#chatListStatusText') || {}).textContent || '',
+      inputDisabled: !!document.querySelector('#messageInput').disabled,
+      errors: (document.querySelector('#dynamicMessages').textContent || '').slice(0, 120),
+    }))()`);
+    assert(diag.rows >= 2, "没造出两轮对话：" + JSON.stringify(diag));
+
+    // ① 每条消息旁边都要有操作入口（这是"把操作放在消息旁边"的最低要求）。
+    const rows = await evaluate(`(() => {
+      const all = Array.from(document.querySelectorAll('#dynamicMessages .message-row'));
+      return all.map((row) => ({
+        hasMenu: !!row.querySelector('.message-menu-button'),
+        index: row.dataset.messageIndex || '',
+        isUser: row.classList.contains('message-row-user'),
+      }));
+    })()`);
+    assert(rows.length >= 2, "没造出两轮对话：" + JSON.stringify(rows));
+    assert(rows.every((row) => row.hasMenu), "有消息没有操作入口：" + JSON.stringify(rows));
+    assert(rows.every((row) => row.index !== ""), "消息没有记下自己的位置（编辑/重答/分支都要用它）：" + JSON.stringify(rows));
+
+    // ② 手机（窄屏）不依赖悬停：按钮要看得见、点得着。
+    await cdp.sessionSend(session, "Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sleep(300);
+    const mobile = await evaluate(`(() => {
+      const button = document.querySelector('#dynamicMessages .message-menu-button');
+      const r = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
+      const top = document.elementFromPoint(cx, cy);
+      return {
+        w: Math.round(r.width), h: Math.round(r.height), opacity: Number(style.opacity),
+        reachable: !!(top && (top === button || button.contains(top))),
+      };
+    })()`);
+    assert(mobile.opacity >= 0.5, "手机上操作入口是透明的（等于只能悬停）：" + JSON.stringify(mobile));
+    assert(mobile.w >= 16 && mobile.h >= 16, "手机上操作入口太小： " + JSON.stringify(mobile));
+    assert(mobile.reachable, "手机上操作入口点不到：" + JSON.stringify(mobile));
+
+    // ③ 真点开菜单 → 菜单项要对（用户消息：复制/编辑/从这里开分支）。
+    const menu = await evaluate(`(() => {
+      const userRow = document.querySelector('#dynamicMessages .message-row-user');
+      userRow.querySelector('.message-menu-button').click();
+      const box = userRow.querySelector('.message-menu');
+      const items = Array.from(box.querySelectorAll('.message-menu-item')).map((n) => n.dataset.messageAction);
+      const r = box.getBoundingClientRect();
+      const inView = r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.left >= -1 && r.right <= window.innerWidth + 1;
+      return { open: !box.hidden, items, inView, label: box.textContent };
+    })()`);
+    assert(menu.open, "点了 ⋯ 菜单没打开");
+    assert(menu.items.join(",") === "copy,edit,branch", "用户消息的菜单项不对：" + menu.items.join(","));
+    assert(menu.inView, "菜单跑到屏幕外了");
+
+    // ④ 复制：走真点击，然后看剪贴板（拿不到剪贴板权限时退回"提示已复制/请手动复制"）。
+    const copied = await evaluate(`(async () => {
+      const userRow = document.querySelector('#dynamicMessages .message-row-user');
+      userRow.querySelector('.message-menu-button').click();
+      const item = userRow.querySelector("[data-message-action='copy']");
+      item.click();
+      await new Promise((r) => setTimeout(r, 300));
+      let clip = '';
+      try { clip = await navigator.clipboard.readText(); } catch (_) { clip = ''; }
+      const toast = document.querySelector('#toast').textContent || '';
+      return { clip, toast, menuClosed: userRow.querySelector('.message-menu').hidden };
+    })()`);
+    assert(copied.menuClosed, "点完菜单项菜单没关");
+    assert(copied.clip === "第一条消息" || copied.toast.indexOf("复制") >= 0,
+      "复制既没进剪贴板也没给提示：" + JSON.stringify(copied));
+
+    // ⑤ 助手的消息菜单项不一样：重新回答 + 从这里开分支。
+    const assistantMenu = await evaluate(`(() => {
+      const row = Array.from(document.querySelectorAll('#dynamicMessages .message-row')).find((n) => !n.classList.contains('message-row-user'));
+      row.querySelector('.message-menu-button').click();
+      const items = Array.from(row.querySelectorAll('.message-menu-item')).map((n) => n.dataset.messageAction);
+      row.querySelector('.message-menu-button').click();
+      return items;
+    })()`);
+    assert(assistantMenu.join(",") === "copy,regenerate,branch", "助手消息的菜单项不对：" + assistantMenu.join(","));
+    await cdp.sessionSend(session, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sleep(200);
+  });
+
+  await check("重新回答：旧答案留在版本里能切回去，上下文跟着当前版本走", async () => {
+    // 用**最后一条**角色回复：伴侣模式开着时，打开对话可能先来一条"主动开口"的消息，
+    // 取第一条会拿到它（这一条自身踩过一次）。
+    const lastAssistant = `Array.from(document.querySelectorAll('#dynamicMessages .message-row-assistant')).pop()`;
+    const firstReply = await evaluate(`(() => {
+      const row = ${lastAssistant};
+      return row ? row.querySelector('.assistant-body').textContent : '';
+    })()`);
+    assert(firstReply.length > 0, "没有找到角色回复");
+    const userRowsBefore = await evaluate("document.querySelectorAll('#dynamicMessages .message-row-user').length");
+    void userRowsBefore;
+    // 渲染会把换行与引号整理过，比内容时统一去掉空白。
+    const flat = (value) => String(value || "").replace(/\s+/g, "");
+    const storedCountBefore = await evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      const newest = list.slice().sort((a, b) => String(b.lastMessageAt || b.updatedAt || '').localeCompare(String(a.lastMessageAt || a.updatedAt || '')))[0];
+      const fileName = (newest && (newest.fileName || newest.file_name || newest.id)) || '';
+      const lines = fileName ? await window.STApi.getChat('Harry Potter (EN).png', fileName) : [];
+      return (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === 'string').length;
+    })()`);
+    assert(storedCountBefore >= 2, "对话里还没有落盘的消息：" + storedCountBefore);
+
+    // 让下一次回复是一句明显不同的文本，再点「重新回答」。
+    await fetch(base + "/__reply-clear", { method: "POST" });
+    await evaluate(`fetch('/__reply', { method: 'POST', body: JSON.stringify({ content: '第二版回答，完全不一样。' }) }).then(() => true)`);
+    const regen = await evaluate(`(async () => {
+      const row = ${lastAssistant};
+      const index = Number(row.dataset.messageIndex);
+      window.TASK21.regenerateReply(index);
+      return index;
+    })()`);
+    await waitTurnSettled();
+    await waitFor("document.querySelectorAll('#dynamicMessages .message-version-label').length > 0", 10000);
+
+    const after = await evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-assistant'));
+      const row = rows[rows.length - 1];
+      const body = row && row.querySelector('.assistant-body');
+      return {
+        text: body ? body.textContent : '',
+        labels: Array.from(document.querySelectorAll('#dynamicMessages .message-version-label')).map((n) => n.textContent),
+        userRows: document.querySelectorAll('#dynamicMessages .message-row-user').length,
+        userTexts: Array.from(document.querySelectorAll('#dynamicMessages .message-row-user .user-bubble')).map((n) => n.textContent.slice(0, 24)),
+        assistantRows: rows.length,
+      };
+    })()`);
+    assert(after.labels.join(",") === "2 / 2", "重新回答之后没有出现「2 / 2」的版本切换：" + JSON.stringify(after.labels));
+    // 关键断言：重新回答**替换一条**，不是追加一轮 —— 所以落盘的消息条数必须不变
+    // （假端点有可能两次给同一句话，所以不能拿文本比对来判断）。
+    const storedAfter = await evaluate(`(async () => {
+      const rows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(rows) ? rows : [];
+      const newest = list.slice().sort((a, b) => String(b.lastMessageAt || b.updatedAt || '').localeCompare(String(a.lastMessageAt || a.updatedAt || '')))[0];
+      const fileName = (newest && (newest.fileName || newest.file_name || newest.id)) || '';
+      const lines = fileName ? await window.STApi.getChat('Harry Potter (EN).png', fileName) : [];
+      return (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === 'string').length;
+    })()`);
+    assert(storedAfter === storedCountBefore,
+      "重新回答追加了消息（应当只替换一条）：落盘条数 " + storedCountBefore + " → " + storedAfter + " " + JSON.stringify(after));
+
+    // 把当前这一版改成一个明显不同的文本 —— 这样两个版本一定不一样，
+    // 切回旧版本时就能证明"旧答案还在"（假端点有可能两次给同一句）。
+    await evaluate(`window.TASK21.editMessageText(${regen}, '改过的第二版')`);
+    await waitFor("(document.querySelectorAll('#dynamicMessages .message-version-label')[0] || {}).textContent === '2 / 2'", 8000);
+    const edited = await evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-assistant'));
+      const row = rows[rows.length - 1];
+      return (row.querySelector('.assistant-body') || {}).textContent || '';
+    })()`);
+    assert(edited.indexOf("改过的第二版") >= 0, "编辑当前版本没生效：" + edited.slice(0, 60));
+
+    // 切回第一版：旧答案必须原样还在，而且 mes 跟着变（下一轮上下文就用它）。
+    await evaluate(`(() => {
+      const row = ${lastAssistant};
+      row.querySelector(".message-version-step[data-version-step='-1']").click();
+      return true;
+    })()`);
+    await waitFor("(document.querySelector('#dynamicMessages .message-version-label') || {}).textContent === '1 / 2'", 8000);
+    const back = await evaluate(`(async () => {
+      const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-assistant'));
+      const row = rows[rows.length - 1];
+      const index = Number(row.dataset.messageIndex);
+      const chatRows = await window.STApi.listChats('Harry Potter (EN).png');
+      const list = Array.isArray(chatRows) ? chatRows : [];
+      const newest = list.slice().sort((a, b) => String(b.lastMessageAt || b.updatedAt || '').localeCompare(String(a.lastMessageAt || a.updatedAt || '')))[0];
+      const fileName = (newest && (newest.fileName || newest.file_name || newest.id)) || '';
+      const lines = fileName ? await window.STApi.getChat('Harry Potter (EN).png', fileName) : [];
+      const messages = (Array.isArray(lines) ? lines : []).filter((line) => line && typeof line.mes === 'string');
+      return { text: (row.querySelector('.assistant-body') || {}).textContent || '', stored: messages[index] || null, fileName, count: messages.length };
+    })()`);
+    assert(back.stored, "读不到落盘的那条消息：" + JSON.stringify({ fileName: back.fileName, count: back.count }));
+    assert(flat(back.text) === flat(firstReply), "切回旧版本之后界面没变回来：" + JSON.stringify({ now: back.text.slice(0, 40), was: firstReply.slice(0, 40) }));
+    // 落盘的那一条：swipe_id 指回第 1 版，而且 mes（= 下一轮上下文用的那一版）就是第 1 版的内容。
+    assert(back.stored.swipe_id === 0, "切版本之后 swipe_id 没跟回去：" + JSON.stringify(back.stored.swipe_id));
+    assert(flat(back.stored.mes) === flat(back.stored.swipes[0]),
+      "mes 没有跟着当前版本走（下一轮会拿到错的那一版）：" + JSON.stringify({ mes: back.stored.mes, v1: back.stored.swipes[0] }).slice(0, 200));
+    assert(Array.isArray(back.stored.swipes) && back.stored.swipes.length === 2, "两个版本应当都在 swipes 里：" + JSON.stringify(back.stored.swipes));
+    assert(back.stored.swipes[1].indexOf("改过的第二版") >= 0, "第二版没留在 swipes 里：" + JSON.stringify(back.stored.swipes));
+  });
+
+
 
   await check("一本角色卡都没有时给出空状态，而不是把整页打挂", async () => {
     await evaluate(`(async () => {
