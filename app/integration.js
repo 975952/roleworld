@@ -2124,23 +2124,35 @@
   async function openCharacterPanel(tab) {
     const surface = characterPanel();
     if (!surface) return;
-    const entry = activeCharacterEntry();
-    const title = document.querySelector("#characterPanelTitle");
-    if (title) title.textContent = entry && entry.avatar ? (entry.charName || entry.name || "角色") : "角色";
-    // 两个入口各自落在固定的页：点角色名 = 设定（角色的"家"），顶栏「记忆」= 记忆。
-    // 不记"上次停在哪一页" —— 那样点角色名可能开到关系页，用户会以为点错了。
-    const next = setCharacterPanelTab(tab || "setup");
-    // 内容先备好再露面：这三个分页读的东西（角色卡 / 记忆书 / 关系档案 / 内容包清单）都是异步的，
-    // 先显示再填会出现"打开了但里面是空的"这一帧 —— 真人看不出问题，但任何基于 DOM 的检查
-    // （包括本项目的回归用例）都会当场读到空内容。调用方 await 这次打开即可。
-    await renderCharacterSetup();
-    // 记忆页要用真实数据，打开时现读（和以前 openMemoryPanel 的行为一致）。
-    if (next === "memories") await loadMemoryPane();
-    if (next === "relationship") await loadCompanionPane();
-    markCharacterPaneReady(next);
-    surface.hidden = false;
-    window.TASK25C_UI?.rememberDialogFocus?.("characterPanel");
-    window.TASK25C_UI?.syncOverlayScrollLock?.();
+    // 「点角色名没反应」是这个项目反复出现过的一类 bug（0.1.18 的 hidden 没人摘、
+    // 0.1.44 的窄屏条件永远为假）。所以这里**无论如何都要让面板露出来**：
+    // 内容读取失败只是少点东西，不能连面板都不出现。填入失败的事实也照实写出来。
+    try {
+      const entry = activeCharacterEntry();
+      const title = document.querySelector("#characterPanelTitle");
+      if (title) title.textContent = entry && entry.avatar ? (entry.charName || entry.name || "角色") : "角色";
+      // 两个入口各自落在固定的页：点角色名 = 设定（角色的"家"），顶栏「记忆」= 记忆。
+      const next = setCharacterPanelTab(tab || "setup");
+      try {
+        await renderCharacterSetup();
+        if (next === "memories") await loadMemoryPane();
+        if (next === "relationship") await loadCompanionPane();
+      } catch (error) {
+        const pane = document.querySelector(`[data-character-pane="${next}"]`);
+        if (pane) {
+          const note = document.createElement("p");
+          note.className = "request-peek-empty";
+          note.textContent = "这一页的内容没读出来：" + String((error && error.message) || error).slice(0, 120);
+          pane.textContent = "";
+          pane.appendChild(note);
+        }
+      }
+      markCharacterPaneReady(next);
+    } finally {
+      surface.hidden = false;
+      window.TASK25C_UI?.rememberDialogFocus?.("characterPanel");
+      window.TASK25C_UI?.syncOverlayScrollLock?.();
+    }
   }
 
   function closeCharacterPanel() {
