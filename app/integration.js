@@ -3872,19 +3872,43 @@
       }
       else if (err && (err.status === 401 || err.status === 403)) {
         // 401/403 = "端点不认这份凭据"。光说一句 401 谁也不知道该改哪里，
-        // 所以把**打到哪个主机 + 用的是哪种凭据**说出来（凭据只显示形态与末 4 位）。
+        // 所以把**打到哪个主机 + 用的是哪种凭据**说出来（凭据只显示形态与末 4 位），
+        // 并且去两个密钥格里看一眼：**最常见的原因就是"换了服务商，凭据还在另一个格子里"**。
         let host = "";
         try { host = new URL(String(err.endpoint || "")).host; } catch (_) { host = String(err.endpoint || "").slice(0, 40); }
         const kindText = err.authKind === "card" ? "一个体验卡号"
-          : err.authKind === "empty" ? "**空凭据**（这个服务商下没存 Key）"
+          : err.authKind === "empty" ? "**空凭据**（这个服务商下没存任何东西）"
             : err.authKind === "key" ? "一把 API Key" : "一份凭据";
         const tail = err.authTail ? "（末 4 位 " + err.authTail + "）" : "";
         const why = String((err && err.message) || "").slice(0, 140);
+        let slots = "";
+        try {
+          const settings = await window.RoleWorld.getLocalSettings();
+          const current = String(settings.provider || "deepseek");
+          const mine = ((await window.RoleWorld.secrets.get(window.RoleWorldModel.secretKeyFor({ provider: current }))) || {}).value || "";
+          if (!mine) {
+            // 当前这一格是空的：看看别的格子有没有东西（这才是"配了却 401"的真相）。
+            const others = [];
+            for (const provider of ["deepseek", "custom"]) {
+              if (provider === current) continue;
+              const value = ((await window.RoleWorld.secrets.get(window.RoleWorldModel.secretKeyFor({ provider }))) || {}).value || "";
+              if (value) {
+                const isCard = window.RoleWorldCard && window.RoleWorldCard.looksLikeCard(value);
+                others.push((provider === "custom" ? "自定义云端服务（体验卡走这里）" : "DeepSeek 官方") + "那一格里存着" + (isCard ? "一张体验卡" : "一把 API Key"));
+              }
+            }
+            slots = others.length
+              ? "注意：当前服务商是「" + (current === "custom" ? "自定义云端服务" : "DeepSeek 官方") + "」，但这一格是空的；"
+                + others.join("；") + " —— 把服务商切回去，或把凭据填到当前这一格（「设置 → 模型」）。"
+              : "两个密钥格都是空的：先去「设置 → 模型」粘一把 API Key，或用发卡人给你的那一整行体验卡。";
+          }
+        } catch (_) { /* 查不到就不说这一段 */ }
         showToast("端点不认这份凭据（401）：" + (host || "模型接口"));
         setChatListStatus(
           `这一轮被 ${host || "模型端点"} 拒绝了（HTTP ${err.status}）：它收到的是${kindText}${tail}。`
+          + (slots ? slots + "\n" : "")
           + "常见原因：① 用的是体验卡 —— 到「设置 → 模型 → 体验卡」重新粘一次发卡人给你的**那一整行**（卡号@中转地址）；"
-          + "② 用自己的 API Key —— 检查「设置 → 模型」里的**服务商**和 Key 是否配套（换了服务商但 Key 还在另一个格子里，就会这样）；"
+          + "② 用自己的 API Key —— 检查「设置 → 模型」里的**服务商**和 Key 是否配套；"
           + "③ Key 被停用 / 欠费 / 复制时少了字符。\n\n端点原话：" + why, true);
       }
       else if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode) && err && err.status === 400) showToast("尚未保存 DeepSeek API Key：请到「设置 → 对话」粘贴并保存");
