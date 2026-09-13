@@ -362,7 +362,7 @@ async function main() {
     }
   });
 
-  await test("接口报错时抛出带状态码的可读错误", async () => {
+  await test("接口报错时抛出带状态码的可读错误（401 还要说清打到哪、用的什么凭据）", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => new Response(
       JSON.stringify({ error: { message: "Invalid API key" } }),
@@ -373,6 +373,23 @@ async function main() {
         () => Model.complete({ messages: [], settings: { provider: "deepseek" } }, { apiKey: "bad" }),
         (error) => error.status === 401 && /Invalid API key/.test(error.message)
       );
+      // 光说"接口返回 401"没法查：错误里要带上端点与凭据形态（只留末 4 位，绝不带完整密钥）。
+      let captured = null;
+      try {
+        await Model.complete({ messages: [], settings: { provider: "deepseek", endpoint: "https://api.example.com/v1/chat/completions" } }, { apiKey: "sk-abcdef1234" });
+      } catch (error) { captured = error; }
+      assert.ok(captured, "没有抛出错误");
+      assert.equal(captured.authKind, "key", "凭据形态没带上：" + captured.authKind);
+      assert.equal(captured.authTail, "1234", "末 4 位不对：" + captured.authTail);
+      assert.ok(String(captured.endpoint).indexOf("api.example.com") >= 0, "端点没带上：" + captured.endpoint);
+      assert.ok(String(captured.message).indexOf("sk-abcdef1234") < 0, "错误信息里不该出现完整密钥");
+      // 体验卡形态要能分出来（这决定了提示里让用户去改哪一处）。
+      let cardError = null;
+      try {
+        await Model.complete({ messages: [], settings: { provider: "custom", endpoint: "https://relay.example.com/v1/chat/completions" } }, { apiKey: "RW-AAAAA-BBBBB-CCCCC" });
+      } catch (error) { cardError = error; }
+      assert.equal(cardError.authKind, "card", "卡号没被认出来：" + cardError.authKind);
+      assert.ok(String(cardError.message).indexOf("RW-AAAAA-BBBBB-CCCCC") < 0, "错误信息里不该出现完整卡号");
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -185,6 +185,15 @@
           } catch (_) { /* 保留原始文本 */ }
           const error = new Error("模型接口返回 HTTP " + response.status + "：" + String(detail).slice(0, 300));
           error.status = response.status;
+          // 401/403 光说"接口返回 401"没法查：把"打到哪、用的什么凭据"一起挂上。
+          // 凭据只留**形态与末 4 位**（"像卡号"/"像 Key"/"空的"），绝不带完整密钥。
+          try {
+            const auth = String((init && init.headers && (init.headers.Authorization || init.headers.authorization)) || "");
+            const token = auth.replace(/^Bearer\s+/i, "").trim();
+            error.endpoint = url;
+            error.authKind = !token ? "empty" : (/^RW-/i.test(token) ? "card" : "key");
+            error.authTail = token ? token.slice(-4) : "";
+          } catch (_) { /* 附加信息拿不到也不影响报错 */ }
           // 体验卡的错误要原样给人话（"次数用完了/卡被停用/已到期"），别让用户去猜 402 是什么。
           try {
             if (global.RoleWorldCard && typeof global.RoleWorldCard.describeCardError === "function") {

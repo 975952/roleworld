@@ -3870,6 +3870,23 @@
         showToast("回复没存上：" + (why || "写入失败") + "（内容留在屏幕上，可先复制留底；再发一次会重新生成）");
         setChatListStatus("这一条没能写进本机文件：" + (why || "写入失败"), true);
       }
+      else if (err && (err.status === 401 || err.status === 403)) {
+        // 401/403 = "端点不认这份凭据"。光说一句 401 谁也不知道该改哪里，
+        // 所以把**打到哪个主机 + 用的是哪种凭据**说出来（凭据只显示形态与末 4 位）。
+        let host = "";
+        try { host = new URL(String(err.endpoint || "")).host; } catch (_) { host = String(err.endpoint || "").slice(0, 40); }
+        const kindText = err.authKind === "card" ? "一个体验卡号"
+          : err.authKind === "empty" ? "**空凭据**（这个服务商下没存 Key）"
+            : err.authKind === "key" ? "一把 API Key" : "一份凭据";
+        const tail = err.authTail ? "（末 4 位 " + err.authTail + "）" : "";
+        const why = String((err && err.message) || "").slice(0, 140);
+        showToast("端点不认这份凭据（401）：" + (host || "模型接口"));
+        setChatListStatus(
+          `这一轮被 ${host || "模型端点"} 拒绝了（HTTP ${err.status}）：它收到的是${kindText}${tail}。`
+          + "常见原因：① 用的是体验卡 —— 到「设置 → 模型 → 体验卡」重新粘一次发卡人给你的**那一整行**（卡号@中转地址）；"
+          + "② 用自己的 API Key —— 检查「设置 → 模型」里的**服务商**和 Key 是否配套（换了服务商但 Key 还在另一个格子里，就会这样）；"
+          + "③ Key 被停用 / 欠费 / 复制时少了字符。\n\n端点原话：" + why, true);
+      }
       else if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode) && err && err.status === 400) showToast("尚未保存 DeepSeek API Key：请到「设置 → 对话」粘贴并保存");
       else {
         // 其它失败也别再吞原因了：说出来才查得动。
