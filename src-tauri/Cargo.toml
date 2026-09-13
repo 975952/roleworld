@@ -1,11 +1,19 @@
 [package]
 name = "roleworld"
-version = "0.1.51"
+version = "0.1.52"
 description = "角色世界 · 本地优先的开源角色对话应用"
 authors = ["RoleWorld contributors"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.77"
+
+[lib]
+# Android / iOS 必须构建动态库（桌面也可以只当普通库用）：
+# `tauri android build` 从 [lib] name 推导出要加载的 `libroleworld.so`，
+# 并在库里找 `start_app` 符号（由 `#[tauri::mobile_entry_point]` 生成）。
+# 桌面端仍然走 `[[bin]]`（src/main.rs），只是把实现搬进了库里共用。
+name = "roleworld"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
