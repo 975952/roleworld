@@ -582,6 +582,35 @@ async function main() {
     assert(await evaluate("document.querySelector('#dynamicMessages').textContent.indexOf('我是本地模型') >= 0"), "没有收到流式回复");
   });
 
+  await check("回复没存上时：提示要说清真实原因，而且内容不丢", async () => {
+    // 用户 2026-09-12 反馈桌面版「有时候提示回复未保存发不出去」。根因之一在 Rust 侧
+    // （Windows 上重命名被占用 → 原子写失败），已经加了重试与兜底；
+    // 这里守的是另一半：**别再拿一句"请重试"把真实原因吞掉**。
+    await evaluate(`(() => {
+      window.__origSaveChat = window.STApi.saveChat;
+      window.STApi.saveChat = async () => { throw new Error('写入失败 chats/Harry Potter (EN).png/x.json：Access is denied. (os error 5)'); };
+      return true;
+    })()`);
+    try {
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = '这一句会存不上';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#sendButton').click();
+        return true;
+      })()`);
+      await waitTurnSettled();
+      const toast = await evaluate("document.querySelector('#toast').textContent");
+      assert(toast.indexOf("回复没存上") >= 0, "没有说明是「存不上」：" + toast);
+      assert(toast.indexOf("Access is denied") >= 0, "提示里没有真实原因（又被吞了）：" + toast);
+      const visible = await evaluate("document.querySelector('#dynamicMessages').textContent");
+      assert(visible.indexOf("这一句会存不上") >= 0, "用户那句话消失了（存不上时不该把屏幕清空）");
+      assert(visible.indexOf("我是本地模型") >= 0 || visible.indexOf("合成回复") >= 0, "回复内容也消失了");
+    } finally {
+      await evaluate("(() => { if (window.__origSaveChat) window.STApi.saveChat = window.__origSaveChat; return true; })()");
+    }
+  });
+
   await check("模型请求走的是本机配置的端点，并且带了流式标记", async () => {
     const sent = requests.filter((row) => row.stream === true);
     assert(sent.length >= 1, "没有收到流式请求");
@@ -609,24 +638,20 @@ async function main() {
     const count = await evaluate("document.querySelectorAll('.message-flag').length");
     assert(count >= 2, "助手消息旁边没有标记入口，实际按钮数 " + count);
 
-    // 最近一轮的轮次 ID（台账与消息里应当是同一个）
-    const turnId = await evaluate(`(async () => {
-      const store = window.RoleWorld.store;
-      const cards = await store.listCharacters();
-      const kv = await store.getKV('metrics:' + cards[0].avatar, []);
-      return (kv[kv.length - 1] || {}).turnId || '';
+    // 最近一轮的轮次 ID：**从界面上取**（台账里可能有"没有消息行"的轮次，
+    // 比如上一轮保存失败 —— 只按台账最后一条去对会错位）。
+    const turnId = await evaluate(`(() => {
+      const boxes = Array.from(document.querySelectorAll('.message-flags[data-turn-id]'));
+      return boxes.length ? boxes[boxes.length - 1].dataset.turnId : '';
     })()`);
-    assert(turnId, "台账里没有轮次 ID");
+    assert(turnId, "界面上没有带轮次 ID 的标记控件");
 
     // 点最近那条助手回复旁边的「记错」
-    const clicked = await evaluate(`(async () => {
-      const store = window.RoleWorld.store;
-      const cards = await store.listCharacters();
-      const kv = await store.getKV('metrics:' + cards[0].avatar, []);
-      const id = (kv[kv.length - 1] || {}).turnId;
-      const rows = Array.from(document.querySelectorAll('.message-row-assistant'));
-      const row = rows[rows.length - 1];
-      const button = Array.from(row.querySelectorAll('.message-flag')).find((b) => b.textContent.trim() === '记错');
+    const clicked = await evaluate(`(() => {
+      const boxes = Array.from(document.querySelectorAll('.message-flags[data-turn-id]'));
+      const box = boxes[boxes.length - 1];
+      const id = box ? box.dataset.turnId : '';
+      const button = box ? Array.from(box.querySelectorAll('.message-flag')).find((b) => b.textContent.trim() === '记错') : null;
       if (!button) return 'no-button';
       button.click();
       return id;

@@ -53,16 +53,49 @@ fn rw_read_text(app: tauri::AppHandle, name: String) -> Result<Option<String>, S
     }
 }
 
+/// 原子写入：先写临时文件再改名，中途崩溃不会留下半截文件。
+///
+/// 为什么要有重试：**Windows 上 `rename` 覆盖一个正被别人打开的文件会失败**
+/// （杀毒软件扫描、资源管理器预览、备份/同步程序，或者我们自己在读它），
+/// 表现为"有时候回复存不上"（用户 2026-09-12 反馈的桌面版问题）。
+/// 所以：短重试几次；仍然不行就**退回直接写目标文件**（截断重写）——
+/// 宁可丢掉"原子"这一点，也不能把用户刚生成的一整条回复丢掉。
+/// 另外临时文件名带上进程号，避免两次并发写同一个目标时互相踩。
+fn write_atomic(path: &std::path::Path, bytes: &[u8], name: &str) -> Result<(), String> {
+    let temp = path.with_extension(format!("tmp-write-{}", std::process::id()));
+    fs::write(&temp, bytes).map_err(|error| format!("写入失败 {name}：{error}"))?;
+
+    let mut last = String::new();
+    for attempt in 0..5 {
+        match fs::rename(&temp, path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last = error.to_string();
+                std::thread::sleep(std::time::Duration::from_millis(30 * (attempt + 1)));
+            }
+        }
+    }
+
+    // 兜底：直接写目标（可能不是原子操作，但先把内容保住）。
+    match fs::write(path, bytes) {
+        Ok(()) => {
+            let _ = fs::remove_file(&temp);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(format!("写入失败 {name}：{last}（重试 5 次仍失败；直接写也失败：{error}）"))
+        }
+    }
+}
+
 #[tauri::command]
 fn rw_write_text(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
     let path = resolve(&data_root(&app)?, &name)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("无法创建目录：{error}"))?;
     }
-    // 先写临时文件再改名：中途崩溃不会留下半截文件。
-    let temp = path.with_extension("tmp-write");
-    fs::write(&temp, contents).map_err(|error| format!("写入失败 {name}：{error}"))?;
-    fs::rename(&temp, &path).map_err(|error| format!("写入失败 {name}：{error}"))
+    write_atomic(&path, contents.as_bytes(), &name)
 }
 
 #[tauri::command]
@@ -84,9 +117,7 @@ fn rw_write_binary(app: tauri::AppHandle, name: String, base64: String) -> Resul
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("无法创建目录：{error}"))?;
     }
-    let temp = path.with_extension("tmp-write");
-    fs::write(&temp, bytes).map_err(|error| format!("写入失败 {name}：{error}"))?;
-    fs::rename(&temp, &path).map_err(|error| format!("写入失败 {name}：{error}"))
+    write_atomic(&path, &bytes, &name)
 }
 
 /// 列出某个前缀下的全部文件（相对路径，正斜杠）。

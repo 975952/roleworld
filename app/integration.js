@@ -726,6 +726,9 @@
     const core = window.ROLEWORLD_METRICS_CORE;
     const box = document.createElement("span");
     box.className = "message-flags";
+    // 把这颗控件属于哪一轮写在 DOM 上：台账里可能有"没有对应消息行"的轮次
+    // （例如保存失败的那一轮），只按"台账最后一条"去对会错位。
+    if (turnId) box.dataset.turnId = String(turnId);
     if (!core) return box;
     const current = core.flagsOf(liveState.metrics || [], turnId);
     const make = (flag, label, title) => {
@@ -3741,6 +3744,14 @@
         if (saved && saved.duplicate) duplicateTurn = true;
       } catch (saveError) {
         if (bound) liveState.chatModel.unbindActive();
+        // 打上标记：这条回复是**存不上**（不是"请求失败"）。桌面版偶尔会遇到
+        // Windows 上重命名被占用 —— 提示要说清真实原因，而且**内容不能丢**，
+        // 所以把这一轮的原话与回复一起挂到错误上，让失败提示把它们留在屏幕上。
+        if (saveError && typeof saveError === "object") {
+          saveError.code = saveError.code || "SAVE_FAILED";
+          saveError.turnUserText = text;
+          saveError.turnReplyText = finalText;
+        }
         throw saveError;
       }
       saveCompleted = true;
@@ -3844,8 +3855,27 @@
         showToast(err.cardMessage);
         renderCardChip().catch(() => {});
       }
+      else if (err && err.code === "SAVE_FAILED") {
+        // 存不上 ≠ 请求失败：内容已经生成。**别让它从屏幕上消失** ——
+        // 以前这里只弹一句"回复未保存，请重试"，用户看到的是"我这句话和回复都没了"。
+        const why = String((err && err.message) || "").slice(0, 120);
+        try {
+          if (err.turnUserText || err.turnReplyText) {
+            const kept = (liveState.chatMessages || []).slice();
+            if (err.turnUserText) kept.push({ name: liveState.userName, is_user: true, mes: err.turnUserText });
+            if (err.turnReplyText) kept.push({ name: liveState.charName, is_user: false, mes: err.turnReplyText });
+            renderLiveMessages(kept);
+          }
+        } catch (_) { /* 渲染失败也不能盖掉提示 */ }
+        showToast("回复没存上：" + (why || "写入失败") + "（内容留在屏幕上，可先复制留底；再发一次会重新生成）");
+        setChatListStatus("这一条没能写进本机文件：" + (why || "写入失败"), true);
+      }
       else if (window.TASK22_CORE.isDeepSeekChatMode(liveState.modelMode) && err && err.status === 400) showToast("尚未保存 DeepSeek API Key：请到「设置 → 对话」粘贴并保存");
-      else showToast("回复未保存，请重试");
+      else {
+        // 其它失败也别再吞原因了：说出来才查得动。
+        const why = String((err && (err.message || err.statusText)) || "").slice(0, 120);
+        showToast(why ? "回复失败：" + why : "回复未保存，请重试");
+      }
     } finally {
       removeLiveStreamRow(streamRow);
       liveState.controller = null;

@@ -1,6 +1,6 @@
 [package]
 name = "roleworld"
-version = "0.1.35"
+version = "0.1.36"
 description = "角色世界 · 本地优先的开源角色对话应用"
 authors = ["RoleWorld contributors"]
 license = "MIT"
