@@ -474,13 +474,18 @@ function persistLayoutPreferences() {
 }
 
 function setMemoryPanelOpen(open, options = {}) {
-  const shouldOpen = !!open && window.innerWidth >= layoutConfig.utilityCloseWidth && !state.settingsOpen;
+  // 注意 `state.settingsOpen`：在设置页里点这个开关时它**本来就是 true**，
+  // 所以以前这个条件会把 shouldOpen 判成 false，开关当场弹回去 —— 看起来就是"点不动"
+  // （2026-09-13 用户实测）。从设置里点的时候跳过这一条，只把偏好写下去，
+  // 关掉设置回到对话页时右栏就在那里。
+  const fromSettings = options.fromSettings === true;
+  const shouldOpen = !!open && window.innerWidth >= layoutConfig.utilityCloseWidth && (fromSettings || !state.settingsOpen);
   state.memoryPanelOpen = shouldOpen;
   const shell = $("#appShell");
-  shell?.classList.toggle("memory-panel-open", shouldOpen);
+  shell?.classList.toggle("memory-panel-open", shouldOpen && !fromSettings);
   $(".inspector-column")?.setAttribute("aria-hidden", String(!shouldOpen));
   const columnToggle = $("#memoryColumnToggle");
-  if (columnToggle) columnToggle.checked = shouldOpen;
+  if (columnToggle && !fromSettings) columnToggle.checked = shouldOpen;
   document.querySelectorAll('[data-action="open-memories"]').forEach((button) => button.setAttribute("aria-expanded", String(shouldOpen)));
   if (!options.skipPersist) persistLayoutPreferences();
 }
@@ -1139,7 +1144,7 @@ function bindSettings() {
   // 右侧常驻记忆栏的开关：以前只有顶栏「记忆」能切换它，而那颗按钮现在专职打开角色面板，
   // 所以把"要不要常驻显示"放到布局设置里（和"恢复默认布局"在一起）。
   $("#memoryColumnToggle")?.addEventListener("change", (event) => {
-    setMemoryPanelOpen(event.target.checked === true);
+    setMemoryPanelOpen(event.target.checked === true, { fromSettings: true });
   });
   $("#resetPreferencesButton")?.addEventListener("click", resetPreferences);
   // 「关于 → 数据与备份」那颗按钮：跳到同一个入口（不再在关于页重复放导出/导入/清空，

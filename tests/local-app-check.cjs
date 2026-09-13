@@ -583,6 +583,42 @@ async function main() {
     })()`, 25000);
   }
 
+  await check("设置里的「右侧记忆栏常驻显示」开关点得动，而且写进了偏好", async () => {
+    try {
+    // 用户 2026-09-13 实测：「点不动」—— 根因是 setMemoryPanelOpen 里的 !state.settingsOpen：
+    // 在设置页里它本来就是 true，于是开关当场弹回去。这条钉住"点得动 + 落偏好"。
+    await evaluate("window.TASK25C_UI.openSettings ? window.TASK25C_UI.openSettings() : document.querySelector('[data-action=\"open-settings\"]').click(); true");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
+    await evaluate("window.TASK25C_UI.setSettingsSection('appearance'); true");
+    await waitFor("!!document.querySelector('#memoryColumnToggle')", 8000);
+    const info = await evaluate(`(() => {
+      const box = document.querySelector('#memoryColumnToggle');
+      box.scrollIntoView({ block: 'center' });
+      const r = box.getBoundingClientRect();
+      const row = box.closest('.settings-row');
+      const rr = row.getBoundingClientRect();
+      const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+      const before = box.checked;
+      box.checked = true;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      return { w: Math.round(r.width), h: Math.round(r.height), reachable: !!(top && (top === box || row.contains(top))), rowH: Math.round(rr.height), before, after: box.checked };
+    })()`);
+    assert(info.w > 0 && info.h > 0, "开关没有尺寸（等于不存在）：" + JSON.stringify(info));
+    await new Promise((r) => setTimeout(r, 500));
+    const kept = await evaluate("document.querySelector('#memoryColumnToggle').checked");
+    assert(kept === true, "点完自己弹回去了（还是点不动）：" + JSON.stringify({ info, kept }));
+    const prefs = await evaluate("(JSON.parse(localStorage.getItem('task27a.preferences.v1.local') || '{}').harry || {}).memoryOpen");
+    assert(prefs === true, "没写进偏好，回到对话页不会出来：" + JSON.stringify(prefs));
+    // 关掉，别影响后面的用例。
+    await evaluate("(() => { const box = document.querySelector('#memoryColumnToggle'); box.checked = false; box.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+    await new Promise((r) => setTimeout(r, 400));
+    await evaluate("document.querySelector('[data-action=\"close-settings\"]').click()");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
+    } finally {
+      await evaluate("document.querySelector('[data-action=\"close-settings\"]').click(); true").catch(() => {});
+    }
+  });
+
   await check("「本次请求」平时不出现，打字或发过消息后才露出入口", async () => {
     // 这条要放在第一次发送之前。2026-09-12 起：花费与预估搬进了这个面板，
     // 所以"输入框里已有草稿"也算一次可看的机会（否则第一条消息看不到发送前预估）。
