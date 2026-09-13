@@ -4042,7 +4042,7 @@
   async function chooseChatModel(value) {
     if (value === "__custom__") {
       if (window.TASK25C_UI) {
-        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("model");
+        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("connection");
         if (typeof window.TASK25C_UI.openSettings === "function") window.TASK25C_UI.openSettings();
       }
       renderChatModelOptions();
@@ -4172,7 +4172,7 @@
       node.addEventListener("click", (event) => {
         event.preventDefault();
         if (!window.TASK25C_UI) return;
-        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("model");
+        if (typeof window.TASK25C_UI.setSettingsSection === "function") window.TASK25C_UI.setSettingsSection("connection");
         if (typeof window.TASK25C_UI.openSettings === "function") window.TASK25C_UI.openSettings();
       });
     });

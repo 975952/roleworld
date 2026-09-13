@@ -1221,7 +1221,9 @@ function openMobileView(view) {
   }
   if (view === "account") {
     openSettings();
-    setSettingsSection("account");
+    // 手机底部导航的「我的」= 关于页（以前写的是 "account"，不在分区表里，
+    // setSettingsSection 会悄悄退回"外观"，用户点「我的」看到的是外观设置）。
+    setSettingsSection("about");
     updateMobileBottomNav("account");
     return;
   }

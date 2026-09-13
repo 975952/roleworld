@@ -168,6 +168,8 @@
       });
     }
     await refreshCardStatus(settings, saved);
+    // 连接方式：显示对应表单 + 写清"现在是直连还是走中转"（文案与实际行为一致）。
+    try { await renderConnectionMode(settings); } catch (_) { /* 说明文字失败不影响设置 */ }
     await refreshVersion();
   }
 
@@ -191,9 +193,140 @@
     nodes.forEach((node) => setStatus(node, text, !!(running && online && online !== running)));
   }
 
-  /** 体验卡状态：密钥看起来像卡号时，顺手查一下还能用多少。 */
-  async function refreshCardStatus(settings, savedSecret) {
+  /* ---------------- 连接方式：自己配 API / 用体验卡 ----------------
+   * 2026-09-13 重排设置页时加的。要求（用户原话）：
+   *   「体验卡用户可以直接查额度、换卡，不必理解 API 参数」
+   *   「切换连接方式时不误删已有配置或凭据，也不误用另一种方式的凭据」
+   * 做法：
+   *   - 当前是哪种方式**从真实状态推**（密钥看起来像卡号 = 体验卡），不新增一个标志位，
+   *     免得出现"界面说体验卡、实际用着 Key"这种两套账。
+   *   - 切回自己的 API：只改 provider / endpoint，**不删体验卡**（卡号与中转地址都留着），
+   *     所以随时能一键切回去。
+   *   - 体验卡占的是「自定义云端服务」那个密钥格（历史原因），
+   *     所以切到体验卡前会把这件事写在状态行里，不能默默覆盖用户的自定义 Key。
+   */
+  const CONNECTION_PROVIDERS = ["deepseek", "openai", "openrouter", "siliconflow", "custom"];
+
+  function providerLabel(provider) {
+    return ({
+      deepseek: "DeepSeek 官方",
+      openai: "OpenAI",
+      openrouter: "OpenRouter",
+      siliconflow: "硅基流动",
+      custom: "自定义云端服务",
+    })[provider] || provider || "未设置";
+  }
+
+  function setConnectionStatus(text, bad) {
+    const nodes = pick("connection-status");
+    nodes.forEach((node) => setStatus(node, text || "", !!bad));
+  }
+
+  async function readSecret(provider) {
+    try {
+      const saved = await global.RoleWorld.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
+      return (saved && saved.value) || "";
+    } catch (_) { return ""; }
+  }
+
+  function looksLikeCard(value) {
     const card = global.RoleWorldCard;
+    return !!(card && typeof card.looksLikeCard === "function" && card.looksLikeCard(value));
+  }
+
+  /** 当前连接方式："card" | "key"。 */
+  async function connectionMode(settings) {
+    const current = settings || await global.RoleWorld.getLocalSettings();
+    const provider = current.provider || "deepseek";
+    return looksLikeCard(await readSecret(provider)) ? "card" : "key";
+  }
+
+  /** 用户自己的 Key 存在哪一家（跳过体验卡占用的自定义格）。 */
+  async function ownKeyProvider() {
+    for (const provider of CONNECTION_PROVIDERS) {
+      if (provider === "custom") continue;
+      const value = await readSecret(provider);
+      if (value && !looksLikeCard(value)) return provider;
+    }
+    const custom = await readSecret("custom");
+    if (custom && !looksLikeCard(custom)) return "custom";
+    return "";
+  }
+
+  /** 把界面切成对应方式的表单 + 说明（不改任何配置，只改显示）。 */
+  async function renderConnectionMode(settings) {
+    const current = settings || await global.RoleWorld.getLocalSettings();
+    const mode = await connectionMode(current);
+    const keyBlock = document.querySelector("#connectionKeyBlock");
+    const cardBlock = document.querySelector("#connectionCardBlock");
+    if (keyBlock) keyBlock.hidden = mode !== "key";
+    if (cardBlock) cardBlock.hidden = mode !== "card";
+    document.querySelectorAll("[data-roleworld='connection-key']").forEach((node) => { node.checked = mode === "key"; });
+    document.querySelectorAll("[data-roleworld='connection-card']").forEach((node) => { node.checked = mode === "card"; });
+    const summary = document.querySelector("#connectionSummary");
+    if (!summary) return;
+    let relay = "";
+    try {
+      const url = new URL(global.RoleWorldModel.endpointFor(current));
+      relay = url.host;
+    } catch (_) { relay = ""; }
+    if (mode === "card") {
+      summary.textContent = "当前：通过体验卡中转连接" + (relay ? "（" + relay + "）" : "")
+        + "。卡号只在本机，换设备要重新粘一次发卡人给的整行。";
+    } else {
+      summary.textContent = "当前：直连 " + providerLabel(current.provider)
+        + (relay ? "（" + relay + "）" : "") + "。对话内容直接发给这家服务商，不经过本项目。";
+    }
+    // 切到体验卡会占用「自定义云端服务」的 Key 格子 —— 这件事必须说出来，不能默默覆盖。
+    const customKey = await readSecret("custom");
+    const willOverwrite = mode !== "card" && current.provider !== "custom" && !!customKey && !looksLikeCard(customKey);
+    setConnectionStatus(willOverwrite
+      ? "注意：体验卡会用「自定义云端服务」的密钥格存卡号，切过去会覆盖你在这里填的自定义 Key（切回来需要重新粘一次）。"
+      : "", false);
+  }
+
+  /** 切回"自己配 API"：只改 provider / endpoint，体验卡原样留着。 */
+  async function switchToOwnKey() {
+    const adapter = global.RoleWorld;
+    const found = await ownKeyProvider();
+    const provider = found || "deepseek";
+    await adapter.saveLocalSettings({ provider, endpoint: "" });
+    notify({ provider, endpoint: "" });
+    await refresh();
+    setConnectionStatus(found
+      ? "已切回自己的 API 配置（" + providerLabel(provider) + "）。体验卡没删，随时能切回去。"
+      : "已切回自己的 API 配置。这家服务商下还没有 Key，粘一把保存就能用。", false);
+    reloadChat();
+  }
+
+  /** 切回体验卡：本机还留着卡号与中转地址就直接启用，否则让用户粘整行。 */
+  async function switchToCard() {
+    const card = global.RoleWorldCard;
+    const adapter = global.RoleWorld;
+    const settings = await adapter.getLocalSettings();
+    const value = await readSecret("custom");
+    const relay = settings.card_relay || "";
+    if (card && looksLikeCard(value) && relay) {
+      await adapter.saveLocalSettings({ provider: "custom", endpoint: card.endpointFor(relay) });
+      notify({ provider: "custom", endpoint: card.endpointFor(relay) });
+      await refresh();
+      setConnectionStatus("已切回体验卡（本机还存着这张卡）。", false);
+      reloadChat();
+      return;
+    }
+    setConnectionStatus("把发卡人给你的那一整行（卡号@中转地址，或整条链接）粘到下面的输入框，再点「使用体验卡」。", false);
+    const input = first("card");
+    if (input) { input.focus(); }
+  }
+
+  function reloadChat() {
+    if (global.TASK21 && typeof global.TASK21.reloadSettings === "function") {
+      try { global.TASK21.reloadSettings(); } catch (_) { /* 对话页自己会读新设置 */ }
+    }
+  }
+
+  /** 体验卡状态：密钥看起来像卡号时，顺手查一下还能用多少。 */
+  async function refreshCardStatus(settings, savedSecret) {    const card = global.RoleWorldCard;
     const nodes = pick("card-status");
     if (!card || !nodes.length) return;
     let secret = savedSecret;
@@ -382,6 +515,10 @@
     pick("key-delete").forEach((node) => node.addEventListener("click", () => { deleteKey(); }));
     pick("test").forEach((node) => node.addEventListener("click", () => { testConnection(); }));
     pick("provider").forEach((node) => node.addEventListener("change", () => { refresh(); }));
+    // 连接方式：单选按钮 = 真的切过去（不只是显示），另有一个显式按钮做同样的事。
+    pick("connection-key").forEach((node) => node.addEventListener("change", () => { if (node.checked) switchToOwnKey(); }));
+    pick("connection-card").forEach((node) => node.addEventListener("change", () => { if (node.checked) switchToCard(); }));
+    pick("connection-key-mode").forEach((node) => node.addEventListener("click", () => { switchToOwnKey(); }));
     // 生成参数预设：切换时先把"自己填"那一行显示/隐藏对，再落盘（改完立刻生效）。
     pick("sampling-preset").forEach((node) => node.addEventListener("change", () => {
       syncSamplingRows();

@@ -40,7 +40,7 @@
     scale: ["0.85", "0.9", "0.95", "1", "1.05", "1.1", "1.15", "1.2"],
     // 风格：同一套布局下的不同配色（见 tokens.css）。
     style: ["default", "paper", "ink", "forest", "sakura", "gold"],
-    lastSettingsSection: ["appearance", "conversation", "model", "characters", "layout", "about", "local-data"],
+    lastSettingsSection: ["appearance", "conversation", "memory", "characters", "connection", "advanced", "about", "local-data"],
   });
   /** 当前这一档叫「100%」—— 2026-09-13 从 1 改成 0.9。 */
   const SCALE_BASE = "0.9";
