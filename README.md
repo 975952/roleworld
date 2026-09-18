@@ -1,373 +1,208 @@
-# 角色世界 · RoleWorld（网站部署分支）
+# 角色世界 · RoleWorld
 
-> 面向国内访问的静态网站版 AI 角色对话应用。没有业务后端，没有账号，没有遥测。
-> 角色卡、对话记录、记忆书、API Key 全部只存在用户自己的设备上。
-
-**English** — A local-first, fully open-source AI roleplay chat app. No backend, no accounts,
-no telemetry. Character cards, chat history, memory books and API keys live only on your own
-device. MIT licensed. [Jump to English](#english)
+**和 AI 角色聊天 / 演剧情的开源应用。** 数据只存在你自己设备上：没有账号、没有服务器、
+不上传聊天记录。MIT 许可。
 
 ---
 
-## 它是什么
+## 先看这里：怎么装、怎么开始用
 
-一个可以直接和角色卡聊天的网页应用，外加一个通用的 AI 助手页和一个多人剧情模式：
+### 1. 下载
 
-| 页面 | 作用 |
+👉 **[点这里打开 Releases（所有版本与安装包）](https://github.com/975952/roleworld/releases/latest)**
+
+> Releases 在哪：仓库首页右边那一栏有 **Releases**（中文界面叫「发行版」）；
+> 或者直接用它自己的网址 —— `https://github.com/975952/roleworld/releases`。
+> 打开后每一个版本下面就是可下载的文件。
+
+| 你想要 | 下哪个文件 | 说明 |
+|---|---|---|
+| 电脑（Windows 10/11 64 位） | `RoleWorld_x.y.z_x64-setup.exe` | 双击安装。没做代码签名，SmartScreen 会提示「未知发布者」→ 选「更多信息 → 仍要运行」 |
+| 手机（安卓） | `RoleWorld_x.y.z_android_universal.apk` | 传到手机点开安装（可能要在系统里允许「安装未知来源应用」）。用的是安卓调试密钥签名，能自己装、能发给朋友，**不能上架应用商店** |
+| 什么都不装，先在浏览器里试 | 打开 <https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com> | 网页版，功能和桌面版一样，数据存在这个浏览器里 |
+
+> 三个版本**互不相通**：网页版、桌面版、手机版各自存自己那份数据，模型配置也要各填一次。
+> 想在设备之间搬，用「设置 → 数据与备份 → 导出存档」（存档里**不含** API Key）。
+
+### 2. 第一次打开：它会问你「你手上有什么？」
+
+第一次打开是一个两步的分岔，照它走就行：
+
+**A. 有人给了我一张「体验卡」** —— 选这一项，把发卡人给你的**一整行**粘进去：
+
+```
+RW-XXXXX-XXXXX-XXXXX@中转地址
+```
+
+- ⚠ **必须带 `@` 后面那段中转地址**。只粘卡号在这一台设备上是没用的（会 401）。
+- 粘完点「使用体验卡」。**验证点：顶栏右上角会出现「体验卡」徽标**（显示还剩多少次）。
+  没有徽标 = 没配上。
+- 体验卡是别人（发卡人）搭的中转，你的对话内容会经过那台中转再送到模型 —— 这一点应用里会写明。
+
+**B. 我自己有 API Key** —— 选这一项，填服务商 + Key：
+
+| 服务商 | 去哪拿 Key | 接口地址 |
+|---|---|---|
+| **DeepSeek 官方（推荐，便宜）** | <https://platform.deepseek.com/api_keys> 充值后创建 | 留空即可，用默认 |
+| OpenAI / OpenRouter / 硅基流动 | 各自官网后台 | 留空即可 |
+| 自己电脑上的模型（llama.cpp / Ollama / LM Studio） | 不用 Key | 填本机地址，如 `http://127.0.0.1:8080/v1/chat/completions` |
+
+填完点「测试连接」，通了再继续。
+
+### 3. 开始聊天
+
+- 应用自带 6 张《哈利·波特》角色卡（Harry、Tom Riddle、Ron、Hermione、Ginny、Luna）。
+  也可以自己导入：**设置 → 角色管理 → 导入角色文件**，支持 `.json` / `.png` / `.charx`
+  （SillyTavern、Chub 之类导出的角色卡直接用）。
+- 想让它用你自己的设定？**设置 → 角色管理 → AI 创建角色**：写一段自然语言描述，模型帮你写成角色卡。
+- 输入框是微信那样的：左边语音、中间打字、右边表情和「+」。**打上字才会出现发送键**。
+
+### 4. 数据在哪 / 怎么备份
+
+| 版本 | 数据位置 | 怎么备份 |
+|---|---|---|
+| 桌面版 | `%APPDATA%\app.roleworld.desktop\data\`（普通文件，可直接拷） | 直接拷这个目录，或用应用内「导出存档」 |
+| 网页版 | 这个浏览器里 | 用应用内「导出存档」 |
+| 手机版 | 应用私有目录（看不到） | 只能用应用内「导出存档」 |
+
+**没有人替你备份**：换电脑、清浏览器数据之前记得导出。
+
+---
+
+## 它有哪些功能
+
+| 功能 | 在哪 |
 |---|---|
-| `app/index.html` | 角色对话。导入 CCv2 / CCv3 / PNG / CHARX 角色卡，支持流式回复、多会话管理、记忆书（世界书），还可以让模型帮你写角色卡 |
-| `app/magic-map.html` | 剧情模式。多角色同场演出，带点名规则与「导演模式」（你不在场也能推进剧情） |
+| 角色对话（流式回复、多会话、编辑/重答/从这里开分支/多版本切换） | 主界面 |
+| **记忆书**：角色自己记 + 你手写，可改可删、能看每条是从哪句话来的 | 顶栏「记忆」/ 角色面板「记忆」页 |
+| **长期记忆 + 历史检索**：隔几天回来还记得，翻得到以前说过的话 | 自动 |
+| **伴侣模式**：角色与你的关系、称呼、时间感（只对自定义角色开） | 角色面板「关系」页 / 设置 → 角色管理 |
+| **角色语音**：云端合成（火山「豆包语音合成 2.0」，经体验卡中转），一个气泡点一下才播 | 输入框旁「角色语音」（已挪进「+」面板） |
+| **表情包**：角色和你都能发 | 输入框旁表情按钮 |
+| **剧情模式**：多角色同场演出、点名叫谁说话、导演模式 | 左侧导航「剧情模式」 |
+| 聊天记录动画/主题/密度/缩放 | 设置 → 外观与布局 |
+| 「本次请求」：看清上一次到底发了什么内容、占多少 token、多少钱 | 输入框「+」→「本次请求」 |
 
-## 网站版怎么工作
+### 几个你可能马上会问的
 
-原来的版本跑在一台服务器上，用 SillyTavern 做后端。网站版把后端整个去掉了：
+- **多少钱？** 用 DeepSeek 官方时，一句话大约几厘钱（应用里「本次请求」会给出实测数字与预估）。
+  用体验卡就是发卡人那边的额度。**角色语音按字符另外计费**。
+- **会不会把我的小说/聊天发出去？** 只有一份请求会离开设备：发给你自己配的那个模型端点
+  （角色卡 + 该角色记忆书 + 最近对话 + 你这轮输入）。用体验卡时会经过发卡人的中转。
+  没有账号、没有统计上报、没有崩溃收集。详见 [应用内「关于」页](app/about.html)。
+- **支持 macOS / Linux 吗？** Tauri 配置已经留好，但当前只出 Windows 与安卓包。
+- **能离线用吗？** 网页版可以装成 PWA，断网也能打开界面（数据本来就在本机）；
+  但生成回复必须能连到你配的那个模型端点。
 
-- **数据在本机** —— 角色卡、对话、记忆书存在浏览器的 IndexedDB 里；
-- **没有账号系统** —— 只有一个本地档案，不需要注册、不设密码、不会同步；
-- **模型直连** —— 请求从你的设备直接发给你配置的云端模型接口，中间没有任何中转；
-- **可以自己验证** —— 全部代码在这个仓库里，没有混淆、没有打包、没有构建步骤，读得懂就能改。
+---
 
-代价也说清楚：没有人替你备份。换电脑前记得用「设置 → 关于 → 导出存档」存一份。
+## 常见问题
 
-## 数据与隐私：本地保存 ≠ 不上云
+**点「使用体验卡」之后卡号被清空、按钮像没反应？**
+先确认粘的是**整行**（`卡号@中转地址`）。仍然不行就看顶栏有没有体验卡徽标：
+有徽标就是已经配好了（卡号清空是正常的，它已经存进本机了）。
 
-这句话必须说明白，免得被"本地优先"四个字误导：
+**它说「接口返回 401」？**
+401 = 这次请求带的凭据，端点不认。应用会直接告诉你**打到了哪个地址**、带的是
+「一个体验卡号 / 一把 API Key / 空凭据」，并给一个能点的下一步（去设置连接方式 / 改用你的卡）。
+最常见的原因：换了服务商但没重新填 Key（Key 是按服务商分格子存的）。
 
-**平时只有一份请求会离开这台设备** —— 发给**你自己配置的那个模型端点**。它的内容是：
+**角色说话不带动作描写了 / 语气变了？**
+在角色面板或顶栏可以切换「日常聊天」（只有对白，像微信）和「剧情对话」（带旁白）。
+这是每种角色回复方式自己的渲染与提示词，切了只影响新回复，不会重写历史。
 
-- 角色卡（设定 / 描述 / 性格 / 场景）、该角色的记忆书条目、关系档案（如果你开了伴侣模式）；
-- 最近这段对话、按需检索出来的旧对话片段，以及你这一轮输入的内容。
+**手机上按返回键直接把应用关了？**
+不会了：现在按返回先关掉最上层的面板，一层都没有了才退出。
 
-如果那个端点是云端服务（例如 DeepSeek 官方），上面这些就会到达对方服务器并按对方的条款处理。
-想完全不出去，只能用你电脑上的本地模型（llama.cpp 等）。
+**更多问题**：见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
 
-**打开「角色语音」之后会多一份请求**（默认是**关**的，打开时会先弹一次明确告知并要求你确认）：
+---
 
-- 发出去的是**要念的那段文字 + 音色 + 语速**；
-- 它经**你用的那张体验卡的中转**发给**火山引擎「豆包语音合成模型 2.0」**合成音频，再发回来播放；
-- 中转那边只按**字符数**记账，不记录正文；火山的密钥只在中转服务端，这台设备上从头到尾没有它；
-- 不开这个开关，这份请求一次都不会发生 —— 文字聊天完全不受影响。
+## 自己跑源码 / 自己打包
 
-**不会离开设备的**：其他角色的对话与记忆、界面偏好（主题 / 缩放 / 密度 / 动效）、
-引导状态与侧栏选择、本机路径、**合成好的语音缓存**。这几条都有自动化用例
-（`tests/data-integrity.cjs` 的 P0-4）逐条断言。
-
-**API Key** 只保存在本机，发请求时作为鉴权头发给你配置的那个端点，除此之外不发往任何地方；
-**导出的存档里也不含它**（换机器要重新填一次）。体验卡卡号同理，以及语音缓存也不进存档。
-
-应用没有账号系统、没有统计上报、没有崩溃收集。想看清"这一次到底发了什么"，
-点输入框旁边的「本次请求」；想在按发送**之前**就知道大概花多少、会带多少内容，
-看输入框左下角那一行（发送前预估）。
-
-## 快速开始
-
-### 网页版
-
-不需要安装任何依赖，也不需要构建：
+不需要任何构建步骤就能跑网页版：
 
 ```bash
-git clone <这个仓库>
+git clone https://github.com/975952/roleworld.git
 cd roleworld
 node scripts/serve.cjs          # 或者 python -m http.server 8080
+# 浏览器打开 http://127.0.0.1:8080/app/index.html
 ```
 
-浏览器打开 <http://127.0.0.1:8080/app/index.html>。
+> 直接双击 `index.html`（`file://`）在部分浏览器里用不了本地数据库，请用上面的本地服务器方式。
 
-> 直接双击 `index.html`（`file://`）在部分浏览器里无法使用本地数据库，请用上面的本地服务器方式。
-
-第一次打开会有一个五步教程（配模型 / 内置角色 / 数据在哪 / 怎么开始）；
-跳过后不再出现，想再看一次去「设置 → 关于 → 再看一次教程」。
-
-### 桌面版（Windows）
-
-桌面版和网页版是**同一份前端代码**，区别只有一个：数据存成磁盘上看得见的普通文件，
-而不是浏览器数据库。想备份，直接拷目录；想看内容，直接用编辑器打开。
-
-直接下载 GitHub Releases 里的 `角色世界_x.y.z_x64-setup.exe` 安装即可
-（未做代码签名，SmartScreen 会提示"未知发布者"，选「更多信息 → 仍要运行」）。
-
-想自己构建：
+源码分支：主分支 `main`；当前发布线在 `codex/web-deploy`（Releases 里的包由它打出）。
 
 ```bash
-pnpm install                    # 只装打包工具 @tauri-apps/cli
-pnpm desktop:build              # 产出 NSIS 安装程序
-```
+npm test                         # 全部 14 个套件（离线、不碰真实模型、不花钱）
+node tests/local-app-check.cjs   # 只跑真实浏览器那一套
+node tests/adapter-unit.cjs      # 只跑数据层/请求翻译那一套
 
-需要 [Rust 工具链](https://rustup.rs/)；Windows 还需要 MSVC 生成工具与 WebView2
-（Windows 10/11 一般自带 WebView2）。
-
-数据目录（应用里「设置 → 关于」也会显示实际路径）：
-
-```
-%APPDATA%\app.roleworld.desktop\data\
-```
-
-```
-data/characters/<角色>.json     角色卡
-data/chats/<角色>/<对话>.json    对话记录
-data/worlds/<记忆书>.json        记忆书
-data/kv/<键>.json               设置与偏好
-data/blobs/<id>                 头像等图片
-```
-
-> macOS / Linux 的构建配置已经在 `src-tauri/` 里留好（Tauri 本身跨平台），
-> 但当前没有出包 —— 见 `.github/workflows/release.yml` 里被注释掉的 matrix 项。
-
-然后：
-
-1. 打开「设置 → 模型」，选择服务商（DeepSeek 官方 / OpenAI / OpenRouter / 硅基流动 / 自定义），
-   填入接口地址与 API Key；
-2. 点「测试连接」确认能通；
-3. 回到对话页，导入一个角色卡（`.json` / `.png` / `.charx`），开始聊天。
-
-### 手机版（Android）
-
-手机版和网页版也是**同一份前端代码**，打包成 APK 直接装到手机上 —— 不用开浏览器、
-图标就在桌面。与桌面版的区别：手机版的数据存在应用私有目录里（系统的 WebView 数据库），
-**不像桌面版那样是一堆能用资源管理器打开的普通文件**，所以备份要靠应用里的「导出存档」。
-
-```bash
+# 打包（需要 Rust 工具链；安卓还需要 JDK 17 + Android SDK/NDK，见 pnpm-lock 与 docs/PUBLISH.md）
 pnpm install
-pnpm android:build                          # debug 包，只带 arm64（够新手机用）
-node scripts/build-android.cjs --abi universal --release   # 通用包：arm64 + 32 位 arm，任何手机都装得上
+pnpm desktop:build                                              # Windows 安装包
+node scripts/build-android.cjs --abi universal --release        # 安卓通用包
 ```
 
-产物落在 `dist/`：
-
-| 命令 | 产物 | 用途 |
-|---|---|---|
-| `pnpm android:build` | `RoleWorld_<版本>_android_arm64-debug.apk` | 自己装、快速验证 |
-| `--abi universal --release` | `RoleWorld_<版本>_android_universal.apk` | **发给同学**：新老手机都能装，包更小（release 会 strip + R8） |
-| `--abi x86_64` 等 | 对应的单架构包 | 模拟器 |
-
-装到手机：
-
-```bash
-adb install -r "dist/RoleWorld_0.1.54_android_universal.apk"
-```
-
-> **release 包一定要签名**，否则装的时候系统只说一句"应用未安装"，看不出原因。
-> 脚本默认用 Android 自带的调试密钥签（`~/.android/debug.keystore`，口令是公开的
-> `android`）—— 能装、能发给同学，但**不能上架**，而且换一台电脑签名就变了
-> （旧包装不上新包，得先卸载）。要正式分发就设这四个环境变量再跑：
-> `TAURI_ANDROID_KEYSTORE_PATH` / `_PASSWORD` / `TAURI_ANDROID_KEY_ALIAS` / `_KEY_PASSWORD`。
-> 脚本每次都会 `apksigner verify` 复核，签名不过直接报错、不产出文件。
-
-构建前提（Windows 本机）：
-
-| 需要 | 说明 |
-|---|---|
-| Rust 工具链 | `rustup target add aarch64-linux-android`（脚本会在缺 target 时报错） |
-| JDK 17+ | 设 `JAVA_HOME` |
-| Android SDK | 设 `ANDROID_HOME`（默认找 `C:\Android\Sdk`）：`platform-tools`、`platforms;android-36`、`build-tools;36.0.0` |
-| Android NDK | **必须是 `29.0.13846066`** —— 这是 tauri-cli 2.11.4 钉的版本，`ndk;29.0.13846066` |
-| Gradle 8.14.3 | 已解压在 `GRADLE_HOME`（或 `C:\Android\gradle\gradle-8.14.3`）时会直接用，否则走 wrapper 联网下载 131 MB |
-
-```bash
-sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.13846066"
-```
-
-> 为什么不是一条 `tauri android build` 就完事：Windows 上它会**软链** `.so` 到 `jniLibs`，
-> 而普通用户没有创建符号链接的权限（要「开发者模式」）。`scripts/build-android.cjs` 里
-> 把四个坑都绕开了（软链、Gradle 下载超时、SDK 目录里有多个 NDK 时挑错版本、
-> 以及下面这个最坑的），每一条都在脚本注释里写了原因。
->
-> **最容易白屏的一个坑：`--features tauri/custom-protocol` + `--lib`。**
-> tauri 的 `build.rs` 里写着 `let dev = !custom_protocol;` —— 直接 `cargo build`
-> 不带这个 feature，`dev` 就是 true，而 tauri 在 **mobile + dev** 下会把**所有**资源请求
-> 交给"开发服务器代理"（reqwest 去请求一个不存在的 devUrl），于是手机上打开只有一句
-> `Failed to request http://tauri.localhost/: error sending request for url`。
-> 桌面端不会现形（那段代码只在 mobile+dev 下编译进去），所以「打包成功」说明不了任何事。
-> CLI 平时会自己补这两个参数，我们绕开了 CLI 就得自己补。
-> **缺 `[lib]`/cdylib 会闪退、缺 `custom-protocol` 会白屏**，两条都在 `adapter-unit`
-> 里有守卫盯着（其中 custom-protocol 那条是真机上踩过之后补的）。
-
-模型与 Key：首次打开在应用里照引导填一次（与桌面版、网页版各填一次，互不相通）。
-
-### 模型服务要求
-
-网站版使用 DeepSeek、OpenAI、OpenRouter、硅基流动或其他支持浏览器跨域访问的云端 OpenAI 兼容接口。
-自定义服务必须使用 HTTPS，并填写对应 API Key；网站不会替用户保存或转发 Key。
-
-## 内置内容包
-
-应用代码本身不含任何角色数据。角色、记忆书、示例对话都以「内容包」的形式放在 `packs/` 目录下，
-应用启动时自动安装缺失的部分（**绝不覆盖你改过的内容**）。
+目录结构：
 
 ```
-packs/index.json                     # 内容包清单（在这里登记 / 注销一个包）
-packs/<包名>/characters/<头像>.png    # CCv3 角色卡（PNG 自带立绘）
-packs/<包名>/worlds/<名字>.json       # 世界书 / 记忆书
-packs/<包名>/pack.json               # 包的说明与授权信息
+app/                 前端（原生 HTML/CSS/JS，无构建、无依赖）
+  integration.js     对话页逻辑
+  magic-map.js       剧情模式
+  back-nav.js        返回手势（网页版与 APK 同一份）
+  adapter/           本地适配层：数据、模型请求、角色卡、内容包、设置页
+  packs/             内置内容包（默认哈利·波特 6 张卡 + 4 本记忆书）
+packs/               内容包仓库格式（角色卡 / 世界书）
+relay/               体验卡中转（自己发卡时才需要，服务端）
+src-tauri/           桌面端与安卓外壳（Tauri v2）
+tests/               回归测试（14 个套件）
+docs/                规范与流程：PUBLISH.md（发布）、TROUBLESHOOTING.md、PORTING.md
 ```
 
-仓库目前自带一个内容包：
+---
 
-| 包 | 内容 |
-|---|---|
-| `harry-potter` | 6 张角色卡（Harry、Tom Riddle、Ron、Hermione、Ginny、Luna）+ 4 本记忆书 |
+## 内置内容包与同人作品声明
 
-**不想要它**：删掉 `packs/harry-potter/` 目录并把 `packs/index.json` 里的条目去掉即可，
-应用会以空书架启动（已验证：没有角色卡时给提示而不是报错）。
-想换成别的题材，照上面的结构放一个新包就行。
-
-### 同人作品声明
-
-`packs/` 下可能包含社区制作的同人角色卡。这些内容：
+`packs/` 下的角色卡是社区制作的**同人二次创作**：
 
 - 仅供个人、非商业用途；
 - 版权归原作者及权利方所有，本项目与其无任何关联，也未获其授权或背书；
 - 如果你是权利方并希望下架某份内容，请提 issue，我们会立即删除。
 
-## 从 SillyTavern 迁移
+不想要它：删掉 `packs/harry-potter/` 目录并去掉 `packs/index.json` 里的条目，
+应用会以空书架启动。想换成别的题材，照同样的结构放一个新包即可。
 
-沿用 SillyTavern 的数据格式（CCv2 / CCv3 角色卡、JSONL 对话、World Info 世界书），所以：
-
-- 角色卡：SillyTavern 导出的 `.png` / `.json` / `.charx` 可以直接导入；
-- 存档：用「导出存档」得到的 `.zip` 里是纯 JSON + 原始图片，可以被脚本处理。
-
-## 测试
-
-```bash
-npm test                         # 全部 14 个套件（全部离线、不碰真实模型、不花钱）
-node tests/adapter-unit.cjs      # 数据层 / 请求翻译 / ZIP / 记忆 / 上下文预算 / 仓库卫生（不需要浏览器）
-node tests/voice-unit.cjs        # 角色语音的纯逻辑：能力探测、分段、每角色音色、迁移、缓存、调度
-node tests/local-app-check.cjs   # 无头 Chrome 端到端：三个页面真的能跑起来
-node tests/offline-check.cjs     # 离线壳：清单、接管页面、关掉服务器后仍能打开并读到本机数据
-node tests/relay-check.cjs       # 体验卡中转：卡校验六种结局、用量记账、语音（假火山上游）、日志里没有正文
-node tests/console-check.cjs     # 体验卡控制台（纯本机）：只绑 127.0.0.1、钥匙头、页面里没有口令
-node tests/desktop-smoke.cjs     # 启动真 exe，验证数据以普通文件落盘（需先 desktop:build）
-```
-
-`npm test` 依次跑：`adapter-unit`、`memory-unit`、`search-unit`、`metrics-unit`、
-`companion-unit`、`sticker-unit`、`voice-unit`、`local-app-check`、`viewport-check`、
-`archive-roundtrip`、`data-integrity`、`offline-check`、`relay-check`、`console-check`。
-需要本机装有 Chrome 或 Chromium（可用 `CHROME_PATH` 指定）。
-CI 在 Windows 与 Linux 上跑，见 `.github/workflows/ci.yml`。
-
-语音相关的测试**全部跑在假的上游**上（协议形状照官方文档写），
-所以跑测试**不会调用火山、也不会产生任何费用**。
-
-测试口径与当前数字也写在应用内的「设置 → 关于 → 查看说明」页上
-（那一页带一段机器可读的 `roleworld-status` JSON）。
-
-## 发布
-
-打包与发布步骤（GitHub 建仓库 / 打标签自动出四平台安装包 / Gitee 镜像 / 本机出包）
-见 [docs/PUBLISH.md](docs/PUBLISH.md)。需要凭据的动作全部由你自己执行，
-仓库与代码里不会出现任何 token。
-
-## 项目状态
-
-已完成：本地适配层、去掉账号系统、页面接入适配层、内容包机制（含哈利·波特内置包）、
-存档导出导入、Windows 桌面端打包、Android APK（Tauri，2026-09-13）、GitHub Actions 自动出包、
-五阶段功能（基础聊天 / 上下文管理 / 长期记忆 / 轻量检索 / 伴侣模式）与整套回归测试。
-
-验收清单见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（逐条对应那张阶段表，写清状态与依据），
-出问题先查 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
-
-计划中：
-
-- [ ] macOS / Linux 构建（Tauri 配置已留好，取消 `release.yml` 里 matrix 的注释即可；
-      macOS 要正式发布需买签名证书，否则用户打开会看到"未知开发者"）
-- [ ] Android 正式签名包上架（现在出的是 debug 自签包：能自己装、能发给同学，
-      但不能上应用商店；要上架得自己生成 keystore 再出 release 包）
-- [ ] 跨设备同步（要先定同步范围与冲突规则）
-- [ ] 把 `app.js` 里残留的账号相关死代码彻底删掉（目前只是隐藏入口）
-- [ ] 更细的生成参数面板（温度 / 上下文长度 / 预设）
-
-已完成（近两轮）：
-
-- [x] **微信式输入条**（2026-09-18）：[按住说话] [输入框] [表情] [+] 排成一行，**发送键按需出现**
-      （空着时那一格是「+」，打上字变发送、生成中变停止），输入框随字长变高并在封顶后自己滚，
-      输入框贴着屏幕下侧。「+」里装「角色语音」与「本次请求」，界面上的解释文字按用户要求删到最少。
-- [x] **手机版极简**：底部那一栏（对话 / 角色 / 我的）**整个删掉**，「设置」挪到**顶栏右上角**，
-      记忆保留在「设置 → 记忆」与角色面板里（入口没有变少，只是不再占着屏幕底部）。
-- [x] **返回手势**（`app/back-nav.js`，网页版与 APK 同一份）：按返回先关最上层的面板，
-      一层都没有了才退出应用；不会再出现"开着面板按返回直接把应用带走"。
-- [x] **每条消息的时间进提示词**：历史消息带 `[MM-DD HH:MM]` 前缀（本机时区）+ 一句说明；
-      老存档没有时间戳的不加也不编。**发几条、隔多久由模型按当场情况决定**（提示词里不再写死 1～3 条）。
-- [x] **聊天路径「注定 401 先拦下来」**：会打到服务商默认地址、而那一格没有凭据时，
-      这一轮**不发出去**，当场说明并给「去设置连接方式」/「改用这张体验卡」（后者真的切过去）。
-      写角色那条路早就有同样的守卫。
-- [x] **角色发语音消息**（像微信语音那样：一个气泡、点一下才播；准备→可播放；失败只给
-      「重试 / 改为文字」）。2026-09-16 起**只挡内置小说人物**：
-      自定义/导入的角色都可以发语音，不再要求先开伴侣（用户拍板："朋友也可以发语音"）。
-      入口是输入框旁边那个**带文字**的「角色语音」：没开时写「开启角色语音」，
-      点开是一次说完的底部面板（语音服务 / 角色声音 / 首次云端说明），
-      开启之后写「角色回复：自动 ▾」（自动 / 下条语音 / 下条文字）。见 `docs/VOICE_CLOUD_TTS.md`
-- [x] **角色语音（朗读）**：只在云端合成（火山「豆包语音合成模型 2.0」，经体验卡中转），
-      每角色一个音色、长文本按句分段念完、切角色/切会话会取消、失败给人话、
-      音频缓存重复播放不重复花钱。默认关，打开前有明确告知。见 `docs/VOICE_CLOUD_TTS.md`
-- [x] 表情包（角色与用户都能发）与语音输入（录音 → 转写）
-
-### 网页版可以装到桌面/手机，断网也能打开
-
-`app/manifest.webmanifest` + `app/sw.js`：Chrome / Edge / Safari 里会显示"安装"入口，
-装好之后是一个独立窗口；断网时界面照常打开，数据本来就在本机。
-
-缓存策略是**网络优先**（有网时永远先拿最新文件，缓存只做兜底）——
-这样不会出现"线上改了、用户那里还是旧的，刷新也没用"。
-线上发了新版会在页面上弹一个小提示（`app/pwa.js` 拿 `app/version.json` 和自己加载时的版本对照），
-点一下刷新即可。托管平台那种"首次访问插一页提示"的页面**不会被当成应用缓存**（有专门的用例盯着）。
-
-## 目录结构
-
-```
-app/                 前端（原生 HTML/CSS/JS，无构建）
-  adapter/           本地适配层：数据、模型、角色卡、内容包
-  integration.js     角色对话页逻辑
-  magic-map.js       剧情模式逻辑
-  task22-core.js     提示词编排（角色卡 + 记忆书 + 样例对话）
-  task29-character-core.js  AI 写角色卡（payload / 草稿解析 / CCv3 构造）
-packs/               内容包（默认自带 harry-potter）
-tests/               回归测试
-scripts/             本地服务器、图标生成、打包前准备
-src-tauri/           桌面端外壳（Tauri v2）
-docs/PORTING.md      从 SillyTavern 迁移的对照表与设计说明
-docs/PUBLISH.md      打包与发布流程
-```
+---
 
 ## 许可
 
 [MIT](LICENSE)。可以自由使用、修改、分发，包括商业用途。
 
+> 当前版本 **0.1.75**（[Releases](https://github.com/975952/roleworld/releases)；每个版本的本地证据在
+> `runs/2026-09-17-local-ux/` 下，最新一份是 `SESSION_0.1.74.md`）。
+> 测试口径（14 个套件、当前条数）写在应用内「设置 → 关于 → 查看说明」那一页，带机器可读的 JSON。
+
 ---
 
 ## English
 
-**RoleWorld** is a local-first AI roleplay chat app with **no backend and no accounts**.
+**RoleWorld** is a local-first, open-source AI roleplay chat app: no backend, no accounts,
+no telemetry. Character cards, chat history, memory books and API keys live only on your device.
+MIT licensed.
 
-- Character cards, chat history, memory books and API keys are stored on your own device
-  (IndexedDB + localStorage) — nothing is uploaded anywhere except your own model requests.
-- You bring your own cloud model: DeepSeek, OpenAI, OpenRouter, SiliconFlow, or another
-  OpenAI-compatible HTTPS endpoint with CORS enabled. Requests go straight from your device to that endpoint.
-- Built-in content ships as optional "packs" under `packs/`; **the repository itself contains
-  no character data**.
+- **Download**: [latest release](https://github.com/975952/roleworld/releases/latest) —
+  `RoleWorld_x.y.z_x64-setup.exe` (Windows) or `RoleWorld_x.y.z_android_universal.apk` (Android).
+  Or just open the [web build](https://cyan1-d2gpky2z903b86182-1485756522.tcloudbaseapp.com).
+- **First run**: the app asks whether you have an invite card (`token@relay-host`) or your own
+  API key (DeepSeek / OpenAI / OpenRouter / SiliconFlow / any OpenAI-compatible HTTPS endpoint,
+  or a local llama.cpp/Ollama endpoint). Then import a character card (`.json` / `.png` / `.charx`)
+  and start chatting.
+- **Run from source**: `node scripts/serve.cjs` and open
+  <http://127.0.0.1:8080/app/index.html> — no build step, no dependencies.
+- **Data**: IndexedDB (web/Android) or plain files under
+  `%APPDATA%\app.roleworld.desktop\data\` (Windows desktop). Back it up yourself:
+  there is no cloud sync.
 
-### Run it
-
-```bash
-git clone <this repo>
-cd roleworld
-python -m http.server 8080
-# open http://127.0.0.1:8080/app/index.html
-```
-
-No build step, no bundler, no dependencies. Then open **Settings → Model**, choose a provider,
-paste your API key, and import a character card.
-
-### Import format
-
-CCv2 / CCv3 JSON, PNG cards (embedded `chara` / `ccv3` chunks) and `.charx` containers.
-Data formats follow the SillyTavern conventions, so cards and chats move between the two.
-
-### Fan work notice
-
-Any character packs under `packs/` are fan-made derivative works, provided for personal,
-non-commercial use only. All rights belong to the original creators; this project is not
-affiliated with or endorsed by them. Rights holders can request removal via an issue.
-
-### License
-
-[MIT](LICENSE).
+Fan-made character packs under `packs/` are derivative works for personal, non-commercial use
+only; all rights belong to their original creators. Rights holders can request removal via an issue.
