@@ -1,0 +1,25 @@
+name: CI Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    name: diag
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: run adapter-unit
+        shell: bash
+        run: |
+          node tests/adapter-unit.cjs > adapter-unit.log 2>&1
+          echo "exit=$?" >> adapter-unit.log
+          tail -40 adapter-unit.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adapter-unit-log
+          path: adapter-unit.log
