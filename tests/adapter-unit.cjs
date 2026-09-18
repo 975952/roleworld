@@ -1976,17 +1976,22 @@ async function main() {
     });
     const assistant = payload.messages.filter((m) => m.role === "assistant").map((m) => String(m.content));
     assert.equal(assistant.length, 1, "历史里那条助手消息应当原样送过去一条：" + JSON.stringify(payload.messages));
-    assert.equal(assistant[0], "[09-18 14:32] 我回来了。",
-      "历史消息没有带上时间前缀：" + JSON.stringify(assistant[0]));
+    // ⚠ 断言**不能写死 "14:32"**：时间前缀按**本机时区**算，而 CI 跑在 UTC（实测：那边是 06:32）——
+    //   写死时区等于"在别的机器上必红"的假失败（真踩过：v0.1.74 推上去之后 Windows CI 就红在这一条）。
+    //   所以这里只钉三件事：格式、前缀来自那条消息的时间、正文一字不改。
+    assert.match(assistant[0], /^\[\d\d-\d\d \d\d:\d\d\] 我回来了。$/,
+      "历史消息没有带上 [MM-DD HH:MM] 前缀：" + JSON.stringify(assistant[0]));
     // 系统提示里要有一句说明这些前缀是什么（否则模型只会看到一个方括号）。
     assert.ok(/\[Message times\]/.test(String(payload.messages[0].content)),
       "系统提示里没有说明时间前缀的含义");
     // 时间用的是**本机时区**：这条前缀必须与同一台机器上的本地时刻一致（换时区跑 CI 时也不假失败）。
     const local = new Date(stamp);
     const pad = (n) => (n < 10 ? "0" + n : String(n));
-    assert.equal(Core22.messageTimePrefix(stamp),
-      "[" + pad(local.getMonth() + 1) + "-" + pad(local.getDate()) + " " + pad(local.getHours()) + ":" + pad(local.getMinutes()) + "]",
-      "messageTimePrefix 与本机时区不一致");
+    const expectedPrefix = "[" + pad(local.getMonth() + 1) + "-" + pad(local.getDate())
+      + " " + pad(local.getHours()) + ":" + pad(local.getMinutes()) + "]";
+    assert.equal(assistant[0].slice(0, expectedPrefix.length), expectedPrefix,
+      "时间前缀与这条消息在本机时区下的时刻对不上：" + JSON.stringify({ got: assistant[0], expectedPrefix }));
+    assert.equal(Core22.messageTimePrefix(stamp), expectedPrefix, "messageTimePrefix 与本机时区不一致");
   });
 
   await test("消息时间：老存档没有时间戳就**不加**，绝不编一个", () => {

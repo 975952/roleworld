@@ -905,6 +905,8 @@
     const has = (Array.isArray(history) ? history : [])
       .some((h) => h && messageTimePrefix(h.send_date));
     if (!has) return "";
+    // 只解释格式，**刻意不写"今天是几号"**：那要按机器算一句示例，一旦时区/格式没对齐
+    // 就会把模型带偏，而模型自己知道今天几号 —— 前缀是几点就够了。
     return "[Message times] 旧对话每一条开头的 [MM-DD HH:MM] 是它发出的本机时间（按时间先后排列）。"
       + " Each past message starts with its local send time.";
   }
