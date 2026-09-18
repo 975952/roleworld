@@ -56,3 +56,8 @@ relay/*.local.txt
 # 控制台自己发的卡号留底（等于凭据；上面的 *.jsonl 也覆盖它）
 relay/cards.local.jsonl
 relay-data/
+
+# 2026-09-18：旧版 local-app-check 的坏字节备份（本机保留、不入库）
+# 那个文件本身不是合法 UTF-8（改动前就坏了），而仓库卫生用例会逐文件校验 UTF-8 ——
+# 提交它会让 CI 的 adapter-unit 直接红。本地那份**没有删**，只是不进版本库。
+tests/local-app-check.pre-replace-20260916.cjs

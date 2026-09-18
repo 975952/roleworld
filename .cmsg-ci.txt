@@ -1,0 +1,6 @@
+fix(ci): 旧的 local-app-check 坏字节备份不入库（它让 CI 的 adapter-unit 直接红）
+
+`tests/local-app-check.pre-replace-20260916.cjs` 是 2026-09-16 那次"替换前"的字节备份，
+它**本身就是坏编码**（2287 处非法 UTF-8），而 `adapter-unit` 里有一条仓库卫生用例会逐文件
+校验 UTF-8 —— 把它提交上去，CI 的「单元测试（适配层）」必红（本轮推 v0.1.74 时真红了）。
+本地那份**没有删**，只是加进 `.gitignore` 不进版本库。
