@@ -398,10 +398,15 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 @keyframes thinkingPulse { 0%, 100% { opacity: .32; transform: scale(.78); box-shadow: 0 0 0 0 rgba(174,184,202,0); } 50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 5px rgba(174,184,202,.08), 0 0 14px rgba(174,184,202,.36); } }
 
 .composer-shell { position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; padding: 20px 12px 16px; pointer-events: none; background: linear-gradient(180deg, transparent, var(--canvas) 38%); }
-/* 输入条本体（2026-09-18 微信化改版，用户 0.1.75：「输入框太粗」「整体太丑」）：
-   微信里这是一**条**（不是一张浮起来的卡片）——所以描边和投影都去掉，
-   底色只比页面略亮一档；真正的"浅灰圆角块"是里面那个输入框本身（见下面的 textarea）。 */
-.composer-box { width: min(880px, 100%); margin: 0 auto; padding: 6px 8px; pointer-events: auto; border: 0; border-radius: 12px; background: var(--raised); transition: background var(--hover-motion) ease; }
+/* 输入条（2026-09-18 第二轮，按用户 0.1.76 实测反馈重排）。
+   ⚠ 这里现在是**唯一**定义处：基础档 = 手机（精致版），`min-width: 761px` = 电脑版。
+     上一轮把同一套"微信风"写了两份（styles.css + glass.css），结果是手机电脑一个样、
+     而且手机版被撑成了大块头（用户：「现在输入框像个大块头」「电脑版的不用这样，
+     电脑版就（要）电脑版的样子，不要和手机一样」）。
+   ⚠ `position: relative` 是给「+」面板/表情面板/角色选择器当定位基准用的：
+     以前它们挂的是整条全宽 `.composer-shell`，1440 宽下横向能偏出 211px、还往上飘 25px
+     （用户：「电脑版点+出来的弹窗离得有点远」）。 */
+.composer-box { position: relative; width: min(880px, 100%); margin: 0 auto; padding: 4px 6px; pointer-events: auto; border: 0; border-radius: 10px; background: var(--raised); transition: background var(--hover-motion) ease; }
 /* 「上次说到」：隔了日子回来时的一行提示。窄屏上允许换行，不能撑出横向滚动。 */
 .recap-bar { display: flex; align-items: center; gap: 8px; width: min(880px, 100%); margin: 0 auto 8px; padding: 6px 8px 6px 11px; pointer-events: auto; color: var(--secondary-text); font-size: 11px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
 .recap-bar[hidden] { display: none; }
@@ -411,7 +416,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 /* 聚焦（用户口径：「聚焦也不加粗，最多极淡的一档底色变化」）——
    不给输入条加边框/投影/上移，只把输入框那一块换一档底色（见 textarea:focus-visible）。 */
 .composer-box:focus-within { background: var(--raised); }
-.composer-box textarea { width: 100%; max-width: 100%; min-height: 34px; max-height: 160px; resize: none; padding: 6px 10px; color: var(--main-text); line-height: 1.5; border: 0; outline: 0; border-radius: 8px; background: var(--hover); overflow-wrap: anywhere; word-break: break-word; }
+.composer-box textarea { width: 100%; max-width: 100%; min-height: 36px; max-height: 160px; resize: none; padding: 7px 10px; color: var(--main-text); line-height: 1.5; border: 0; outline: 0; border-radius: 6px; background: var(--hover); overflow-wrap: anywhere; word-break: break-word; }
 /* 空着就是空的：**平时没有占位文案**（用户 0.1.75：「输入框里面的文字删掉」）——
    文案本身已经在 integration.js 里不再写了（"写下你想对 XX 说的话…" 那一句删掉了）。
    这条 `::placeholder` 颜色**要留着**：占位还被两处真实的**状态**用着 ——
@@ -419,6 +424,15 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
    「在听…/正在识别的字」（语音输入的实时预览，那是内容不是提示）。 */
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-box textarea:focus-visible { outline: 0; background: var(--selected); }
+
+/* ===== 电脑版：**电脑版的样子**（用户 0.1.76：「电脑版就（要）电脑版的样子，不要和手机一样」）=====
+   电脑上是鼠标 + 键盘，不需要"手指按得准"那一套，所以它是一张**桌面卡片**：
+   一圈极淡描边 + 一点投影 + 大一点的圆角；输入格里也留出桌面习惯的内边距。
+   手机那一档（上面基础值）则是无描边、无投影、更薄更小的精致版。 */
+@media (min-width: 761px) {
+  .composer-box { padding: 6px 8px; border: 1px solid var(--hairline); border-radius: 14px; box-shadow: 0 8px 26px rgba(0, 0, 0, .16); }
+  .composer-box textarea { min-height: 34px; padding: 6px 10px; border-radius: 8px; }
+}
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 /* ===== 微信式输入条（2026-09-18 用户指定的形态）=====
    [语音] [输入框] [表情] [+] →（有字时 [+] 变成发送）
@@ -899,8 +913,8 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     padding: 10px max(10px, var(--mobile-safe-right)) calc(8px + var(--mobile-safe-bottom)) max(10px, var(--mobile-safe-left));
     background: linear-gradient(180deg, transparent, var(--canvas) 30%);
   }
-  .composer-box { width: 100%; max-width: 100%; padding: 6px 8px; border-radius: 12px; }
-  .composer-box textarea { min-height: 34px; max-height: 132px; padding: 6px 4px; font-size: 16px; line-height: 1.45; }
+  .composer-box { width: 100%; max-width: 100%; padding: 4px 6px; border-radius: 10px; }
+  .composer-box textarea { min-height: 36px; max-height: 132px; padding: 7px 10px; font-size: 16px; line-height: 1.45; }
   .composer-row { gap: 6px; }
   .composer-side { gap: 4px; }
   .send-button { width: var(--tap); height: var(--tap); flex: 0 0 var(--tap); }
@@ -1028,13 +1042,13 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(10px + var(--mobile-safe-bottom, 0px)) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
   /* 一条一行：左侧 [语音/本次请求]、中间输入框、右侧 [表情][+][发送]。
      以前这里是两列网格（输入框左边、按钮整列在右边），手机上按钮那一列把输入框挤短了。 */
-  .composer-box { display: block; padding: 6px 8px; border-radius: var(--input-radius); box-shadow: none; }
-  .composer-box:focus-within { box-shadow: none; transform: none; border-color: var(--muted-text); }
+  .composer-box { display: block; padding: 4px 6px; border-radius: 10px; }
+  .composer-box:focus-within { box-shadow: none; transform: none; border-color: transparent; }
   .composer-row { align-items: flex-end; }
   .composer-box .character-picker { padding: 0 0 4px; }
   .character-picker-trigger { min-height: var(--tap); padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }
   .character-picker-trigger:hover { background: var(--hover); }
-  .composer-box textarea { min-width: 0; min-height: var(--tap); max-height: 132px; padding: 10px 6px; line-height: 1.5; }
+  .composer-box textarea { min-width: 0; min-height: 36px; max-height: 132px; padding: 7px 10px; line-height: 1.5; }
   .composer-menu { position: fixed; right: max(8px, var(--mobile-safe-right)); bottom: calc(8px + var(--mobile-safe-bottom) + 60px); left: max(8px, var(--mobile-safe-left)); }
   .character-picker-menu { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; width: 100%; max-height: min(58vh, max(88px, calc(var(--visual-viewport-height, 100dvh) - var(--mobile-topbar-height) - var(--mobile-safe-bottom) - 220px))); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
   .character-picker-item, .character-picker-action { font-size: 14px; }

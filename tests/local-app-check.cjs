@@ -1006,7 +1006,7 @@ async function main() {
     reportErrors("「+」面板");
   });
 
-  await check("输入框按微信重做：没有占位文案、浅灰圆角块、无描边、图标 22px 纯线框", async () => {
+  await check("输入框按微信重做：没有占位文案、浅灰圆角块、图标 22px 纯线框（描边/投影按断点分档，见 viewport-check）", async () => {
     // 用户 0.1.75 原话：「输入框里面的文字删掉；输入框太粗；表情和加图标也太大」。
     // 三条都落到**量得出来**的东西上（不是"看着像"）：
     //   · 占位文案 = `placeholder` 属性（浏览器只在有它时才画那行灰字）；
@@ -1046,8 +1046,9 @@ async function main() {
           border: px(ic.borderTopWidth), radius: px(ic.borderTopLeftRadius),
           bg: ic.backgroundColor, padTop: px(ic.paddingTop), padLeft: px(ic.paddingLeft),
           h: Math.round(input.getBoundingClientRect().height), maxH: px(ic.maxHeight),
+          w: Math.round(input.getBoundingClientRect().width),
         },
-        bar: { border: px(cs(bar).borderTopWidth), shadow: cs(bar).boxShadow },
+        bar: { border: px(cs(bar).borderTopWidth), shadow: cs(bar).boxShadow, w: Math.round(bar.getBoundingClientRect().width) },
         icons: {
           plus: { border: px(cs(plus).borderTopWidth), hit: [Math.round(plus.getBoundingClientRect().width), Math.round(plus.getBoundingClientRect().height)], svg: svg(plus) },
           sticker: { border: px(cs(sticker).borderTopWidth), hit: [Math.round(sticker.getBoundingClientRect().width), Math.round(sticker.getBoundingClientRect().height)], svg: svg(sticker) },
@@ -1070,9 +1071,12 @@ async function main() {
       "输入框内边距没收小：" + JSON.stringify(look.input));
     assert(look.input.h >= 28 && look.input.h <= 46, "单行输入框高度不对：" + JSON.stringify(look.input));
     assert(look.input.maxH === 160, "输入框的自增长上限被改了（会顶掉整个界面）：" + JSON.stringify(look.input));
-    // ③ 输入条本身是一条，不是一张浮起来的描边卡片
-    assert(look.bar.border === 0, "输入条还有一圈描边：" + JSON.stringify(look.bar));
-    assert(look.bar.shadow === "none", "输入条还带投影：" + JSON.stringify(look.bar));
+    // ③ 输入条的**外观按断点分两档**（用户 0.1.76：「电脑版就（要）电脑版的样子，不要和手机一样」）：
+    //    手机 = 无描边无投影的薄一条；电脑版 = 一圈极淡描边 + 一点投影的桌面卡片。
+    //    ⚠ 这两条的归属是 `viewport-check`（它在 1440/1280/768/390/320 五个宽度上分别钉），
+    //      本套件跑在默认（桌面）视口，**只**断言"它确实是一条把输入框包住的容器"，
+    //      不再在这里把"无描边无投影"当成全局事实 —— 那正是上一轮把两档写成一样的根因。
+    assert(look.bar.w > 0 && look.bar.w >= look.input.w, "输入条没有把输入框包住：" + JSON.stringify(look.bar));
     // ④ 表情与「+」是纯图标：无描边圆环、SVG 22–24px
     //    ⚠ 尺寸判据用 SVG 上声明的 width：`#replyVoiceToggle` 在**没打开**的「+」面板里，
     //      量渲染尺寸永远是 0（量到 0 会让人以为"图标没了"，其实只是父节点 hidden）。

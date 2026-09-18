@@ -218,6 +218,84 @@ async function main() {
     await open(viewport);
     await sendOnce();
 
+    await check(`${viewport.label}：【量尺寸】输入条与「+」面板（临时诊断）`, async () => {
+      await evaluate("document.querySelector('#composerPlusButton').click(); true");
+      await waitFor("document.querySelector('#composerMenu').hidden === false", 8000);
+      const m = await evaluate(`(() => {
+        const r = (n) => { if (!n) return null; const b = n.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right), bottom: Math.round(b.bottom) }; };
+        const bar = document.querySelector('.composer-box');
+        const input = document.querySelector('#messageInput');
+        const plus = document.querySelector('#composerPlusButton');
+        const menu = document.querySelector('#composerMenu');
+        const cs = (n) => getComputedStyle(n);
+        return {
+          vw: window.innerWidth,
+          bar: r(bar), input: r(input), plus: r(plus), menu: r(menu),
+          barCss: { radius: parseFloat(cs(bar).borderTopLeftRadius), border: parseFloat(cs(bar).borderTopWidth), shadow: cs(bar).boxShadow, pad: cs(bar).padding },
+          inputCss: { radius: parseFloat(cs(input).borderTopLeftRadius), pad: cs(input).padding, minH: parseFloat(cs(input).minHeight) },
+          menuPos: cs(menu).position,
+          gapY: Math.round(bar.getBoundingClientRect().top - menu.getBoundingClientRect().bottom),
+          gapX: Math.round(menu.getBoundingClientRect().right - plus.getBoundingClientRect().right),
+        };
+      })()`);
+      console.log("        COMPOSER " + JSON.stringify(m));
+      await evaluate("document.querySelector('#composerPlusButton').click(); true");
+      await waitFor("document.querySelector('#composerMenu').hidden === true", 8000);
+    });
+
+    await check(`${viewport.label}：输入框要精致（手机）/ 有电脑版的样子（桌面），且「+」面板贴着按钮`, async () => {
+      // 用户 0.1.76 实测：「现在输入框像个大块头。要更精致一点，就学学微信 qq whatsapp 之类的样式和大小。
+      //   电脑版的不用这样，电脑版就（要）电脑版的样子，不要和手机一样。
+      //   而且现在的电脑版点 + 出来的弹窗离得有点远」。
+      const mobile = viewport.width <= 760;
+      await evaluate("document.querySelector('#composerPlusButton').click(); true");
+      await waitFor("document.querySelector('#composerMenu').hidden === false", 8000);
+      const m = await evaluate(`(() => {
+        const box = (sel) => { const n = document.querySelector(sel); const r = n.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
+        const bar = document.querySelector('.composer-box');
+        const input = document.querySelector('#messageInput');
+        const plus = document.querySelector('#composerPlusButton');
+        const menu = document.querySelector('#composerMenu');
+        const cs = (n) => getComputedStyle(n);
+        return {
+          bar: box('.composer-box'), input: box('#messageInput'), plus: box('#composerPlusButton'), menu: box('#composerMenu'),
+          barRadius: parseFloat(cs(bar).borderTopLeftRadius),
+          barBorder: parseFloat(cs(bar).borderTopWidth),
+          barShadow: cs(bar).boxShadow,
+          inputRadius: parseFloat(cs(input).borderTopLeftRadius),
+          inputMinH: parseFloat(cs(input).minHeight),
+          menuPosition: cs(menu).position,
+          gapY: Math.round(bar.getBoundingClientRect().top - menu.getBoundingClientRect().bottom),
+          gapX: Math.round(menu.getBoundingClientRect().right - plus.getBoundingClientRect().right),
+        };
+      })()`);
+      await evaluate("document.querySelector('#composerPlusButton').click(); true");
+      await waitFor("document.querySelector('#composerMenu').hidden === true", 8000);
+
+      // ① 「+」面板必须**贴着**那颗「+」：横向偏差别超过一个按钮的宽度，
+      //    桌面版纵向上要挨着输入条（不是飘在整条 shell 上面）。
+      assert(Math.abs(m.gapX) <= 26,
+        "「+」面板横向离按钮太远（" + m.gapX + "px）：" + JSON.stringify({ plus: m.plus, menu: m.menu }));
+      if (!mobile) {
+        assert(m.gapY >= 2 && m.gapY <= 16,
+          "桌面版「+」面板纵向离输入条太远（" + m.gapY + "px）：" + JSON.stringify({ bar: m.bar, menu: m.menu }));
+      }
+      // ② 输入框不能是"大块头"
+      assert(m.inputMinH <= (mobile ? 38 : 36),
+        "输入框还是太高（大块头）：minHeight=" + m.inputMinH + "px");
+      assert(m.inputRadius <= 8, "输入框圆角太大（不够精致）：" + m.inputRadius + "px");
+      // ③ 手机与电脑**不能长得一样**
+      if (mobile) {
+        assert(m.bar.h <= 53, "手机输入条还是太厚：" + m.bar.h + "px");
+        assert(m.barBorder === 0, "手机上不该有描边：" + m.barBorder);
+      } else {
+        assert(m.barBorder >= 1, "电脑版要有电脑版的样子（该有一圈极淡描边）：" + m.barBorder);
+        assert(m.barRadius >= 12, "电脑版圆角与手机不该是同一档：" + m.barRadius);
+        // ⚠ 这里**不**断言投影：`html[data-style="paper"] .composer-box { box-shadow: none }`
+        //   是那个皮肤有意为之的（纸面要平），断投影会变成"看运气"的用例。
+      }
+    });
+
     await check(`${viewport.label}：输入条是微信式的那一行，控件都点得到`, async () => {
       // 2026-09-18 用户指定的形态：[语音(麦克风)] [输入框] [表情] [+]，右边那颗按需变成发送。
       // 这条量的是**几何**：四个控件都在输入条那一行里、彼此不重叠、中心点命中测试都落在自己身上

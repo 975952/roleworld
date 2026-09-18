@@ -96,22 +96,15 @@
   background: color-mix(in srgb, var(--main-text) 8%, var(--navigation));
 }
 #chatModelPrice { white-space: normal; text-align: right; font-size: 10px; line-height: 1.4; color: var(--muted-text); }
-/* 输入条：2026-09-18 按微信重做（用户 0.1.75：「输入框太粗」）。
-   这一份表在 styles.css / tokens.css **之后**加载，所以之前那套"玻璃卡片"（24px 圆角 +
-   一圈描边 + 48px 投影 + 聚焦时 2px 光环）就是用户嫌粗的那一层 —— 必须在这里改，
-   只改 styles.css 是改不动的（这一条踩过：用例量到 shadow 还在）。
-   微信里它是一条：无描边、无投影、无模糊，底色只比页面亮一档；
-   里面那个输入框才是"浅灰圆角块"（见 styles.css 的 `.composer-box textarea`）。 */
-.composer-box {
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--raised);
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.composer-box:focus-within { box-shadow: none; border-color: transparent; transform: none; }
+/* 「+」面板的定位基准：`.composer-box` 在 styles.css 里是 `position: relative`，
+   面板与表情面板、角色选择器都**贴着输入卡片**弹（挂整条全宽 `.composer-shell` 的话
+   横向能偏出 200 多像素、纵向还往上飘 25px —— 用户 0.1.76：「点+出来的弹窗离得有点远」，
+   实测 1440 宽下横向偏 211px、1280 下偏 131px）。 */
+
+/* ⚠ 输入条的样式**只在 styles.css 一处定义**（基础=手机、`min-width:761px`=电脑版）。
+   这一份表在 styles.css 之后加载，2026-09-18 那一轮就是在这里又写了一遍，
+   结果"手机电脑一个样"、还把手机版撑成了大块头（用户 0.1.76 反馈）。
+   所以这里**不再**给 `.composer-box` 写任何尺寸/圆角/底色/投影。 */
 .character-picker-trigger { border-color: transparent; background: color-mix(in srgb, var(--main-text) 6%, transparent); }
 .new-conversation-button { min-height: 46px; border-radius: 16px; background: color-mix(in srgb, var(--main-text) 12%, var(--navigation)); }
 .settings-surface .settings-topbar { border: 0; background: transparent; padding: 12px 24px; }
@@ -133,7 +126,6 @@
   .topbar { flex-wrap: nowrap; }
   .topbar-title { flex: 1 1 auto; min-width: 0; }
   .topbar-actions { flex: 0 0 auto; flex-wrap: nowrap; }
-  .composer-box { padding: 6px 8px; }
 }
 @media (min-width: 761px) {
   .app-shell.settings-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
@@ -155,7 +147,6 @@
 }
 @media (max-width: 760px) {
   .memory-modal, .confirm-dialog { border-radius: 20px; }
-  .composer-box { border-radius: 12px; }
 }
 
 /* Character-first sidebar: one quiet hierarchy, no nested cards. */
