@@ -1633,16 +1633,47 @@
               retry: part.retry || 0,
             }, partIndex));
           } else {
-            const body = document.createElement("div");
-            body.className = "message-bubble assistant-bubble";
-            const paragraph = document.createElement("p");
-            // 微信这一档：文字气泡也走**同一份清理**（去引号、去括号描写、去没加括号的旁白句）——
-            // 跟语音念的、跟"纯对白"排版是同一份文本（用户实测反馈：文字里还带着 “”）。
-            paragraph.textContent = plainNow
-              ? plainChatText(part.text)
-              : part.text;
-            body.appendChild(paragraph);
-            piece.appendChild(body);
+            const Core2 = window.TASK22_CORE;
+            const Voice2 = window.RoleWorldVoice;
+            /*
+             * ⚠ **这一段以前什么都没清理**（用户 2026-09-18 实测：正文里挂着
+             *   `[[表情: 疑惑]]` 这行字，还有 `[09-18 22:42]` 这样的时间前缀）。
+             * 毛病在于：清理只做在"整条消息"那条路（下面 `renderAssistantBody` 之前），
+             * 而**分条**这条路是另写的 —— 两条路各做一半，用户看到的就是"修了没生效"。
+             * 这里与那条路保持同一套处理：
+             *   ① 摘掉模型模仿出来的时间前缀（永远不该显示）；
+             *   ② 把 `[[表情: …]]` 标记从正文里去掉，并**画成图**（不是删掉了事）。
+             */
+            let partText = String(part.text || "");
+            if (Voice2 && typeof Voice2.stripLeadingTimePrefix === "function") {
+              partText = Voice2.stripLeadingTimePrefix(partText);
+            }
+            let partStickers = Array.isArray(part.stickers) ? part.stickers : [];
+            if (!partStickers.length && Core2 && typeof Core2.stripStickerMarkers === "function") {
+              // ⚠ **顺序不能反**：先 extract 再 strip。
+              //   先 strip 的话标记已经被删掉，extract 什么都找不到 —— 表情就"只被删掉、
+              //   没被画出来"（我第一版就是这么写的，用例当场抓到 imgs: []）。
+              if (window.RoleWorldStickers && window.RoleWorldStickers.extractStickers && window.RoleWorldStickersPack) {
+                const stamps2 = (window.RoleWorldStickersPack.cachedStamps && window.RoleWorldStickersPack.cachedStamps()) || [];
+                if (stamps2.length) partStickers = window.RoleWorldStickers.extractStickers(partText, stamps2).stickers || [];
+              }
+              partText = Core2.stripStickerMarkers(partText);
+            }
+            const shownPartText = plainNow ? plainChatText(partText) : partText;
+            // 只发了一个表情的那一条：正文空了就**不画空气泡**，只留下面那张图。
+            if (String(shownPartText || "").trim()) {
+              const body = document.createElement("div");
+              body.className = "message-bubble assistant-bubble";
+              const paragraph = document.createElement("p");
+              // 微信这一档：文字气泡也走**同一份清理**（去引号、去括号描写、去没加括号的旁白句）——
+              // 跟语音念的、跟"纯对白"排版是同一份文本（用户实测反馈：文字里还带着 “”）。
+              paragraph.textContent = shownPartText;
+              body.appendChild(paragraph);
+              piece.appendChild(body);
+            }
+            if (partStickers.length) {
+              piece.insertAdjacentHTML("beforeend", renderStickerHtml(partStickers));
+            }
             // 「本来要发语音，但这条没做成」：原因写在消息上 —— 悄悄变回文字是这个项目最忌讳的。
             if (part.note) {
               const why = document.createElement("p");
@@ -4274,13 +4305,26 @@
     return parts
       .map((part) => {
         const wantVoice = eligible && !suppressVoice && (part.kind === "voice" || forced || onceForced);
+        /*
+         * ⚠ **只有动作/旁白、没有对白**的那一条，直接用文字显示（用户 2026-09-18：
+         *   「描述动作的还是直接用文字显示」）—— 它本来就不该做成语音条。
+         * 判据：**把括号里的动作去掉之后还有没有能念的字**。
+         * ⚠ 不能拿 `voiceMessageText(...) === ""` 当判据：那函数在"整段一个引号都没有"时
+         *   会把整段当成一句正常的话返回（那是对纯对白回复的兜底），于是纯动作描写
+         *   也会被算成"有对白"（用例当场抓到过 `voiceBubbles: 1`）。
+         */
+        const withoutDirections = String(part.text || "").replace(/[（(][^）)]*[）)]/g, " ").trim();
+        const hasDialogue = wantVoice
+          && typeof Voice.hasSpeakableContent === "function"
+          && Voice.hasSpeakableContent(withoutDirections);
+        const kind = hasDialogue ? "voice" : "text";
         return {
-          kind: wantVoice ? "voice" : "text",
+          kind: kind,
           text: String(part.text || ""),
           // 一确定是语音就**立刻**写死状态：`queued`。
           // 这一步是"交付类型一旦确定就稳定"的落点 —— 界面之后只会把它推到
           // synthesizing → ready / failed，**绝不会再退回 text 重新画一遍**。
-          ...(wantVoice ? { status: "queued" } : {}),
+          ...(kind === "voice" ? { status: "queued" } : {}),
         };
       })
       .filter((part) => part.text);
@@ -4747,7 +4791,16 @@
     if (Voice && typeof Voice.stripNarration === "function" && !/[“”"「」『』]/.test(raw)) {
       try {
         const cleaned = Voice.stripNarration(String(Voice.stripStageDirections(raw)));
-        if (cleaned) return cleaned;
+        /*
+         * ⚠ 清理之后**必须还剩能念/能看的字**才算数。
+         * 整条都是动作描写时（`（他把水瓶盖拧开，喝了一口。）`）清理结果是 `）` 这种残渣 ——
+         * 屏幕上就只剩一个括号（用例当场抓到：`visible: "）"`）。
+         * 用户 2026-09-18：「描述动作的还是直接用文字显示」→ 这种情况把**原文**交回去。
+         */
+        const usable = cleaned
+          && (typeof Voice.hasSpeakableContent !== "function" || Voice.hasSpeakableContent(cleaned));
+        if (usable) return cleaned;
+        if (raw.trim()) return raw.trim();
       } catch (_) { /* 落到下面 */ }
     }
     const segments = dialogueSegmentsOf(raw);

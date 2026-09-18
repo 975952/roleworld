@@ -1303,11 +1303,13 @@ function renderAssistantBody(text, stickers, options) {
   // （流式的时候保存还没发生，所以这里不能只靠消息上的 extra）。
   let shown = Array.isArray(stickers) ? stickers : [];
   if (!shown.length && window.TASK22_CORE && typeof window.TASK22_CORE.stripStickerMarkers === "function") {
-    safeText = window.TASK22_CORE.stripStickerMarkers(safeText);
+    // ⚠ **先 extract 再 strip**：反过来的话标记先被删掉，extract 什么都找不到 ——
+    //   渲染期这条兜底等于从来没生效过（分条那条路同样的问题，见 integration.js）。
     if (window.RoleWorldStickers && window.RoleWorldStickers.extractStickers && window.RoleWorldStickersPack) {
       const stamps = (window.RoleWorldStickersPack.cachedStamps && window.RoleWorldStickersPack.cachedStamps()) || [];
       if (stamps.length) shown = window.RoleWorldStickers.extractStickers(safeText, stamps).stickers || [];
     }
+    safeText = window.TASK22_CORE.stripStickerMarkers(safeText);
   }
   const singleBubble = safeText.trim()
     ? `<div class="message-bubble assistant-bubble"><p>${escapeHtml(safeText)}</p></div>`

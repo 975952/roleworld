@@ -7779,6 +7779,132 @@ async function main() {
     }
   });
 
+  await check("分条渲染：正文里不许露出 [[表情: …]] 标记与时间前缀，表情必须画成图", async () => {
+    // 用户 2026-09-18 实测（角色 小陈）：
+    //   还在那儿站着呢？
+    //   [[表情: 疑惑]]        ← 这一行原样当文字显示出来了
+    //   而且同一条回复里还带着 [09-18 22:42] 这样的时间前缀。
+    // 根因：清理只做在"整条消息"那条渲染路（renderAssistantBody 之前那段），
+    //   **分条那条路（一条回复被空行分成多条时）什么都没做** —— 两条路各做一半。
+    try {
+      await ensureChatPage();
+      const avatar = await ensureCustomCharacter();
+      await enableCompanionPlain(avatar);
+      await installFakeAudio();
+      await openAppWithVoice();
+      await openChatFor(avatar, CUSTOM_NAME, CUSTOM_CHAT);
+      // ⚠ 先把待用回复队列清空：整套跑时队列里还留着前面用例塞的台词（先塞的先消费），
+      //   不定这条会拿到别人的台词（既有那条表情用例就是为此改成"直接存盘"的）。
+      await fetch(base + "/__reply-clear", { method: "POST" });
+      // 表情表要先加载好：分条这条路用的是 cachedStamps()，没加载过就是空的。
+      await evaluate("(async () => { try { await window.RoleWorldStickersPack.availableStamps(); } catch (_) {} return true; })()");
+      await fetch(base + "/__reply", {
+        method: "POST",
+        body: JSON.stringify({ content: "[09-18 22:42] 还在那儿站着呢？\n\n[[表情: 开心]]" }),
+      });
+      await sendOneTurn("在吗");
+      await waitFor("document.querySelectorAll('#dynamicMessages .message-row-assistant').length >= 1", 20000);
+      await sleep(600);
+
+      const seen = await evaluate(`(() => {
+        const box = document.querySelector('#dynamicMessages') || document.body;
+        const visible = (needle) => {
+          let hit = false;
+          const walk = (node) => {
+            if (hit || !node) return;
+            if (node.nodeType === 3) {
+              if (String(node.nodeValue || '').indexOf(needle) >= 0) {
+                const el = node.parentElement;
+                if (el && el.hidden !== true) {
+                  const st = getComputedStyle(el);
+                  const r = el.getBoundingClientRect();
+                  if (st.display !== 'none' && st.visibility !== 'hidden' && r.width > 0 && r.height > 0) hit = true;
+                }
+              }
+              return;
+            }
+            if (node.nodeType !== 1) return;
+            Array.from(node.childNodes).forEach(walk);
+          };
+          walk(box);
+          return hit;
+        };
+        return {
+          text: String(box.textContent || '').slice(0, 300),
+          imgs: Array.from(box.querySelectorAll('img[src*="stickers/"]')).map((n) => n.getAttribute('src')),
+          markerVisible: visible('[[表情'),
+          prefixVisible: visible('09-18'),
+        };
+      })()`);
+      assert(seen.imgs.length >= 1, "表情没有画成图：" + JSON.stringify(seen));
+      assert(seen.markerVisible === false, "正文里还露着 [[表情…]] 标记：" + JSON.stringify(seen));
+      assert(seen.prefixVisible === false, "正文里还露着时间前缀：" + JSON.stringify(seen));
+      assert(seen.text.indexOf("还在那儿站着呢") >= 0, "正文本身丢了：" + JSON.stringify(seen));
+    } finally {
+      await closeAppWithVoice();
+      await restoreDefaultContext().catch(() => {});
+    }
+  });
+
+  await check("语音：只有动作描写的那条直接用文字显示（不做成语音条、不花上游的钱）", async () => {
+    // 用户 2026-09-18：「描述动作的还是直接用文字显示」。
+    // 以前：先做成语音条 → 合成时才发现没可念的 → 退回文字 + 一句「这条超过 N 字
+    // （或者只有动作描写、没有对白）…」——用户看到的是一行带括号的动作加一句多余的话。
+    let prevMode = "auto";
+    try {
+      await ensureChatPage();
+      const avatar = await ensureCustomCharacter();
+      await enableCompanionPlain(avatar);
+      await installFakeAudio();
+      const ready = await openAppWithVoice();
+      assert(ready.canSpeak, "前置不成立：这台设备现在不能朗读 —— " + ready.reason);
+      releaseVoice();
+      failVoice(false);
+      setVoiceDelay(0);
+      prevMode = await evaluate("(async () => String((await RoleWorld.getLocalSettings()).voice_reply_mode || 'auto'))()");
+      // 这一轮**点名要语音** —— 只有"本该发语音"的前提下才验得出"动作那条被降级成文字"。
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ voice_reply_mode: "voice" });
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+        return true;
+      })()`);
+      await openChatFor(avatar, CUSTOM_NAME, CUSTOM_CHAT);
+      await fetch(base + "/__reply-clear", { method: "POST" });
+      const before = voiceRequests.length;
+      await fetch(base + "/__reply", { method: "POST", body: JSON.stringify({ content: "（他把水瓶盖拧开，喝了一口。）" }) });
+      await sendOneTurn("来一条");
+      await waitFor("document.querySelectorAll('#dynamicMessages .message-row-assistant').length >= 1", 20000);
+      await sleep(600);
+
+      const seen = await evaluate(`(() => {
+        const rows = Array.from(document.querySelectorAll('#dynamicMessages .message-row-assistant'));
+        const last = rows[rows.length - 1];
+        return {
+          // ⚠ 只数**最后那一条**消息里的语音气泡：整套跑时屏幕上还留着前面用例的语音条，
+          //   数全局会把它们一起算进来（单跑绿、整套红就是这么来的）。
+          voiceBubbles: last ? last.querySelectorAll('.voice-bubble').length : -1,
+          visible: last ? window.__rwReadAssistantText(last) : '',
+          text: String((document.querySelector('#dynamicMessages') || {}).textContent || ''),
+        };
+      })()`);
+      assert(seen.voiceBubbles === 0, "纯动作描写还是被做成了语音条：" + JSON.stringify(seen.voiceBubbles));
+      assert(seen.visible.indexOf("水瓶盖") >= 0,
+        "动作描写没作为文字显示（清理之后只剩残渣？）：" + JSON.stringify(seen.visible));
+      assert(seen.text.indexOf("没有对白") < 0 && seen.text.indexOf("没做成语音") < 0,
+        "不该再附那句说明（它本来就是文字）：" + JSON.stringify(seen.text.slice(0, 200)));
+      assert(voiceRequests.length === before,
+        "纯动作描写仍然打了上游（那是付费调用）：" + JSON.stringify(voiceRequests.slice(before)));
+    } finally {
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ voice_reply_mode: ${JSON.stringify(prevMode)} });
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+        return true;
+      })()`).catch(() => {});
+      await closeAppWithVoice();
+      await restoreDefaultContext().catch(() => {});
+    }
+  });
+
   await check("语音合成失败：显示失败态与重试（次数有上限），用户可主动改为文字且正文一个字都不丢", async () => {
           // 自带前置：同上；另外把假服务的合成口设成**失败**。
           await ensureChatPage();
