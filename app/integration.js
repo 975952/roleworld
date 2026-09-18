@@ -5978,15 +5978,26 @@
       }));
       // 设置改了要**重新读一遍**：liveState.settings 是启动时的那份快照，不重读就还是旧的
       // （这正是"改了没用"那一类 bug 的来源）。
+      // ⚠ `settings-changed` 事件会**异步**触发一次重读；而这里必须等它跑完再落定，
+      //   否则会出现"界面说切过去了、连接还是旧的"（实测：那条竞态让用例三次红一次）。
+      //   所以先把这个可等待的出口 await 掉，再**把三份状态一起钉死**（settings / localSettings / modelMode）——
+      //   光钉 settings 是不够的：`localSettings` 里还留着旧 endpoint 的话，
+      //   `effectiveChatEndpoint()` 会从那儿把它读回来。
       try {
-        if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
-          liveState.localSettings = await window.RoleWorld.getLocalSettings();
+        if (window.TASK21 && typeof window.TASK21.reloadSettings === "function") {
+          await window.TASK21.reloadSettings();
         }
+        const nextEndpoint = relay + "/v1/chat/completions";
+        liveState.localSettings = Object.assign({}, liveState.localSettings || {}, {
+          provider: "custom",
+          endpoint: nextEndpoint,
+          card_relay: relay,
+        });
         liveState.settings = Object.assign({}, liveState.settings || {}, {
           provider: "custom",
-          endpoint: relay + "/v1/chat/completions",
+          endpoint: nextEndpoint,
           oai_settings: Object.assign({}, (liveState.settings || {}).oai_settings || {}, {
-            custom_url: relay + "/v1/chat/completions",
+            custom_url: nextEndpoint,
           }),
         });
         liveState.modelMode = window.TASK22_CORE.CHAT_MODES.LOCAL;
@@ -6014,13 +6025,21 @@
   function effectiveChatEndpoint(override) {
     const settings = (override && override.settings) || (liveState.settings || {});
     const oai = settings.oai_settings || {};
-    const explicit = String(oai.custom_url || "").trim();
-    if (explicit) return explicit;
-    const local = String(settings.endpoint || "").trim();
-    if (local) return local;
+    const customUrl = String(oai.custom_url || "").trim();
+    const own = String(settings.endpoint || "").trim();
+    // ⚠ **只要"自己填的地址"有值就认它**，不看 `custom_url`：后者是
+    //   `STApi.getSettings()` 按 `settings.endpoint || endpointFor(...)` 现算的 ——
+    //   也就是说 endpoint 为空时它是"服务商默认地址"，**不是**"用户配过地址"的证据。
+    //   反过来，用户刚切过连接（例如点了「改用这张体验卡」）时 `settings.endpoint` 已经是新的、
+    //   而 `custom_url` 还留着上一份快照的旧值 —— 先看 `custom_url` 就会
+    //   "界面说切过去了、连接还是旧的"（实测：那条竞态让用例三次红一次）。
+    //   这跟适配层 `payload.custom_url || local.endpoint` 的**结果**一致
+    //   （发送前那次刷新会把两边对齐），也不会把服务商默认地址误当成用户配置。
+    if (own) return own;
+    if (customUrl) return customUrl;
     // 两份都没有时，适配层会回落到服务商预设地址（`endpointFor`）。但**本机存档里**可能还写着
     // 一个地址（启动快照没跟上）—— 那种情况实际会打到存档那个地址，不能按预设判。
-    // ⚠ 正是这一条把前一版从"误伤"里救回来：测试固定装置与本机存档是两份不同的设置。
+    // ⚠ 正是这一条把前一版守卫从"误伤"里救回来：测试固定装置与本机存档是两份不同的设置。
     if (!(override && override.settings)) {
       const stored = String((liveState.localSettings && liveState.localSettings.endpoint) || "").trim();
       if (stored) return stored;
@@ -9031,27 +9050,32 @@
     // `chatConnection()` 都按 `liveState.settings` 判——不刷新的话，"改了设置马上发"这条真实
     // 路径在测试里永远看不到新值（前一版 401 守卫就是死在这里、被回滚的）。
     reloadSettings: () => {
-      if (liveState.settingsReload) return liveState.settingsReload;
-      liveState.settingsReload = loadChatModelSettings()
-        .then(async () => {
-          try {
-            // ⚠ 只把 `getSettings()` 的结果盖上去是不够的：那个对象里的 `oai_settings` 是
-            //   `STApi.getSettings()` 从本机设置现算的，而 `liveState.settings` 里还可能有
-            //   **启动时由页面固定装置/引导塞进来的** 东西。整份替换会让"这台设备其实配着地址"
-            //   看起来像"什么都没配" —— 守卫据此就会把正常发送判成注定 401。
-            //   所以这里**合并**：本机设置是底，新读到的快照盖上去。
-            const fresh = parseSettings(await window.STApi.getSettings());
-            const local = liveState.localSettings || {};
-            liveState.settings = Object.assign({}, local, fresh, {
-              oai_settings: Object.assign({}, fresh.oai_settings || {}, local.oai_settings || {}),
-              endpoint: String(fresh.endpoint || local.endpoint || ""),
-            });
-          } catch (_) { /* 读不到就保持原样，界面照常 */ }
-          syncChatModelControls();
-          updateComposerLive();
-        })
-        .finally(() => { liveState.settingsReload = null; });
-      return liveState.settingsReload;
+      // ⚠ 已经有一次在跑时，**要接在它后面再读一次**，不能直接把那个 Promise 给回去：
+      //   调用方（例如「改用这张体验卡」）刚刚才 `saveLocalSettings` 写完盘，
+      //   而在飞的那一次是**写盘之前**发起的 —— 把它的结果当答案，地址会瞬间看起来还是旧的。
+      //   实测：这条竞态让「卡配在另一格」那条用例三次里红一次（界面显示切过去了、连接还是旧的）。
+      const run = (liveState.settingsReload || Promise.resolve()).then(async () => {
+        await loadChatModelSettings();
+        try {
+          // ⚠ 只把 `getSettings()` 的结果盖上去是不够的：那个对象里的 `oai_settings` 是
+          //   `STApi.getSettings()` 从本机设置现算的，而 `liveState.settings` 里还可能有
+          //   **启动时由页面固定装置/引导塞进来的** 东西。整份替换会让"这台设备其实配着地址"
+          //   看起来像"什么都没配" —— 守卫据此就会把正常发送判成注定 401。
+          //   所以这里**合并**：本机设置是底，新读到的快照盖上去。
+          const fresh = parseSettings(await window.STApi.getSettings());
+          const local = liveState.localSettings || {};
+          liveState.settings = Object.assign({}, local, fresh, {
+            oai_settings: Object.assign({}, fresh.oai_settings || {}, local.oai_settings || {}),
+            endpoint: String(fresh.endpoint || local.endpoint || ""),
+          });
+        } catch (_) { /* 读不到就保持原样，界面照常 */ }
+        syncChatModelControls();
+        updateComposerLive();
+      });
+      liveState.settingsReload = run;
+      return run.finally(() => {
+        if (liveState.settingsReload === run) liveState.settingsReload = null;
+      });
     },
     // 诊所用：直接画出那张「注定 401，所以没发出去」的卡（用例要量卡片本身与它的按钮）。
     // 判据仍然只有 `chatPreflight()` 一处 —— 这里只是把它的结论渲染出来，不另判一次。

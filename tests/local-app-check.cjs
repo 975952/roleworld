@@ -1671,6 +1671,10 @@ async function main() {
       return true;
     })()`);
     await waitFor("(async () => (await RoleWorld.getLocalSettings()).provider === 'custom')()", 8000);
+    // ⚠ 点击是异步的：`waitFor` 只证明**盘上**写成了 custom，`switchToStoredCard` 后半段
+    //   （重读 + 落定内存里那几份）可能还没跑完 —— 直接量会读到中间态。
+    //   所以这里等的是"内存里的连接确实变成了卡的中转"这个**结果**（超时就说明真坏了）。
+    await waitFor(`window.TASK21.chatConnection().effective === ${JSON.stringify(base + "/relay/v1/chat/completions")}`, 8000);
     const connection = await evaluate("window.TASK21.chatConnection()");
     assert(connection.effective === base + "/relay/v1/chat/completions",
       "「改用这张体验卡」没有把地址切到卡的中转：" + JSON.stringify(connection));
