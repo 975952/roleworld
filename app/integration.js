@@ -996,7 +996,10 @@
     const text = Voice.speakableText(String(message.mes), {
       skipNarration: liveState.voiceSkipNarration === true,
     });
-    if (!text) {
+    // ⚠ 判"还剩不剩下能念的东西"，不能只判空串：`……`／`😀`／`——` 清洗之后**非空**，
+    //   送去上游会拿回"合成结束了但零字节音频"（用户 0.1.77 实测）。
+    //   这里就挡住，用户看到的是"没有可朗读的内容"，而不是一句查不下去的上游话。
+    if (!text || (typeof Voice.hasSpeakableContent === "function" && !Voice.hasSpeakableContent(text))) {
       showToast("这条消息没有可朗读的内容");
       return;
     }

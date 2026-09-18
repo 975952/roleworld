@@ -130,6 +130,15 @@ function startVoiceUpstream() {
       }
       const line = (audio) => JSON.stringify({ code: 0, message: "", data: Buffer.from(audio).toString("base64"), done: false }) + "\n";
       const done = JSON.stringify({ code: 20000000, message: "ok", data: null, usage: { text_words: text.length } }) + "\n";
+      // 真实上游对"没有可念内容"的输入就是这个行为：回一个「合成结束」、**零字节音频**。
+      // 用户 0.1.77 实测原话：「上游说合成结束了，但一个字节的音频都没给。」
+      // 这条假上游按同一行为建模 —— 于是"这类输入压根不该被送上来"变成了可断言的。
+      if (!/[\p{L}\p{N}]/u.test(text)) {
+        res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-empty" });
+        res.write(done);
+        res.end();
+        return;
+      }
       if (text.indexOf("SLOW") >= 0) {
         state.held = true;
         state.slowStarted += 1;
@@ -646,6 +655,30 @@ async function main() {
     const res = await speak(voiceCard.token, { text: "   " });
     assert.equal(res.status, 400);
     assert.equal((await res.json()).error.code, "VOICE_EMPTY_TEXT");
+  });
+
+  await check("语音：只有标点 / 表情的文本也必须在门口挡住（用户 0.1.77 报的「一个字节的音频都没给」）", async () => {
+    // 用户实测原话（角色 Alaric Vane 的一条语音消息）：
+    //   「这条语音没做出来 / 上游说合成结束了，但一个字节的音频都没给。」
+    // 根因：`speakableText()` 只清标记/符号/括号动作，**不判"还剩不剩下能念的字"**；
+    //   而中转只挡"整串为空"（trim 之后为空）。于是「……」「😀」「——」这类回复
+    //   会原样送去上游 —— 上游没有可念的东西，回一个「合成结束」但零字节音频。
+    // 期望：这种文本**根本不该打到上游**（那是付费调用），也不该让用户看到一句查不下去的话。
+    for (const text of ["……", "——", "😀😀", "。。。", "!?!"]) {
+      const before = voiceUpstream.seen.length;
+      const res = await speak(voiceCard.token, { text });
+      const body = await res.json().catch(() => ({}));
+      assert.equal(res.status, 400,
+        JSON.stringify(text) + " 不该被送去合成，实际 HTTP " + res.status + "：" + JSON.stringify(body));
+      assert.equal(body.error && body.error.code, "VOICE_EMPTY_TEXT",
+        JSON.stringify(text) + " 该按「没有可合成的内容」处理：" + JSON.stringify(body));
+      assert.equal(voiceUpstream.seen.length, before,
+        JSON.stringify(text) + " 不该打火山上游（那是付费调用）");
+    }
+    // 反面对照：**带一个字**的就必须照常合成（别把正常内容一起挡了）
+    const okRes = await speak(voiceCard.token, { text: "……好。" });
+    assert.equal(okRes.status, 200, "带文字的不能一起挡掉：" + await okRes.clone().text());
+    await okRes.arrayBuffer();
   });
 
   await check("语音：上游报错码原样带出来（不吞成「失败了」），并且**不扣**用量", async () => {

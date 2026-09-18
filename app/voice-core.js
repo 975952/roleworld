@@ -28,6 +28,23 @@
   const MARKER_RE = /[\[【]{1,2}\s*(?:表情包?|贴纸|sticker|记住|事件|搜索|memory|event)\s*[:：][^\]】]*[\]】]{1,2}/gi;
 
   /**
+   * 这段文本里有没有"真的能念出来的东西"（字母或数字）。
+   *
+   * ⚠ 为什么必须有它（2026-09-18 用户实测，角色 Alaric Vane 的一条语音消息）：
+   *   用户看到「这条语音没做出来 / 上游说合成结束了，但一个字节的音频都没给。」
+   *   那一串是**只清标记与符号、不判"还剩不剩下能念的字"**造成的：
+   *   `……`／`——`／`😀`／`。。。` 这类回复清洗之后仍然**非空**，于是被送去上游；
+   *   上游没有可念的东西，回一个「合成结束」但零字节音频 —— 用户拿到一句
+   *   查不下去的话，还白花一次付费调用。
+   *   判据用 Unicode 的"字母或数字"：中文/英文/日文/韩文/俄文……都算，
+   *   标点、空白、emoji、装饰符号都不算。**中转那一侧有同一条规则**
+   *   （`relay/server.js` 的 hasSpeakableContent）—— 那是信任边界，必须自己判一次。
+   */
+  function hasSpeakableContent(text) {
+    return /[\p{L}\p{N}]/u.test(String(text === undefined || text === null ? "" : text));
+  }
+
+  /**
    * 清理成"能念的文本"。
    *
    * ⚠ **这里不再截断**。上一版留了一句 `slice(0, 1200)` —— 那是"念不完就算了"的
@@ -817,6 +834,7 @@
   const Voice = {
     /* 文本 */
     speakableText,
+    hasSpeakableContent,
     splitForSpeech,
     dialogueSegments,
     stripStageDirections,

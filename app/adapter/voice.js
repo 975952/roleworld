@@ -472,6 +472,12 @@
     if (!cache && cacheLib) cache = cacheLib.createVoiceCache({});
     const chunks = lib.splitForSpeech(text, { maxChars: opts.maxChars || snapshot.maxChars || DEFAULT_MAX_CHARS });
     if (!chunks.length) return { ok: false, reason: "没有可合成的内容。" };
+    // 同一条口径（`app/voice-core.js` 的 hasSpeakableContent）：只有标点/表情的文本
+    // 不该被送去合成 —— 上游会回"合成结束"但零字节音频，用户拿到一句查不下去的话
+    // （2026-09-18 实测：角色 Alaric Vane 的一条「……」）。
+    if (typeof lib.hasSpeakableContent === "function" && !lib.hasSpeakableContent(text)) {
+      return { ok: false, code: "VOICE_EMPTY_TEXT", reason: "这段没有能念出来的内容（只有标点或表情）。" };
+    }
     const speaker = opts.speaker || snapshot.defaultSpeaker || "";
     const speechRate = lib.clampSpeechRate(opts.speechRate);
     const clips = [];

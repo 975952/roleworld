@@ -306,6 +306,30 @@ function jsonResponse(status, payload) {
     } finally { restore(); }
   });
 
+  await test("只有标点 / 表情的文本不算「能念的内容」（用户 0.1.77 报的零字节音频）", () => {
+    // 用户实测原话（角色 Alaric Vane 的一条语音消息）：
+    //   「这条语音没做出来 / 上游说合成结束了，但一个字节的音频都没给。」
+    // 那一串的来源：清洗之后**仍然非空**的 `……` / `😀` / `——` 被送去上游，
+    // 上游没有可念的东西 → 回「合成结束」+ 零字节音频。
+    // 所以"能不能念"必须单独判一次，不能只判空串。
+    const { core, restore } = loadVoice({});
+    try {
+      for (const text of ["……", "——", "😀", "😀😀", "。。。", "   ", "!?!", "···"]) {
+        assert.equal(core.hasSpeakableContent(text), false, JSON.stringify(text) + " 不该算能念的内容");
+      }
+      for (const text of ["好", "hi", "……好。", "3", "2024", "Ок", "はい", "안녕"]) {
+        assert.equal(core.hasSpeakableContent(text), true, JSON.stringify(text) + " 应当算能念的内容");
+      }
+      // 真实场景：整段都是括号里的动作 —— 清洗完只剩标点，一样要挡住。
+      const cleaned = core.speakableText("（他把书合上。）");
+      assert.equal(core.hasSpeakableContent(cleaned), false,
+        "清洗之后没有能念的字就该挡住：" + JSON.stringify(cleaned));
+      // 反面对照：正常回复清洗完必须还能念（别把正常内容一起挡了）。
+      assert.equal(core.hasSpeakableContent(core.speakableText("「明天见。」他挥了挥手。")), true,
+        "正常回复被误挡了");
+    } finally { restore(); }
+  });
+
   await test("markdown 符号与括号里的动作都不念", () => {
     const { core, restore } = loadVoice({});
     try {

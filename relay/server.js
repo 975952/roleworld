@@ -587,10 +587,23 @@ function createRelay(options) {
     const speakerDefault = speakerTable().defaultSpeaker;
     const wanted = String(body.speaker || "").trim() || speakerDefault;
     const speaker = voiceLib.findSpeaker(wanted, envSource);
-    if (!text) {
+    /*
+     * 「没有可合成的内容」有**两种**，两种都必须在门口挡住：
+     *   ① 整串是空的（trim 之后没有东西）；
+     *   ② 非空、但里面**没有一个能念的字**（只有标点 / 空白 / emoji / 装饰符号）。
+     * ② 是 2026-09-18 用户实测出来的（角色 Alaric Vane）：「这条语音没做出来 /
+     *   上游说合成结束了，但一个字节的音频都没给。」——`……` 这种回复非空，于是被送去上游，
+     *   上游回一个「合成结束」但零字节音频；用户拿到一句查不下去的话，还白花一次付费调用。
+     * 判据与客户端 `app/voice-core.js` 的 hasSpeakableContent **同一条**（这里是信任边界，
+     * 不能只信客户端，所以自己再判一次）。
+     */
+    const speakable = /[\p{L}\p{N}]/u.test(text);
+    if (!text || !speakable) {
       const verdict = checkVoiceCard(card, 0);
       logSink({ at: new Date().toISOString(), event: "voice-reject", code: "VOICE_EMPTY_TEXT", cardId: card ? card.id : null, chars: 0 });
-      return voiceError(res, 400, "VOICE_EMPTY_TEXT", "没有要合成的内容。", card ? cardHeaders(card, verdict) : {});
+      return voiceError(res, 400, "VOICE_EMPTY_TEXT",
+        speakable ? "没有要合成的内容。" : "这段没有能念出来的内容（只有标点或表情）。",
+        card ? cardHeaders(card, verdict) : {});
     }
     if (chars > voiceMaxChars) {
       const verdict = checkVoiceCard(card, 0);
