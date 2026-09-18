@@ -139,6 +139,23 @@ function startVoiceUpstream() {
         res.end();
         return;
       }
+      // 诊断用例：音频放在**别的字段名**下（不是 `data`）。
+      // 这种"上游其实给了音频、只是字段名不同"的情况，在我们的报错里原本与
+      // "上游真的没产出音频"**长得一模一样** —— 所以中转必须把"它看到的是什么形状"带出来。
+      if (text.indexOf("WRONGFIELD") >= 0) {
+        res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-wrongfield" });
+        res.write(JSON.stringify({ code: 0, message: "", audio: Buffer.from("MP3:" + text).toString("base64") }) + "\n");
+        res.write(done);
+        res.end();
+        return;
+      }
+      // 对照：上游**真的**一个音频字段都没给（只有结束帧）。它与上面那种必须能被区分开。
+      if (text.indexOf("EMPTYAUDIO") >= 0) {
+        res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-noaudio" });
+        res.write(done);
+        res.end();
+        return;
+      }
       if (text.indexOf("SLOW") >= 0) {
         state.held = true;
         state.slowStarted += 1;
@@ -649,6 +666,36 @@ async function main() {
     const body = await res.json();
     assert.equal(body.error.code, "VOICE_TEXT_TOO_LONG");
     assert.ok(body.error.message.indexOf("切分") >= 0, "要说清正确的做法：" + body.error.message);
+  });
+
+  await check("语音：上游把音频放在别的字段名时，报错必须能看出「它回了什么形状」（否则这类故障查不下去）", async () => {
+    // 背景：用户 0.1.78 报的那条（角色 Alaric Vane）「上游说合成结束了，但一个字节的音频都没给」，
+    // 重试也不变。那种现象只有两种可能：① 上游真没产出音频；② 音频在**别的字段名**下，
+    // 被 `typeof parsed.data === "string"` 静默忽略。—— 原本这两种在报错里长得**一模一样**，
+    // 谁也没法从客户端那一侧分清。这条用例钉住"报错里必须带得出证据"。
+    const res = await speak(voiceCard.token, { text: "请把音频放进别的字段 WRONGFIELD" });
+    assert.equal(res.status, 502);
+    const body = await res.json();
+    assert.equal(body.error.code, "UPSTREAM_EMPTY");
+    assert.ok(body.error.logId, "报错里必须带上游 logId（否则没法去控制台查这一次请求）：" + JSON.stringify(body));
+    assert.equal(body.error.logId, "fake-log-wrongfield", "logId 要是上游那一次的真实编号：" + JSON.stringify(body.error));
+    assert.ok(body.error.upstream && Array.isArray(body.error.upstream.keys),
+      "报错里必须带上游响应的形状（字段名）：" + JSON.stringify(body));
+    assert.ok(body.error.upstream.keys.indexOf("audio") >= 0,
+      "形状里应当看得出音频在 audio 字段 —— 这正是我们没读的那个：" + JSON.stringify(body.error.upstream));
+    assert.ok(body.error.upstream.frames >= 2, "要报出一共收了几帧：" + JSON.stringify(body.error.upstream));
+    // 只有字段名，**不许**把音频/正文带出来
+    assert.ok(JSON.stringify(body.error.upstream).indexOf("MP3:") < 0, "形状里泄漏了音频内容");
+
+    // 关键：它必须能把"音频在别的字段"和"上游真没给音频"**区分开** ——
+    // 否则这个诊断等于没用（两者在报错里还是一模一样）。
+    const empty = await speak(voiceCard.token, { text: "这次上游真的没给音频 EMPTYAUDIO" });
+    assert.equal(empty.status, 502);
+    const emptyBody = await empty.json();
+    assert.equal(emptyBody.error.code, "UPSTREAM_EMPTY");
+    assert.ok(emptyBody.error.upstream && emptyBody.error.upstream.keys.indexOf("audio") < 0,
+      "真的没给音频时，形状里不该出现 audio：" + JSON.stringify(emptyBody.error.upstream));
+    assert.notEqual(emptyBody.error.logId, body.error.logId, "两次请求的 logId 不该相同");
   });
 
   await check("语音：空文本 → 400（不当作「念了个空」）", async () => {

@@ -239,7 +239,15 @@
       UPSTREAM_STREAM_ERROR: { reason: message || "读取音频流中断了。", retryable: true },
       UPSTREAM_EMPTY: { reason: message || "上游没有返回音频。", retryable: true },
     };
-    if (table[code]) return Object.assign({ code }, table[code]);
+    if (table[code]) {
+      // 把上游的 trace id 一起显示出来（用户报障时要靠它去火山控制台查那一次请求；
+      // 这是"上游说结束却零字节音频"这类故障唯一查得下去的线索）。
+      const logId = String((body && body.error && body.error.logId) || "").trim();
+      const reason = table[code].reason;
+      return Object.assign({ code, logId }, table[code], {
+        reason: logId && reason.indexOf(logId) < 0 ? reason + "（上游编号 " + logId + "）" : reason,
+      });
+    }
     if (status === 401) return { code: code || "CARD_UNKNOWN", reason: message || "中转不认这张体验卡。", retryable: false };
     if (status === 402) return { code: code || "CARD_LIMIT", reason: message || "这张体验卡的额度不够了。", retryable: false };
     if (status === 413) return { code: "VOICE_TEXT_TOO_LONG", reason: message || "这一段太长了。", retryable: false };

@@ -567,8 +567,8 @@ function createRelay(options) {
    * 中转不打算开放的参数，也顺手挡掉了"把任意文本塞进别人的账号合成"的用法。
    */
 
-  function voiceError(res, status, code, message, extraHeaders) {
-    return sendJson(res, status, { error: { code, message } }, Object.assign({}, corsHeaders(), extraHeaders || {}));
+  function voiceError(res, status, code, message, extraHeaders, detail) {
+    return sendJson(res, status, { error: Object.assign({ code, message }, detail || {}) }, Object.assign({}, corsHeaders(), extraHeaders || {}));
   }
 
   async function handleVoice(req, res) {
@@ -688,9 +688,17 @@ function createRelay(options) {
       logSink({
         at: new Date().toISOString(), event: "voice-error", cardId: card.id, chars,
         code, status, ms: Date.now() - startedAt,   // 只有用量与错误码，没有那句话
+        // 排障用：上游的 trace id 与"它回的是什么形状"（**只有字段名**，没有正文/音频/凭据）。
+        // 「上游说结束但零字节音频」这类故障在这之前是**查不下去**的 —— 见 relay/tts.js 的 frameKeys。
+        logId: (result && result.logId) || "",
+        upstream: (result && result.upstream) || null,
       });
       // 失败也记一次用量吗？**不记**：合成没成功就不该扣用户的钱。
-      return voiceError(res, status, code, (result && result.message) || "语音合成失败。", cardHeaders(card, verdict));
+      return voiceError(res, status, code, (result && result.message) || "语音合成失败。", cardHeaders(card, verdict), {
+        // 同样带出去给客户端：用户报障时能凭这个编号去火山控制台查那一次请求。
+        logId: (result && result.logId) || "",
+        upstream: (result && result.upstream) || null,
+      });
     }
 
     const updated = await recordUsage(card, { kind: "voice", chars: result.chars || chars });

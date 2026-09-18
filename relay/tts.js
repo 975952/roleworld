@@ -233,6 +233,20 @@ function createTtsClient(options) {
       const chunks = [];
       let settled = false;
       let billedChars = 0;
+      /*
+       * 上游到底回了什么形状 —— 只记**字段名**，不记内容（内容里才是正文/音频）。
+       *
+       * 为什么必须记（2026-09-18 用户实测：「上游说合成结束了，但一个字节的音频都没给」，
+       * 重试也不变）：那种情况只有两种可能 ——
+       *   ① 上游真的没产出音频；
+       *   ② 音频在**别的字段名**下（不是 `data`），而被下面那句
+       *      `typeof parsed.data === "string"` 静默忽略了。
+       * 这两种在这段代码里**长得一模一样**，光看报错分不出来 —— 所以把形状带出去：
+       * 字段名是普通的 schema 元数据（不是正文、不是凭据），但足够一眼看出是哪一种。
+       */
+      const frameKeys = new Set();
+      let frameCount = 0;
+      const shape = () => ({ frames: frameCount, keys: Array.from(frameKeys).sort() });
       const finish = (result) => {
         if (settled) return;
         settled = true;
@@ -274,6 +288,8 @@ function createTtsClient(options) {
           if (settled) return;
           let parsed = null;
           try { parsed = JSON.parse(line); } catch (_) { return; }   // 非 JSON 行直接忽略（保持宽容）
+          frameCount += 1;
+          if (parsed && typeof parsed === "object") Object.keys(parsed).forEach((key) => frameKeys.add(key));
           const code = Number(parsed.code);
           if (code === CODE_STREAM_DONE) {
             reader.flush();
@@ -282,6 +298,8 @@ function createTtsClient(options) {
               ms: Date.now() - started, logId, chars: billedChars || text.length, requestId,
               code: chunks.length > 0 ? 0 : "UPSTREAM_EMPTY",
               message: chunks.length > 0 ? "" : "上游说合成结束了，但一个字节的音频都没给。",
+              // 空音频时把"上游回的是什么形状"带出去（只有字段名）—— 见上面 frameKeys 的注释。
+              upstream: chunks.length > 0 ? null : shape(),
             });
             return;
           }
@@ -304,6 +322,7 @@ function createTtsClient(options) {
               ms: Date.now() - started, logId, chars: billedChars || text.length, requestId,
               code: chunks.length > 0 ? 0 : "UPSTREAM_EMPTY",
               message: chunks.length > 0 ? "" : "上游说合成结束了，但一个字节的音频都没给。",
+              upstream: chunks.length > 0 ? null : shape(),
             });
           }
         });
