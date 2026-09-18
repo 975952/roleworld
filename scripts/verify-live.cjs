@@ -61,6 +61,14 @@ async function fetchRemote(relative) {
   const problems = [];
   let checked = 0;
   let queue = files.slice();
+  // ⚠ 换行符不算差异：仓库里 `.gitattributes` 是 `* text=auto eol=lf`，
+  //   而**线上那份是部署时的工作副本**（Windows 上写出去的是 CRLF）。
+  //   2026-09-18 实测：全新 clone（LF）之后核对，`adapter/pricing.js` 与 `magic-map.html`
+  //   报"字节数不一致"，差值正好等于行数 —— 内容一模一样，只是 CRLF/LF。
+  //   所以比较前把两边的 CRLF 归一成 LF（其余字节仍然逐字节比）。
+  const normalizeEol = (buffer) => (buffer.includes(0x0d)
+    ? Buffer.from(buffer.toString("utf8").replace(/\r\n/g, "\n"), "utf8")
+    : buffer);
 
   async function worker() {
     while (queue.length) {
@@ -72,12 +80,14 @@ async function fetchRemote(relative) {
         problems.push(`${relative}：HTTP ${remote.status}${remote.error ? " " + remote.error : ""}`);
         continue;
       }
-      if (remote.buffer.length !== local.length) {
-        problems.push(`${relative}：字节数不一致 本地 ${local.length} / 线上 ${remote.buffer.length}`);
+      const left = normalizeEol(local);
+      const right = normalizeEol(remote.buffer);
+      if (right.length !== left.length) {
+        problems.push(`${relative}：字节数不一致 本地 ${left.length} / 线上 ${right.length}`);
         continue;
       }
       const hash = (buffer) => crypto.createHash("sha256").update(buffer).digest("hex");
-      if (hash(remote.buffer) !== hash(local)) {
+      if (hash(right) !== hash(left)) {
         problems.push(`${relative}：字节数相同但内容不同（sha256 不一致）`);
       }
     }
