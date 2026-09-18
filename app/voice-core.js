@@ -419,19 +419,39 @@
    * 按**稳定标识**（角色卡的 avatar 文件名）确定性散列 —— 同一个角色每次都一样，
    * 不同角色尽量不一样。用名字当种子是不行的：改名会让声音变掉。
    */
-  function defaultSpeakerFor(identity, speakers) {
-    const list = Array.isArray(speakers) ? speakers.filter((one) => one && one.id) : [];
-    if (!list.length) return "";
+  function defaultSpeakerFor(identity, speakers, language) {
+    const all = Array.isArray(speakers) ? speakers.filter((one) => one && one.id) : [];
+    if (!all.length) return "";
+    /*
+     * ⚠ **先按角色实际说的语言筛一遍**，再在剩下的里面散列挑一个。
+     *
+     * 以前这里直接 `hash(avatar) % list.length` 从**全部**音色里挑 —— 完全不管语言，
+     * 于是中文角色会被分到一个英文音色。2026-09-18 用户实测（角色 Alaric Vane）：
+     * 拿到 `en_female_hayley_uranus_bigtts`，而回复是中文 → 英文音色念不了中文 →
+     * 上游回「合成结束但零字节音频」，界面上只有一句查不下去的话，还白花一次付费调用。
+     * 判据共用 `language-core.speakerFitsLanguage`（**不写第二套**；那份表在
+     * voice-core 之前加载，见 index.html）。
+     * 一个都不匹配时退回全部：宁可挑个不合语言的，也不要"没有音色可用"。
+     */
+    const L = global.RoleWorldLanguage;
+    const lang = String(language || "");
+    const fits = (lang && L && typeof L.speakerFitsLanguage === "function")
+      ? all.filter((one) => { try { return L.speakerFitsLanguage(one.id, lang); } catch (_) { return false; } })
+      : [];
+    const list = fits.length ? fits : all;
     const seed = hash(String(identity || "角色"));
     return list[seed % list.length].id;
   }
 
   /** 一条角色音色设置长什么样。 */
-  function normalizeVoiceEntry(entry, identity, speakers) {
+  function normalizeVoiceEntry(entry, identity, speakers, language) {
     const source = entry && typeof entry === "object" ? entry : {};
     const known = Array.isArray(speakers) ? speakers.map((one) => one.id) : [];
     const speaker = known.length
-      ? (known.indexOf(String(source.speaker || "")) >= 0 ? String(source.speaker) : defaultSpeakerFor(identity, speakers))
+      ? (known.indexOf(String(source.speaker || "")) >= 0
+        ? String(source.speaker)
+        // 用户选过就**照他的**（不替他改）；没选过才按语言挑默认。
+        : defaultSpeakerFor(identity, speakers, language))
       : String(source.speaker || "");
     return { speaker, speechRate: clampSpeechRate(source.speechRate) };
   }
@@ -474,9 +494,9 @@
   }
 
   /** 某个角色当前该用哪个音色/语速（没有就用确定性默认）。 */
-  function voiceSettingFor(settings, identity, speakers) {
+  function voiceSettingFor(settings, identity, speakers, language) {
     const map = (settings && settings.voice_by_card) || {};
-    return normalizeVoiceEntry(map[identity], identity, speakers);
+    return normalizeVoiceEntry(map[identity], identity, speakers, language);
   }
 
   /* ==================================================================== *

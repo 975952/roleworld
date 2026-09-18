@@ -7728,6 +7728,57 @@ async function main() {
     await closeAppWithVoice();
   }
 });
+  await check("语音：没选过音色时，默认音色必须按角色的语言挑（中文角色不给英文音色）", async () => {
+    // 用户 0.1.80 实测（角色 Alaric Vane）：失败提示带出来的形状是
+    //   「这段 34 字：汉字 27 / 字母 0 / 数字 0 / 其它 7（音色 en_female_hayley_uranus_bigtts）」
+    // —— **中文文本配了英文音色**，英文音色念不了中文，上游回「合成结束但零字节音频」。
+    // 根因：`voice-core.defaultSpeakerFor()` 原来**完全不管语言**，用
+    //   `hash(avatar) % 音色总数` 从**全部**音色里挑 —— 中文角色会被分到英文音色。
+    // 这里直接量**应用真正用的那个函数**（`Cloud.settingFor`，语言由调用方传入）：
+    //   同一个角色、同一个音色表，只换语言，拿到的音色语言就必须跟着换。
+    let prevVoiceMap = "{}";
+    try {
+      await ensureChatPage();
+      const avatar = await ensureCustomCharacter();
+      await installFakeAudio();
+      const ready = await openAppWithVoice();
+      assert(ready.canSpeak, "前置不成立：这台设备现在不能朗读 —— " + ready.reason);
+      prevVoiceMap = await evaluate("(async () => JSON.stringify((await RoleWorld.getLocalSettings()).voice_by_card || {}))()");
+      // 清掉这个角色可能存过的音色 —— 有显式选择时按用户的来（那是另一条口径），
+      // 这条要验的是"**没选过**时的默认"。
+      await evaluate(`(async () => {
+        const s = await RoleWorld.getLocalSettings();
+        const map = Object.assign({}, s.voice_by_card || {});
+        delete map[${JSON.stringify(CUSTOM_AVATAR)}];
+        await RoleWorld.saveLocalSettings({ voice_by_card: map });
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+        return true;
+      })()`);
+      const picked = await evaluate(`(async () => {
+        const settings = await RoleWorld.getLocalSettings();
+        const Cloud = window.RoleWorldVoiceCloud;
+        return {
+          zh: Cloud.settingFor(${JSON.stringify(CUSTOM_AVATAR)}, settings, "zh").speaker,
+          en: Cloud.settingFor(${JSON.stringify(CUSTOM_AVATAR)}, settings, "en").speaker,
+        };
+      })()`);
+      assert(picked.zh, "按中文挑默认音色时拿到了空音色：" + JSON.stringify(picked));
+      assert(String(picked.zh).indexOf("zh_") === 0,
+        "中文角色的默认音色不是中文音色（用户 0.1.80 那条零字节音频就是这么来的）：" + JSON.stringify(picked));
+      assert(String(picked.en).indexOf("en_") === 0,
+        "按英文挑默认音色时没给英文音色（说明筛选把语言搞反或没生效）：" + JSON.stringify(picked));
+    } finally {
+      // 原样还回去（`saveLocalSettings` 是合并语义，delete 一个键删不掉，只能整份写回）。
+      await evaluate(`(async () => {
+        await RoleWorld.saveLocalSettings({ voice_by_card: ${prevVoiceMap} });
+        window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+        return true;
+      })()`).catch(() => {});
+      await closeAppWithVoice();
+      await restoreDefaultContext().catch(() => {});
+    }
+  });
+
   await check("语音合成失败：显示失败态与重试（次数有上限），用户可主动改为文字且正文一个字都不丢", async () => {
           // 自带前置：同上；另外把假服务的合成口设成**失败**。
           await ensureChatPage();
@@ -7742,6 +7793,18 @@ async function main() {
           failVoice(false);
           setVoiceDelay(0);
           failVoice(true);
+          // ⚠ 这条用例要的是**合成失败**。而"音色和这条的语言对不上"现在会被合成前的新闸门
+          //   直接拦住（那是另一条用例的事）—— 所以这里把**这个角色的交流语言钉成中文**，
+          //   让音色与文本对得上，走的才是真正的合成失败那条路。
+          const prevLangMap = await evaluate("(async () => JSON.stringify((await RoleWorld.getLocalSettings()).language_by_card || {}))()");
+          await evaluate(`(async () => {
+            const s = await RoleWorld.getLocalSettings();
+            const map = Object.assign({}, s.language_by_card || {});
+            map[${JSON.stringify(avatar)}] = "zh";
+            await RoleWorld.saveLocalSettings({ language_by_card: map });
+            window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+            return true;
+          })()`);
 
           const spokenLine = "这句话只该在语音里出现";
           await openChatFor(avatar, CUSTOM_NAME, CUSTOM_CHAT);
@@ -7763,13 +7826,16 @@ async function main() {
           assert(failed.hasRetry, "失败态里没有「重试」按钮：" + JSON.stringify(failed));
           assert(failed.hasToText, "失败态里没有「改为文字」入口：" + JSON.stringify(failed));
           assert(failed.waiting === 0, "已经失败了却还显示「准备中」：" + JSON.stringify(failed));
-          // ③ 失败提示里要带上**这段文本的形状**与音色 —— 但**不许带正文**。
-          //    为什么：2026-09-18 用户连报三次「上游说合成结束了，但一个字节的音频都没给」，
-          //    而「试听」在同一音色同一链路下**正常** —— 差别只可能在这段文本上；
-          //    可语音条的正文刻意不显示，那边我完全看不见。形状（汉字/字母/数字/其它）
-          //    足以判断"是中文、是英文、还是根本没字"，又不违反"不露正文"。
-          assert(/汉字 \d+ \/ 字母 \d+ \/ 数字 \d+ \/ 其它 \d+/.test(failed.text),
-            "失败提示里没写出这段文本的形状（用户与我们都无从判断）：" + JSON.stringify(failed.text));
+          // ③ 失败提示里必须带上**可排障的信息**，且**不许带正文**。
+          //    两种形式都算合格（这条用例的 fixture 现在可能落进任一种，取决于那个角色
+          //    解析出来的交流语言 —— 而"中文文本 + 英文音色"正是用户 0.1.80 实测的那条）：
+          //      · 合成失败 → 这段文本的**形状**（汉字/字母/数字/其它）；
+          //      · 语言对不上 → 这条是什么语言 + 当前音色（信息更强，直接指出该换哪个音色）。
+          const hasShape = /汉字 \d+ \/ 字母 \d+ \/ 数字 \d+ \/ 其它 \d+/.test(failed.text);
+          const hasLangDiag = failed.text.indexOf("对不上") >= 0 && failed.text.indexOf("音色") >= 0;
+          assert(hasShape || hasLangDiag,
+            "失败提示里既没有这段文本的形状、也没说清音色问题（用户与我们都无从判断）："
+            + JSON.stringify(failed.text));
           assert(failed.text.indexOf("音色") >= 0, "失败提示里没写音色：" + JSON.stringify(failed.text));
           assert(failed.text.indexOf(spokenLine.slice(0, 8)) < 0,
             "失败提示里把正文摊出来了（既有口径：语音条不许把正文露在屏幕上，要看正文走「改为文字」）："
@@ -7866,6 +7932,12 @@ async function main() {
           //   失败模式下不还原，后面的合成请求会全部失败，而且应用会留在中转模式。
           try {
             failVoice(false);
+            // 把钉的语言**原样还回去**（合并语义下 delete 一个键删不掉，只能整份写回）。
+            await evaluate(`(async () => {
+              await RoleWorld.saveLocalSettings({ language_by_card: ${prevLangMap} });
+              window.dispatchEvent(new CustomEvent("roleworld:settings-changed", {}));
+              return true;
+            })()`).catch(() => {});
             await evaluate("window.RoleWorldVoiceCloud.stop(); true");
             await closeAppWithVoice();
           } catch (_) { /* 收尾失败不掩盖真正的断言失败 */ }

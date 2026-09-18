@@ -594,11 +594,15 @@
     return { changed: true, migrated: result.migrated };
   }
 
-  /** 某个角色现在用哪个音色（含默认）。 */
-  function settingFor(identity, settings) {
+  /**
+   * 某个角色现在用哪个音色（含默认）。
+   * `language` = 这个角色实际说的语言（`zh`/`en`）：**没选过音色时按它挑默认**，
+   * 免得中文角色被随机分到一个英文音色（见 `voice-core.defaultSpeakerFor`）。
+   */
+  function settingFor(identity, settings, language) {
     const lib = global.RoleWorldVoice;
     const source = settings || global.__rwVoiceSettingsSnapshot || {};
-    return lib.voiceSettingFor(source, identity, snapshot.speakers);
+    return lib.voiceSettingFor(source, identity, snapshot.speakers, language);
   }
 
   const api = {

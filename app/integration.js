@@ -973,7 +973,8 @@
   async function voiceSettingForAvatar(avatar) {
     const Cloud = window.RoleWorldVoiceCloud;
     const settings = await window.RoleWorld.getLocalSettings().catch(() => ({}));
-    return Cloud.settingFor(avatar, settings);
+    // 语言一起传：没选过音色时按它挑默认（不然中文角色可能被分到英文音色）。
+    return Cloud.settingFor(avatar, settings, companionLangFor({ avatar: avatar }));
   }
 
   /** 点「朗读」：正在念就先停（同一个菜单项在两个状态间切换）。 */
@@ -1112,7 +1113,7 @@
       row.className = "character-manage-row";
       row.dataset.voiceCard = card.avatar;
 
-      const setting = Cloud ? Cloud.settingFor(card.avatar, settings) : { speaker: "", speechRate: 0 };
+      const setting = Cloud ? Cloud.settingFor(card.avatar, settings, companionLangFor({ avatar: card.avatar })) : { speaker: "", speechRate: 0 };
       const who = document.createElement("div");
       who.className = "character-manage-name";
       const strong = document.createElement("strong");
@@ -1238,11 +1239,13 @@
       const current = map[avatar] || {};
       const next = Object.assign({}, current, patch || {});
       // 两项都等于"这个角色的默认"时就不留覆盖（免得存档里堆一堆没用的键）
-      const auto = Voice.normalizeVoiceEntry(null, avatar, voiceCapability().speakers);
+      // ⚠ 默认音色按**这个角色说的语言**算，跟真正合成时用的是同一套（见 voiceSettingForAvatar）。
+      const voiceLang = companionLangFor({ avatar: avatar });
+      const auto = Voice.normalizeVoiceEntry(null, avatar, voiceCapability().speakers, voiceLang);
       const sameSpeaker = (next.speaker || auto.speaker) === auto.speaker;
       const sameRate = Number(next.speechRate || 0) === Number(auto.speechRate || 0);
       if (sameSpeaker && sameRate) delete map[avatar];
-      else map[avatar] = Voice.normalizeVoiceEntry(next, avatar, voiceCapability().speakers);
+      else map[avatar] = Voice.normalizeVoiceEntry(next, avatar, voiceCapability().speakers, voiceLang);
       liveState.localSettings = Object.assign({}, liveState.localSettings || {}, { voice_by_card: map });
       await window.RoleWorld.saveLocalSettings({ voice_by_card: map });
       window.RoleWorldVoiceCloud.noteSettings(Object.assign({}, settings, { voice_by_card: map }));
@@ -4394,7 +4397,7 @@
     };
     const settingText = await (async () => {
       const settings = await window.RoleWorld.getLocalSettings().catch(() => ({}));
-      return Cloud.settingFor(entry.avatar, settings);
+      return Cloud.settingFor(entry.avatar, settings, companionLangFor(entry));
     })();
     const cap = voiceCapability();
     const speakText = voiceTextFor(part.text, entry);
@@ -4414,6 +4417,26 @@
           + (verdict.reason || "") + "）。");
       }
     }
+    /*
+     * ③b **音色自己能不能念这段文本** —— 这一条是用户 0.1.80 那条故障的正解，**本轮先不做**。
+     *
+     * 已查实的真凶：失败提示带出来的形状是
+     *   「这段 34 字：汉字 27 / 字母 0 / 数字 0 / 其它 7（音色 en_female_hayley_uranus_bigtts）」
+     * —— **中文文本配了英文音色**，英文音色念不了中文，上游回「合成结束但零字节音频」。
+     * 根因（本轮已修）：`voice-core.defaultSpeakerFor()` 原来**完全不管语言**，
+     *   用 `hash(avatar) % 音色总数` 从全部音色里挑，中文角色会被分到英文音色。
+     *   现在它先按角色语言筛一遍（Node 侧已单独验过：lang=zh 一定挑到 zh_ 音色）。
+     *
+     * 为什么这道"合成前拦住"的闸门**先不加**（如实记档）：加完实测，
+     *   语音相关的 3 条既有用例塌了 —— 它们的中文回复也配着英文音色，于是从
+     *   "真合成"变成"被拦住"。查下来是**两个语言解析器不一致**：
+     *   `characterLanguageFor()`（既有语言校验用的那份）与 `companionLangFor()`
+     *   （挑音色用的那份）对同一个角色给出了不同答案 —— 一个空、一个 "en"。
+     *   不先把这两个解析器统一，这道闸门的爆炸半径就说不清；而"拦发送"是全局开关，
+     *   本项目为这种事回滚过两次（见 CHAT_401_GUARD_ATTEMPT_REVERTED.md 的三步顺序）。
+     * 下一步（0.1.82）：先把两个解析器统一成一处，再补这道闸门 + 反面对照用例
+     *   （"中文角色 + 中文音色"必须照常合成）。
+     */
     if (!cap.canSpeak) return fail("no-capability", cap.reason || "现在这台设备不能合成语音。");
     const budget = voiceCharsLeft();
     if (Number.isFinite(budget) && budget < speakText.length) {
