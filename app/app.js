@@ -598,6 +598,17 @@ function setSettingsSection(section) {
     persistAccountPreferences();
   }
   if (allowed === "characters") refreshCharacterManagement();
+  // 2026-09-16：切到「更多设置」里的某一页时，先把那一组展开 ——
+  // 否则从"角色管理"按钮跳进来会看到"当前页在导航里不见了"（用户最烦的就是这种迷失感）。
+  try {
+    if (["characters", "memory", "advanced", "about"].includes(allowed)
+      && typeof window.__rwExpandSettingsMore === "function") window.__rwExpandSettingsMore(true);
+  } catch (_) { /* 展开失败不影响切页 */ }
+  // 交给集成层做"这一页特有的刷新"（语音页的角色列表是现读的 —— 角色可能在别处增删过）。
+  // 用回调而不是在这里直接调，是为了不让 app.js 依赖 integration.js 的内部函数。
+  try {
+    if (typeof window.__rwOnSettingsSection === "function") window.__rwOnSettingsSection(allowed);
+  } catch (_) { /* 刷新失败不影响切换设置页 */ }
   // 「数据与备份」那页的数字与"上次导出时间"是现读的：切到这一页时刷新一次
   // （只在启动时读会全是 0 —— 那时库还没准备好）。
   if (allowed === "local-data" && window.RoleWorldArchiveUI && typeof window.RoleWorldArchiveUI.refresh === "function") {
@@ -640,6 +651,13 @@ function openSettings() {
   state.settingsOpen = true;
   $("#appShell")?.classList.add("settings-open");
   $("#settingsSurface").hidden = false;
+  // 每次打开都顺手把"解释收进「说明」"这件事补一遍：角色管理等页面是**动态生成**的行，
+  // 老行在启动时折叠过了，新行还没有（幂等，重复调用不会重复插按钮）。
+  try {
+    if (window.RoleWorldSettingsUI && typeof window.RoleWorldSettingsUI.collapseSettingsNotes === "function") {
+      window.RoleWorldSettingsUI.collapseSettingsNotes();
+    }
+  } catch (_) { /* 折叠失败不影响设置能否用 */ }
   $("#mainStage").setAttribute("aria-hidden", "true");
   $("#mainStage").inert = true;
   setSettingsSection(state.preferences.lastSettingsSection);
@@ -997,7 +1015,17 @@ function renderCharacterManagement(cards) {
     // 存的是同一份 companion:<角色文件>，不新增一套配置。
     const companionToggle = document.createElement("label");
     companionToggle.className = "character-manage-companion";
-    companionToggle.title = "给这个角色单独打开伴侣模式：关系档案、亲近度、久没聊时的态度、主动开口都在角色面板的「关系」页里";
+    // 2026-09-14 用户拍板：「小说人物不设置伴侣」——**内置角色这一行不给开**。
+    // 规则在 companion-core.companionAccess 里判一次，这里只负责画出来。
+    // 老存档里如果给内置角色开过伴侣：**档案原样留着（不删、不改写）**，但运行时不再生效 ——
+    // 不注入关系段落、不主动开口、也没有语音（三处都查同一个判定）。
+    const companionAccess = window.ROLEWORLD_COMPANION_CORE
+      && typeof window.ROLEWORLD_COMPANION_CORE.companionAccess === "function"
+      ? window.ROLEWORLD_COMPANION_CORE.companionAccess({ isBuiltin: isBuiltin })
+      : { allowed: true, reason: "" };
+    companionToggle.title = companionAccess.allowed
+      ? "给这个角色单独打开伴侣模式：关系档案、亲近度、久没聊时的态度、主动开口都在角色面板的「关系」页里。"
+      : companionAccess.reason;
     const companionBox = document.createElement("input");
     companionBox.type = "checkbox";
     companionBox.disabled = true; // 读出来之前先别让人点，免得把默认值当成真值存回去
@@ -1008,10 +1036,23 @@ function renderCharacterManagement(cards) {
     companionText.textContent = "伴侣模式";
     companionToggle.append(companionBox, companionText);
     actions.appendChild(companionToggle);
-    loadCompanionEnabled(card.avatar)
-      .then((on) => { companionBox.checked = on; })
-      .catch(() => { /* 读不到就按关着显示 */ })
-      .then(() => { companionBox.disabled = false; });
+    if (!companionAccess.allowed) {
+      companionBox.checked = false;
+      companionBox.disabled = true;
+      // ⚠ 这一行有两个字面约束（都是用例钉住的，改字会红）：
+      //   ① 文案里要有「内置角色不可」（"写清为什么不能开"）；
+      //   ② title 里要有「内置」（同一个原因，见「伴侣模式开关就在角色自己那一行」那条用例）。
+      companionText.textContent = "伴侣模式（内置角色不可用）";
+      companionToggle.title = "内置的小说人物不能开伴侣模式 —— 伴侣只给自己创建的角色开："
+        + "用「AI 创建角色」建一个、或导入一张自己的角色卡，再在这一行打开它。"
+        + "语音（角色发语音消息）只要这个角色是自己创建的就可以用，跟伴侣模式无关。";
+      companionToggle.classList.add("is-blocked");
+    } else {
+      loadCompanionEnabled(card.avatar)
+        .then((on) => { companionBox.checked = on; })
+        .catch(() => { /* 读不到就按关着显示 */ })
+        .then(() => { companionBox.disabled = false; });
+    }
     // 侧栏开关：每个角色一个，状态本机持久化；关掉只影响侧栏展示。
     const sidebarToggle = document.createElement("label");
     sidebarToggle.className = "character-manage-sidebar";
@@ -1057,6 +1098,16 @@ async function setCharacterCompanion(card, box) {
   const api = window.TASK21;
   const core = window.ROLEWORLD_COMPANION_CORE;
   const entry = { avatar: String(card && card.avatar || ""), charName: String(card && (card.name || card.avatar) || "") };
+  // 内置小说人物**不给开伴侣**（2026-09-14 用户拍板）。界面已经禁用了，
+  // 这里再挡一道：脚本/快捷键绕过界面时也不该写进去。
+  const access = core && typeof core.companionAccess === "function"
+    ? core.companionAccess({ isBuiltin: isProtectedBuiltinCharacter(card) })
+    : { allowed: true, reason: "" };
+  if (!access.allowed) {
+    box.checked = false;
+    showToast(access.reason);
+    return;
+  }
   if (!api || typeof api.saveCompanion !== "function" || !entry.avatar) {
     box.checked = !box.checked;
     showToast("伴侣模式暂不可用，请刷新后重试");
@@ -1222,17 +1273,52 @@ function bindInertialScroll(element) {
   }, { passive: false });
 }
 
-function renderAssistantBody(text) {
+/* 表情的 HTML：一张图 + 名字（alt/可见标题都留着，图片加载不出来时至少还知道是哪个表情）。 */
+function renderStickerHtml(stickers) {
+  const rows = Array.isArray(stickers) ? stickers.filter((s) => s && s.url) : [];
+  if (!rows.length) return "";
+  return rows.map((sticker) => `
+    <div class="message-sticker" data-sticker-id="${escapeHtml(String(sticker.id || ""))}">
+      <img src="${escapeHtml(String(sticker.url))}" alt="${escapeHtml(String(sticker.name || "表情"))}"
+           loading="lazy" decoding="async">
+    </div>`).join("");
+}
+
+function renderAssistantBody(text, stickers, options) {
   const live = !!window.TASK21_LIVE;
-  // 流式或中途停止时，正文里可能留着没写完的 [[记住: —— 它不是正文，不该显示出来。
-  const safeText = window.TASK22_CORE && typeof window.TASK22_CORE.stripPartialMemoryMarkers === "function"
+  // ⚠ 注意 `live` 的含义：`window.TASK21_LIVE` 只在"接上了实时集成"时置真，
+  //   **从来没有置回过 false**（integration.js:196/8124/8849），所以它恒为真、
+  //   下面那个"单气泡"分支在真实运行里基本到不了 —— 所有回复都走 splitReply 拆分。
+  //   （这一点以前没人写明，读代码很容易以为"存盘后走单气泡"。）
+  // 日常聊天（微信式）：**只有对白、全部进气泡**，不产生旁白行。
+  //   为什么必须有这个开关：那一档的文本已经被 plainChatText 去掉旁白与引号，
+  //   剩下的对白**没有引号**，再交给 splitReply 就会被判成"旁白"→ 渲染成灰色旁白行，
+  //   而不是气泡。用户 2026-09-18：「不同模式的输出，会显现出很奇怪的样式」。
+  const dialogueOnly = !!(options && options.dialogueOnly);
+  // 流式或中途停止时，正文里可能留着没写完的 [[记住: / [[表情: —— 它们不是正文，不该显示出来。
+  let safeText = window.TASK22_CORE && typeof window.TASK22_CORE.stripPartialMemoryMarkers === "function"
     ? window.TASK22_CORE.stripPartialMemoryMarkers(text)
     : text;
-  if (!live) return `<div class="message-bubble assistant-bubble"><p>${escapeHtml(safeText)}</p></div>`;
+  // 写完整的表情标记也要从正文里去掉：它由下面的 renderStickerHtml 单独画出来
+  // （流式的时候保存还没发生，所以这里不能只靠消息上的 extra）。
+  let shown = Array.isArray(stickers) ? stickers : [];
+  if (!shown.length && window.TASK22_CORE && typeof window.TASK22_CORE.stripStickerMarkers === "function") {
+    safeText = window.TASK22_CORE.stripStickerMarkers(safeText);
+    if (window.RoleWorldStickers && window.RoleWorldStickers.extractStickers && window.RoleWorldStickersPack) {
+      const stamps = (window.RoleWorldStickersPack.cachedStamps && window.RoleWorldStickersPack.cachedStamps()) || [];
+      if (stamps.length) shown = window.RoleWorldStickers.extractStickers(safeText, stamps).stickers || [];
+    }
+  }
+  const singleBubble = safeText.trim()
+    ? `<div class="message-bubble assistant-bubble"><p>${escapeHtml(safeText)}</p></div>`
+    : "";
+  if (dialogueOnly) return singleBubble + renderStickerHtml(shown);
+  if (!live) return singleBubble + renderStickerHtml(shown);
   const segments = window.TASK22_CORE ? window.TASK22_CORE.splitReply(safeText) : [{ type: "narration", text: safeText }];
-  return segments.map((segment) => segment.type === "dialogue"
+  const body = segments.map((segment) => segment.type === "dialogue"
     ? `<div class="message-bubble assistant-bubble"><p>${escapeHtml(segment.text)}</p></div>`
     : `<div class="narration-line">${escapeHtml(segment.text)}</div>`).join("");
+  return body + renderStickerHtml(shown);
 }
 
 function addMessage(text, role) {
@@ -1272,7 +1358,13 @@ function setWaiting(waiting) {
 
 function sendDemoMessage() {
   if (window.TASK21_LIVE && window.TASK21 && window.TASK21.sendLive) {
-    if (window.TASK21.isLiveBusy?.()) { window.TASK21.stopLive(); return; }
+    // 正在生成时按发送：**输入框里有字就是"连发"**（并成一条一起问，像真人补一句），
+    // 没字才是"停止"。用户 2026-09-14：「如果用户连发的话应该也是可以统一回答的」。
+    if (window.TASK21.isLiveBusy?.()) {
+      if (typeof window.TASK21.sendWhileBusy === "function") window.TASK21.sendWhileBusy();
+      else window.TASK21.stopLive();
+      return;
+    }
     window.TASK21.sendLive();
     return;
   }

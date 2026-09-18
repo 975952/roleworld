@@ -11,6 +11,7 @@
  *   <应用数据目录>/data/worlds/<记忆书>.json
  *   <应用数据目录>/data/kv/<键>.json
  *   <应用数据目录>/data/blobs/<id>            图片等二进制，base64 存取
+ *   <应用数据目录>/data/voice/<id>.json       合成好的语音缓存（base64；可随时删，会重新合成）
  *
  * 好处是用户可以直接用资源管理器备份、用编辑器查看、用 Git 管理自己的角色数据 ——
  * 这是桌面端相对网页版唯一真正重要的差别。
@@ -54,6 +55,7 @@
       worlds: (key) => "worlds/" + safeName(key) + ".json",
       kv: (key) => "kv/" + safeName(key) + ".json",
       blobs: (key) => "blobs/" + safeName(key),
+      voice: (key) => "voice/" + safeName(key) + ".json",
     };
     const prefixOf = {
       characters: "characters",
@@ -61,6 +63,7 @@
       worlds: "worlds",
       kv: "kv",
       blobs: "blobs",
+      voice: "voice",
     };
 
     function pathFor(storeName, key) {

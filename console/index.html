@@ -23,6 +23,17 @@
   <p id="secretWarning" class="banner warn" hidden></p>
 
   <main>
+    <!-- ① 总览：连接状态、卡的状态分布、今日用量、数据更新时间 -->
+    <section class="card" id="overviewCard">
+      <div class="card-head">
+        <h2>总览</h2>
+        <span class="muted" id="overviewStamp">正在读取…</span>
+      </div>
+      <div id="overviewTiles" class="tiles"></div>
+      <div id="overviewUsage" class="usage-box" hidden></div>
+    </section>
+
+    <!-- ② 发卡 -->
     <section class="card">
       <div class="card-head">
         <h2>发卡</h2>
@@ -30,18 +41,47 @@
       </div>
       <div class="form-grid">
         <label>标签<input type="text" id="issueLabel" maxlength="60" placeholder="同学6" autocomplete="off"></label>
-        <label>次数<input type="number" id="issueCalls" value="50" min="0" max="100000" step="10"></label>
-        <label>token 上限<input type="number" id="issueTokens" value="0" min="0" step="10000" placeholder="0 = 不限"></label>
-        <label>有效天数<input type="number" id="issueDays" value="14" min="0" max="3650" step="1"></label>
+        <label>聊天次数
+          <span class="field-row">
+            <input type="number" id="issueCalls" value="50" min="0" max="100000" step="10">
+            <label class="inline-check"><input type="checkbox" id="issueCallsUnlimited"> 不限制</label>
+          </span>
+        </label>
+        <label>token 上限
+          <span class="field-row">
+            <input type="number" id="issueTokens" value="0" min="0" step="10000" placeholder="按 token 限制时填">
+            <label class="inline-check"><input type="checkbox" id="issueTokensUnlimited" checked> 不限制</label>
+          </span>
+        </label>
+        <label>语音次数
+          <span class="field-row">
+            <input type="number" id="issueVoice" value="0" min="0" step="10" placeholder="不给语音就填 0">
+            <label class="inline-check"><input type="checkbox" id="issueVoiceUnlimited"> 不限制</label>
+          </span>
+        </label>
+        <label>语音字数（字符）
+          <span class="field-row">
+            <input type="number" id="issueVoiceChars" value="0" min="0" step="1000" placeholder="语音按字符计费">
+            <label class="inline-check"><input type="checkbox" id="issueVoiceCharsUnlimited"> 不限制</label>
+          </span>
+        </label>
+        <label>有效天数
+          <span class="field-row">
+            <input type="number" id="issueDays" value="14" min="0" max="3650" step="1">
+            <label class="inline-check"><input type="checkbox" id="issueDaysNever"> 不过期</label>
+          </span>
+        </label>
         <label>张数<input type="number" id="issueCount" value="1" min="1" max="50" step="1"></label>
       </div>
+      <p class="muted" id="issueSummary"></p>
       <div class="actions">
         <button type="button" class="btn primary" id="issueButton">发卡</button>
-        <span class="muted">默认 50 次 / 14 天；0 次或 0 token 表示不限。</span>
+        <span class="muted">勾「不限制」写不写 0 都一样：勾上就是**不给上限**（数字多少都不看）。</span>
       </div>
       <div id="issueResult" class="issue-result" hidden></div>
     </section>
 
+    <!-- ③ 卡列表 -->
     <section class="card">
       <div class="card-head">
         <h2>卡列表</h2>
@@ -51,25 +91,81 @@
             <option value="expires">按到期日</option>
             <option value="used">按已用次数</option>
             <option value="label">按标签</option>
+            <option value="lastUsed">按最后使用</option>
+            <option value="voice">按语音用量</option>
           </select>
-          <label class="inline-check"><input type="checkbox" id="onlyAlive"> 只看还能用的</label>
+          <select id="filterSelect">
+            <option value="all">全部</option>
+            <option value="usable">还能用的（聊天）</option>
+            <option value="voice">还能发语音的</option>
+            <option value="empty">额度用完的</option>
+            <option value="expired">已到期的</option>
+            <option value="disabled">已停用的</option>
+          </select>
         </div>
       </div>
       <p class="muted" id="cardsSummary">正在读取…</p>
-      <div id="usageBox" class="usage-box" hidden></div>
       <div class="table-wrap">
         <table id="cardTable">
           <thead>
             <tr>
-              <th>标签</th><th>卡id</th><th>已用 / 上限</th><th>token 已用</th>
-              <th>到期</th><th>最后使用</th><th>状态</th><th>操作</th>
+              <th>标签</th><th>卡id</th><th>聊天（已用 / 上限）</th><th>token 已用</th>
+              <th>语音（已用 / 上限）</th><th>语音字数</th><th>到期</th><th>最后使用</th>
+              <th>聊天可用</th><th>语音可用</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="cardRows"></tbody>
         </table>
       </div>
+      <p class="muted" id="cardsEmpty" hidden></p>
     </section>
 
+    <!-- ④ 卡详情 -->
+    <section class="card" id="detailCard" hidden>
+      <div class="card-head">
+        <h2>卡详情</h2>
+        <div class="actions">
+          <span class="muted" id="detailTitle"></span>
+          <button type="button" class="btn" id="detailClose">收起</button>
+        </div>
+      </div>
+      <div id="detailBody"></div>
+    </section>
+
+    <!-- ⑤ 批量操作 -->
+    <section class="card">
+      <div class="card-head">
+        <h2>批量操作</h2>
+        <span class="muted">先「查看影响」再执行：批量操作是不可撤销的，看清楚是哪几张卡。</span>
+      </div>
+      <div class="form-grid">
+        <label>操作
+          <select id="batchAction">
+            <option value="extend">给符合条件的卡加额度 / 续期</option>
+            <option value="disable">停用（可恢复）</option>
+            <option value="enable">恢复启用</option>
+          </select>
+        </label>
+        <label>选哪些卡
+          <select id="batchScope">
+            <option value="filtered">当前筛选/搜索出来的卡</option>
+            <option value="low">聊天额度快用完的（剩 ≤ 5 次）</option>
+            <option value="expiring">7 天内到期的</option>
+            <option value="disabled">已停用的</option>
+          </select>
+        </label>
+        <label>聊天次数上限（新值）<input type="number" id="batchCalls" min="0" step="10" placeholder="不改就留空"></label>
+        <label>语音字数上限（新值）<input type="number" id="batchVoiceChars" min="0" step="1000" placeholder="不改就留空"></label>
+        <label>再给几天<input type="number" id="batchDays" min="0" step="1" placeholder="不改就留空"></label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="batchPreview">查看影响</button>
+        <button type="button" class="btn danger" id="batchRun" disabled>执行</button>
+      </div>
+      <p class="muted" id="batchResult"></p>
+    </section>
+
+    <!-- ⑥ 本机留底 -->
     <section class="card">
       <div class="card-head">
         <h2>本机留底</h2>
@@ -83,11 +179,13 @@
       <p class="muted" id="recordHint"></p>
     </section>
 
+    <!-- ⑦ 中转自检 -->
     <section class="card">
       <div class="card-head"><h2>中转自检</h2></div>
       <div class="actions">
         <button type="button" class="btn" id="selftestStore">账本自检</button>
         <button type="button" class="btn" id="selftestUpstream">上游自检</button>
+        <button type="button" class="btn" id="selftestVoice">语音配置（只读，不合成）</button>
         <span class="muted" id="selftestResult"></span>
       </div>
     </section>

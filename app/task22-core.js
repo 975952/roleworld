@@ -16,6 +16,12 @@
 })(typeof self !== "undefined" ? self : (typeof globalThis !== "undefined" ? globalThis : this), function () {
   "use strict";
 
+  /* 跨端取全局对象：浏览器里是 window、Node 里是 globalThis。
+   * ⚠ 不要写 `global.` 或裸 `window.`：这个文件是**双端**的
+   * （Node 里 `global` 有、`window` 没有；浏览器里反过来），
+   * 写错的那一端一跑到这行就抛 "xxx is not defined" —— 冒烟测试抓到过一次。 */
+  const GLOBAL = typeof globalThis !== "undefined" ? globalThis : (typeof self !== "undefined" ? self : this);
+
   /* ---------- 双引擎元数据（A/B 均保留，用户切换；真实模型重载见 TUNNEL_AND_CONNECT.md） ---------- */
   const ENGINES = {
     A: { id: "A", name: "Qwen3.8-27B", label: "A · Qwen3.8-27B", detail: "稳健叙事", available: true },
@@ -307,17 +313,31 @@
     }
     const language = cardLanguageOf(card);
     if (language === "zh") {
-      return "[Language] 这个角色说简体中文。即使玩家用别的语言说话，也用中文回答；绝不为了配合玩家切换语言。";
+      // 2026-09-14 补两句（用户："语言是角色交流规则，不应随用户某一句输入自动切换"）：
+      //   · 输入别的语言也不跟着换；
+      //   · **不要整句/整段换成另一种语言**（专有名词照写 —— 否则模型会把 Hermione 硬翻成"赫敏"，
+      //     或者把 iPhone 写成"苹果手机"，读起来很怪；这条是让它别把"不混用"理解成"不许出现拉丁字母"）。
+      return "[Language] 这个角色说简体中文。即使玩家用别的语言说话，也用中文回答；"
+        + "不要因为玩家这一句用了英文就跟着切换语言（不要换成英文），也不要整句整段地换成另一种语言。"
+        + "人名、品牌名、缩写（Hermione、iPhone、API 这类）照原样写，不必翻译。";
     }
     if (language === "en") {
       return "[Language] This character speaks English only. Reply in English even when the player writes in "
-        + "another language (such as Chinese). Never switch languages to match the player.";
+        + "another language (such as Chinese), and never switch languages to match the player. "
+        + "Do not switch a whole sentence or paragraph into another language; proper nouns, brand names and "
+        + "acronyms (Hermione, iPhone, API) stay as they are.";
     }
     return "";
   }
 
-  /** 角色卡的语言设置：先看 CCv3 的 extensions.task29.language，再看顶层 language。 */
+  /** 角色卡的语言设置：先看 CCv3 的 extensions.task29.language，再看顶层 language。
+   *  归一化统一走 `app/language-core.js`（`zh-Hans` / `chinese` / `英文` 这类写法都认）——
+   *  提示词这一侧与"真要拿去合成语音"那一侧必须用同一份判断，各写一套一定会飘。 */
   function cardLanguageOf(card) {
+    const Language = GLOBAL && GLOBAL.RoleWorldLanguage;
+    if (Language && typeof Language.declaredLanguageOfCard === "function") {
+      try { return Language.declaredLanguageOfCard(card); } catch (_) { /* 落到下面的本地兜底 */ }
+    }
     const nested = card && card.data && card.data.extensions && card.data.extensions.task29
       ? card.data.extensions.task29.language : null;
     if (nested === "zh" || nested === "en") return nested;
@@ -547,10 +567,24 @@
     let out = String(text === undefined || text === null ? "" : text);
     for (let i = 0; i < 3; i += 1) {
       let next = out.replace(PARTIAL_MEMORY_MARKER_RE, "").replace(PARTIAL_SEARCH_MARKER_RE, "").replace(PARTIAL_EVENT_MARKER_RE, "");
+      // 表情标记同理：`[[表情: 开` 停在半截时不能当正文显示、也不能进记录。
+      if (GLOBAL.RoleWorldStickers) next = GLOBAL.RoleWorldStickers.stripPartialStickerMarkers(next);
+      // 语音标记同理（2026-09-14）：`[[语` 停在半截时不能当正文显示、也不能进聊天记录。
+      if (GLOBAL.RoleWorldVoice && typeof GLOBAL.RoleWorldVoice.stripPartialVoiceMarker === "function") {
+        next = GLOBAL.RoleWorldVoice.stripPartialVoiceMarker(next);
+      }
       if (next === out) break;
       out = next;
     }
     return out;
+  }
+
+  /** 把**写完整**的表情标记从正文里去掉（不解析、不看装了哪些表情）。
+   *  渲染与保存都用它：标记是给系统读的，任何时候都不该出现在气泡里。 */
+  function stripStickerMarkers(text) {
+    const source = String(text === undefined || text === null ? "" : text);
+    if (!GLOBAL.RoleWorldStickers) return source;
+    return GLOBAL.RoleWorldStickers.extractStickers(source, []).text;
   }
 
   /** 从回复里剥出记忆标记。返回清理后的正文与要点数组。
@@ -636,6 +670,19 @@
     if (options && options.autoMemory === true) {
       parts.push({ kind: "blank", text: "" });
       parts.push({ kind: "memory-instruction", label: "记忆指令", text: memoryInstruction(cardField(card, "name"), { events: options.autoEventMemory !== false }) });
+    }
+    // 表情包：**只在装了表情、且用户没关掉时**才教它写标记（options.stickers 由调用方给，
+    // 空数组 = 不注入；见 adapter/stickers.js 的 availableStamps）。
+    if (options && Array.isArray(options.stickers) && options.stickers.length && GLOBAL.RoleWorldStickers) {
+      const line = GLOBAL.RoleWorldStickers.stickerInstruction(options.stickers, { lang: forcedLanguage(options) });
+      if (line) parts.push({ kind: "sticker-instruction", label: "表情指令", text: line });
+    }
+    // 每条消息的时间说明（2026-09-18 用户要求：「每条消息的时间也要加进给模型的提示里」）。
+    // 它必须**在这里**拼进系统提示：`describeRequest`（「本次请求」面板）是按这一份构件清单
+    // 重建系统提示再逐字节核对的 —— 在 composeMessages 里另加一句会让核对当场变红
+    // （实测就是这么抓到的：面板报"分段之和与真正发出的请求不一致"）。
+    if (options && options.messageTimeLine) {
+      parts.push({ kind: "message-times", label: "消息时间说明", text: String(options.messageTimeLine) });
     }
     // 安全兜底放最后一块（模型对靠后的规则最敏感），但仍在"回复格式"之前。
     parts.push({ kind: "blank", text: "" });
@@ -828,18 +875,59 @@
   /** 0.1.24~0.1.26 只做全中文，这个名字留着给老引用用。 */
   const FULL_CHINESE_REMINDER = LANGUAGE_REMINDERS.zh;
 
+  /* ---------- 每条消息的时间（2026-09-18 用户要求） ----------
+   * 用户原话：「每条消息的时间也要加进给模型的提示里」。以前只有「上次说到」用了时间戳，
+   * 消息本身没有时间 —— 模型不知道"这句话是三天前说的还是刚说的"。
+   *
+   * 三条口径（都写在这里，别在别处再写第二套）：
+   *   ① **格式就一处**：`[MM-DD HH:MM]`，`messageTimePrefix()` 是唯一实现，
+   *      同时给 `composeMessages`（真正发出去的请求体）与「本次请求」面板用；
+   *   ② **老存档没有 send_date 就不加**（用户既有口径：没有就留空，绝不编一个时间）；
+   *   ③ 时间一律按**本机时区**格式化 —— 这是"用户那边几点"，
+   *      换算 UTC 反而会让模型把"半夜三点"看成"下午五点"。
+   */
+  function messageTimePrefix(sendDate) {
+    const core = GLOBAL.ROLEWORLD_COMPANION_CORE;
+    if (core && typeof core.messageTimePrefix === "function") {
+      try { return core.messageTimePrefix(sendDate); } catch (_) { /* 走到下面的自带实现 */ }
+    }
+    const raw = String(sendDate === undefined || sendDate === null ? "" : sendDate).trim();
+    if (!raw) return "";
+    const date = new Date(raw);
+    if (isNaN(date.getTime())) return "";
+    const pad = (n) => (n < 10 ? "0" + n : String(n));
+    return "[" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+      + " " + pad(date.getHours()) + ":" + pad(date.getMinutes()) + "]";
+  }
+
+  /** 带过时间（且本机时区）时，在系统提示里用**一句话**说明那些前缀是什么。 */
+  function historyTimeLine(history) {
+    const has = (Array.isArray(history) ? history : [])
+      .some((h) => h && messageTimePrefix(h.send_date));
+    if (!has) return "";
+    return "[Message times] 旧对话每一条开头的 [MM-DD HH:MM] 是它发出的本机时间（按时间先后排列）。"
+      + " Each past message starts with its local send time.";
+  }
+
   function composeMessages(card, memoryBooks, history, userText, options) {
-    const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, options) }];
+    const opts = Object.assign({}, options || {});
+    const timeOn = opts.messageTimes !== false;
+    // 时间说明交给 `systemPromptParts` 拼（**不许**在这里往 msgs[0] 上追加 —— 那样
+    // 「本次请求」面板重建出来的系统提示会短一段，逐字节核对立刻变红）。
+    opts.messageTimeLine = timeOn ? historyTimeLine(history) : "";
+    const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, opts) }];
     for (const turn of parseExample(cardField(card, "mes_example"))) msgs.push(turn);
     for (const h of (history || [])) {
       if (!h || typeof h.mes !== "string" || !h.mes) continue;
-      msgs.push({ role: h.is_user ? "user" : "assistant", content: h.mes });
+      // ⚠ 只改**发出去的那一份**；侧栏、存档里的 `mes` 一个字都不动（下面 push 的是新对象）。
+      const prefix = timeOn ? messageTimePrefix(h.send_date) : "";
+      msgs.push({ role: h.is_user ? "user" : "assistant", content: prefix ? prefix + " " + h.mes : h.mes });
     }
     // 强制语言时：在**用户这句话之前**再插一条系统提醒。
     // 为什么非要这么近：系统提示在最前面，整段历史都是英文时，模型会跟着历史继续说英文
     // （用户 2026-09-12 连着两次反馈"还是英文"）。放在这里离当前这句最近，效果最直接。
     // 不塞进 user 消息里 —— 那会污染"用户原话"，记忆来源与改口解析都靠它。
-    const reminder = LANGUAGE_REMINDERS[forcedLanguage(options)] || "";
+    const reminder = LANGUAGE_REMINDERS[forcedLanguage(opts)] || "";
     if (reminder) msgs.push({ role: "system", content: reminder });
     msgs.push({ role: "user", content: userText });
     return msgs;
@@ -873,6 +961,12 @@
           language: opts.language,
           extraSystem: opts.extraSystem,
           purpose: profile.purpose,
+          // 表情包：调用方传进来的可用表情（空数组 = 不注入表情指令）。
+          // 漏了这一行的话"装了表情但模型永远不发"—— 和 0.1.24 那次
+          // language 选项被丢掉是同一类 bug（端到端用例当场抓到过）。
+          stickers: opts.stickers,
+          // 每条消息的时间：默认开（2026-09-18 用户要求），`false` 只给"要逐字节对齐老请求"的用例用。
+          messageTimes: opts.messageTimes !== false,
         }),
         // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
         model: (opts.modelName && String(opts.modelName).trim()) || mode,
@@ -895,6 +989,8 @@
         language: opts.language,
         extraSystem: opts.extraSystem,
         purpose: profile.purpose,
+        stickers: opts.stickers,
+        messageTimes: opts.messageTimes !== false,
       }),
       model: "local",
       chat_completion_source: "custom",
@@ -922,7 +1018,13 @@
     const card = options.card;
     const memoryBooks = options.memoryBooks || [];
     const autoMemory = options.autoMemory === true;
-    const realMessages = options.messages || composeMessages(card, memoryBooks, options.history, options.userText, { autoMemory });
+    const realMessages = options.messages || composeMessages(card, memoryBooks, options.history, options.userText, {
+      autoMemory,
+      messageTimes: options.messageTimes !== false,
+      // 面板重建的系统提示要**逐字节等于**真正发出去的那一份，所以时间说明那一块也要带上
+      // （由 composeMessages 用同一个 historyTimeLine 算出来，不在这里另写一套）。
+      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history),
+    });
 
     const pricing = (typeof globalThis !== "undefined" && globalThis.RoleWorldPricing) || null;
     const countTokens = (text) => {
@@ -946,6 +1048,11 @@
       language: options.language,
       fullChinese: options.fullChinese === true,
       purpose: options.purpose,
+      // 表情指令同样是系统提示里的一块：不带上的话面板重建出来的提示词会短一段，
+      // 逐字节核对立刻变红（这条自检就是这么抓到这个 bug 的）。
+      stickers: options.stickers,
+      // 消息时间说明那一块（2026-09-18）：同上，漏掉就"分段之和与真正发出的请求不一致"。
+      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history),
     });
     const systemRows = [];
     let pending = [];
@@ -1043,6 +1150,23 @@
     group("history", `旧对话（最近 ${history.length} 条）`, historyStart, reminderStart);
     if (reminderCount) group("language-reminder", "语言提醒（贴近本轮输入）", reminderStart, inputStart);
     group("input", "本轮输入", inputStart, inputStart + 1);
+
+    // ②b 消息时间（2026-09-18）：历史里每条的 `[MM-DD HH:MM]` 前缀是**发出去的请求体**里的一部分，
+    // 但系统提示里那句说明已经算在"系统提示"那一段里了（见 systemPromptParts 的 messageTimeLine）。
+    // 这里只补**每条消息上的前缀**：不补的话 totalChars/totalTokens 会少算，
+    // 面板的"合计"就与真正发出去的不是一个数。
+    if (options.messageTimes !== false) {
+      const prefixChars = history.reduce((sum, h) => sum + (messageTimePrefix(h.send_date) ? messageTimePrefix(h.send_date).length + 1 : 0), 0);
+      if (prefixChars > 0) {
+        segments.push({
+          kind: "message-times",
+          label: "消息时间（每条消息前缀）",
+          chars: prefixChars,
+          tokens: prefixChars,
+          items: history.filter((h) => messageTimePrefix(h.send_date)).length,
+        });
+      }
+    }
 
     // ③ 一致性核对（两条都必须为真，否则面板显示的内容就不可信）：
     //    ① 系统提示逐字节对得上（面板上的细分加起来 == 真正发出去的系统提示）；
@@ -1727,9 +1851,12 @@
     parseExample,
     composeMessages,
     buildGeneratePayload,
+    messageTimePrefix,
+    historyTimeLine,
     parseGenerateResponse,
     extractMemory: extractMemories,
     extractSearchRequests,
+    stripStickerMarkers,
     searchInstruction,
     stripPartialMemoryMarkers,
     SEARCH_REQUEST_LIMIT,

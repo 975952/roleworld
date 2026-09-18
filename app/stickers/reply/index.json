@@ -1,0 +1,130 @@
+{
+  "id": "reply",
+  "label": "应答",
+  "description": "应答类表情：点头、摇头、递东西这类「动作型」反应，适合不爱夸张的角色。",
+  "stamps": [
+    {
+      "id": "nod",
+      "name": "点头",
+      "file": "nod.svg",
+      "tags": [
+        "同意",
+        "好的",
+        "nod",
+        "yes"
+      ],
+      "aliases": [
+        "nod",
+        "agree",
+        "yes"
+      ]
+    },
+    {
+      "id": "shake",
+      "name": "摇头",
+      "file": "shake.svg",
+      "tags": [
+        "不行",
+        "拒绝",
+        "no",
+        "shake"
+      ],
+      "aliases": [
+        "shake head",
+        "no",
+        "refuse"
+      ]
+    },
+    {
+      "id": "wave",
+      "name": "挥手",
+      "file": "wave.svg",
+      "tags": [
+        "打招呼",
+        "再见",
+        "hi",
+        "bye"
+      ],
+      "aliases": [
+        "wave",
+        "hi",
+        "hello",
+        "bye"
+      ]
+    },
+    {
+      "id": "hug",
+      "name": "抱抱",
+      "file": "hug.svg",
+      "tags": [
+        "拥抱",
+        "安慰",
+        "hug"
+      ],
+      "aliases": [
+        "hug",
+        "embrace",
+        "comfort"
+      ]
+    },
+    {
+      "id": "cheer",
+      "name": "加油",
+      "file": "cheer.svg",
+      "tags": [
+        "鼓励",
+        "fighting",
+        "cheer"
+      ],
+      "aliases": [
+        "cheer",
+        "go for it",
+        "rooting"
+      ]
+    },
+    {
+      "id": "question",
+      "name": "疑问",
+      "file": "question.svg",
+      "tags": [
+        "不解",
+        "问",
+        "what"
+      ],
+      "aliases": [
+        "question",
+        "confused look"
+      ]
+    },
+    {
+      "id": "idea",
+      "name": "想到了",
+      "file": "idea.svg",
+      "tags": [
+        "灵感",
+        "灯泡",
+        "idea"
+      ],
+      "aliases": [
+        "idea",
+        "eureka",
+        "got it"
+      ]
+    },
+    {
+      "id": "clap",
+      "name": "鼓掌",
+      "file": "clap.svg",
+      "tags": [
+        "好耶",
+        "厉害",
+        "clap"
+      ],
+      "aliases": [
+        "clap",
+        "applause",
+        "bravo"
+      ]
+    }
+  ]
+}

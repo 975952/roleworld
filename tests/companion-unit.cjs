@@ -434,6 +434,69 @@ async function main() {
     assert.deepEqual(Companion.lintCrisisReply("我在。要不要跟身边信得过的人说一声？"), [], "正常回应不该被误判");
   });
 
+  /* ------------------------------------------------------------------ *
+   * 「谁能开伴侣、谁能发语音」（2026-09-14 用户拍板）
+   *
+   * 用户原话：「小说人物不设置伴侣，不设置语音，只有定制人物加上伴侣身份再打开语音。
+   * 其他都是聊天，而且伴侣应该还分为带动作的就是普通模式和软件聊天模式，
+   * 就是没有动作，并且可以语音，其他的都不做语音。」
+   * 规则只有这两个函数判一次，界面 / 提示词 / 合成前三处都调它们 —— 所以在这里钉死。
+   * ------------------------------------------------------------------ */
+
+  console.log("== 谁能开伴侣、谁能发语音（2026-09-14 用户拍板）==");
+
+  await test("内置小说人物：伴侣模式不给开（但档案不删，是调用方的事）", () => {
+    const blocked = Companion.companionAccess({ isBuiltin: true });
+    assert.equal(blocked.allowed, false);
+    assert.ok(blocked.reason.indexOf("内置") >= 0, "拒绝的理由要写清是内置小说人物：" + blocked.reason);
+    assert.equal(Companion.companionAccess({ isBuiltin: false }).allowed, true, "定制角色应当能开伴侣");
+  });
+
+  await test("语音：只挡内置小说人物；朋友（没开伴侣）也能发语音", () => {
+    // 2026-09-16 规则变更（ROLEWORLD_PRODUCT_DESIGN.md §1/§3）：
+    //   「**朋友也可以发语音**。这条正式替换旧的『必须先开伴侣才能发语音』规则。」
+    //   「开启声音不得自动改变关系或模式。」
+    // 所以旧断言（没开伴侣 = NO_COMPANION、带动作 = NOT_PLAIN）已经不成立，这里按新规则钉。
+    const builtin = Companion.voiceAccess({ isBuiltin: true, profile: { enabled: true, chatStyle: "plain" } });
+    assert.equal(builtin.allowed, false, "内置小说人物不发语音");
+    assert.equal(builtin.code, "BUILTIN_CHARACTER");
+    assert.ok(builtin.reason.indexOf("自定义") >= 0 || builtin.reason.indexOf("创建角色") >= 0,
+      "要给一条出路（去建自己的角色）：" + builtin.reason);
+
+    // 朋友（自己建的角色、没开伴侣）→ 可以发语音。
+    const friend = Companion.voiceAccess({ isBuiltin: false, avatar: "朋友.png", profile: { enabled: false, chatStyle: "action" } });
+    assert.equal(friend.allowed, true, "朋友（没开伴侣）应当能发语音：" + JSON.stringify(friend));
+    assert.equal(friend.code, "");
+
+    // 伴侣 + 日常聊天 → 当然也可以。
+    const ok = Companion.voiceAccess({ isBuiltin: false, avatar: "伴侣.png", profile: { enabled: true, chatStyle: "plain" } });
+    assert.equal(ok.allowed, true, "定制角色 + 伴侣 + 日常聊天应当有语音：" + JSON.stringify(ok));
+    assert.equal(ok.code, "");
+
+    // 没角色 → 明确拒绝（界面据此说"先选一个角色"）。
+    const nobody = Companion.voiceAccess({ isBuiltin: false, profile: {} });
+    assert.equal(nobody.allowed, false);
+    assert.equal(nobody.code, "NO_CHARACTER");
+
+    // 缺省（老档案没有 chatStyle）默认还是"带动作"那一档 —— 老用户不会莫名其妙换写法。
+    assert.equal(Companion.normalizeProfile({ enabled: true }).chatStyle, "action");
+    assert.equal(Companion.isPlainChat({ enabled: true }), false);
+    assert.equal(Companion.isPlainChat({ enabled: true, chatStyle: "plain" }), true);
+    // 界面上怎么叫（文档 §5：不许再出现"软件聊天（无动作）"）。
+    assert.equal(Companion.chatStyleLabel({ chatStyle: "plain" }), "日常聊天");
+    assert.equal(Companion.chatStyleLabel({ chatStyle: "action" }), "剧情对话");
+    assert.equal(Companion.chatStyleLabel({ enabled: true }), "剧情对话");
+  });
+
+  await test("聊天方式：只有两个档，写歪的值一律回到「带动作」（老存档的行为不变）", () => {
+    assert.deepEqual(Companion.CHAT_STYLES.slice().sort(), ["action", "plain"]);
+    for (const raw of [undefined, null, "", "PLAIN", "software", 3, {}, "action"]) {
+      assert.equal(Companion.normalizeProfile({ chatStyle: raw }).chatStyle, "action",
+        "写歪的 chatStyle 应当回到默认那一档：" + JSON.stringify(raw));
+    }
+    assert.equal(Companion.normalizeProfile({ chatStyle: "plain" }).chatStyle, "plain");
+  });
+
   console.log("");
   console.log(failures ? `COMPANION_UNIT=${results.length - failures}/${results.length}（有 ${failures} 项不达标）` : `COMPANION_UNIT=${results.length}/${results.length}`);
   process.exit(failures ? 1 : 0);

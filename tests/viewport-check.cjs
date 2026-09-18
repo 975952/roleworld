@@ -199,6 +199,14 @@ async function main() {
       overflow,
       input: box('#messageInput'),
       send: box('#sendButton'),
+      sendDiag: (() => {
+        const n = document.querySelector('#sendButton');
+        if (!n) return { missing: true };
+        const style = getComputedStyle(n);
+        return { hidden: n.hidden, display: style.display, visibility: style.visibility, mode: n.dataset.mode,
+          disabled: n.disabled, value: (document.querySelector('#messageInput') || {}).value,
+          probe: window.__rwComposerProbe || null, cls: n.className };
+      })(),
       flag: box('.message-flag'),
       flagCount: document.querySelectorAll('.message-flag').length,
     };
@@ -210,6 +218,85 @@ async function main() {
     await open(viewport);
     await sendOnce();
 
+    await check(`${viewport.label}：输入条是微信式的那一行，控件都点得到`, async () => {
+      // 2026-09-18 用户指定的形态：[语音(麦克风)] [输入框] [表情] [+]，右边那颗按需变成发送。
+      // 这条量的是**几何**：四个控件都在输入条那一行里、彼此不重叠、中心点命中测试都落在自己身上
+      // （"看得见、点不到"是这个项目里最常见的一类 bug）。
+      const row = await evaluate(`(() => {
+        const hit = (sel) => {
+          const node = document.querySelector(sel);
+          if (!node) return { sel, missing: true };
+          const r = node.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) return { sel, hidden: true };
+          const cx = Math.round(r.left + r.width / 2);
+          const cy = Math.round(r.top + r.height / 2);
+          const top = document.elementFromPoint(cx, cy);
+          return { sel, w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right),
+            reachable: !!(top && (top === node || node.contains(top))) };
+        };
+        return {
+          plus: hit('#composerPlusButton'),
+          sticker: hit('#stickerButton'),
+          rowTop: Math.round((document.querySelector('.composer-row') || { getBoundingClientRect: () => ({ top: 0 }) }).getBoundingClientRect().top),
+          plusRowTop: Math.round(document.querySelector('#composerPlusButton').getBoundingClientRect().top),
+          crossAxis: Math.abs(Math.round(document.querySelector('#messageInput').getBoundingClientRect().top)
+            - Math.round(document.querySelector('#composerPlusButton').getBoundingClientRect().top)),
+        };
+      })()`);
+      assert(!row.plus.missing && !row.plus.hidden, "「+」不在输入条里：" + JSON.stringify(row.plus));
+      // 「+」在手机上要够大好点（与 mic / sticker 同一档 44px）。
+      assert(row.plus.w >= 30 && row.plus.h >= 30, "「+」太小，手指点不准：" + JSON.stringify(row.plus));
+      assert(row.plus.reachable, "「+」点不到（被别的元素盖住）：" + JSON.stringify(row.plus));
+      assert(row.plusRowTop >= row.rowTop - 2, "「+」跑到输入条上面去了：" + JSON.stringify(row));
+    });
+
+    await check(`${viewport.label}：打字后发送键出现、「+」让位（发送键按需出现）`, async () => {
+      const probe = await evaluate(`(() => {
+        const send = document.querySelector('#sendButton');
+        const plus = document.querySelector('#composerPlusButton');
+        const input = document.querySelector('#messageInput');
+        const box = (n) => { const r = n.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const empty = { send: send.hidden, plus: plus.hidden };
+        input.value = '在吗';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const typed = { send: send.hidden, plus: plus.hidden, sendBox: box(send) };
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return { empty, typed, cleared: { send: send.hidden, plus: plus.hidden } };
+      })()`);
+      assert(probe.empty.send === true && probe.empty.plus === false, "空着时应当只有「+」：" + JSON.stringify(probe));
+      assert(probe.typed.send === false && probe.typed.plus === true, "有字时发送键必须出现、且「+」让位：" + JSON.stringify(probe));
+      assert(probe.typed.sendBox.w >= 28, "出现的发送键太小：" + JSON.stringify(probe));
+      assert(probe.cleared.send === true && probe.cleared.plus === false, "删空之后应当换回「+」：" + JSON.stringify(probe));
+    });
+
+    await check(`${viewport.label}：输入框随字长变高，封顶后自己滚`, async () => {
+      const grow = await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        const set = (text) => { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); return Math.round(input.getBoundingClientRect().height); };
+        const one = set('一句');
+        const three = set('第二句长一点\\n第二行\\n第三行');
+        // ⚠ 这段必须**足够长**（几百字在宽屏上还没到 160px 上限，量不出"封顶"）——
+        //   2000 个字在五个视口上都一定超过上限。
+        const many = set('长'.repeat(2000));
+        const max = Math.round(parseFloat(getComputedStyle(input).maxHeight));
+        // ⚠ 要在**还留着那段长文本时**读 overflowY：下面清空输入框之后它当然会变回 hidden。
+        const overflowWhenFull = getComputedStyle(input).overflowY;
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const overflowWhenEmpty = getComputedStyle(input).overflowY;
+        return { one, three, many, max, overflowWhenFull, overflowWhenEmpty };
+      })()`);
+      assert(grow.three > grow.one, "输入框没有随行数变高：" + JSON.stringify(grow));
+      assert(grow.many > grow.three, "输入框没有随字长继续变高：" + JSON.stringify(grow));
+      assert(grow.many <= grow.max + 2, "输入框超过了 CSS 上限（会顶掉整个界面）：" + JSON.stringify(grow));
+      assert(grow.overflowWhenFull === "auto" || grow.overflowWhenFull === "scroll",
+        "封顶之后必须能自己滚，否则多出来的字看不见：" + JSON.stringify(grow));
+      assert(grow.overflowWhenEmpty === "hidden", "短文本时不该出现滚动条：" + JSON.stringify(grow));
+    });
+
     await check(`${viewport.label}：没有横向溢出`, async () => {
       const probe = await layoutProbe();
       const slack = viewport.width < 500 ? 2 : 4; // 亚像素容差
@@ -217,12 +304,36 @@ async function main() {
         `横向溢出 ${probe.overflow}px（视口 ${probe.innerWidth}）`);
     });
 
-    await check(`${viewport.label}：输入框与发送键在视口内、可用`, async () => {
+    await check(`${viewport.label}：输入框与发送键在视口内、可用（发送键按需出现）`, async () => {
+      // 2026-09-18 用户要求「发送键按需出现」：空着的时候那一格是「+」，有字才变成发送，
+      // 生成中它是「停止」。所以**空着量发送键**量不到东西 —— 先打一句草稿再量，
+      // 同时钉住那条规则本身（空着时它必须在，且「+」在）。
+      const afford = await evaluate(`(() => {
+        const send = document.querySelector('#sendButton');
+        const plus = document.querySelector('#composerPlusButton');
+        const box = (n) => { const r = n.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
+        return { sendHidden: send.hidden, plusHidden: plus.hidden, send: box(send), plus: box(plus) };
+      })()`);
+      assert(afford.sendHidden === true, "空着输入框时发送键不该出现（那一格是「+」）：" + JSON.stringify(afford));
+      assert(afford.plusHidden === false && afford.plus.w >= 20 && afford.plus.h >= 20,
+        "空着时「+」必须可见可点：" + JSON.stringify(afford));
+
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = '布局回归用的一句话';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
       const probe = await layoutProbe();
       assert(probe.input && probe.input.h >= 28, "输入框高度异常：" + JSON.stringify(probe.input));
-      assert(probe.send && probe.send.w >= 28, "发送键太小或不存在：" + JSON.stringify(probe.send));
+      assert(probe.send && probe.send.w >= 28, "有草稿时发送键太小或不存在：" + JSON.stringify(probe.send) + " / " + JSON.stringify(probe.sendDiag));
       assert(probe.send.bottom <= probe.innerHeight + 1, "发送键超出视口底部：" + JSON.stringify(probe.send));
       assert(probe.input.bottom <= probe.innerHeight + 1, "输入框超出视口底部：" + JSON.stringify(probe.input));
+      // 输入框要**贴屏幕下侧**（用户 2026-09-18：「输入框要贴屏幕下侧」，底下那一栏已经删掉）。
+      assert(probe.input.bottom >= probe.innerHeight - 90,
+        "输入框离屏幕下侧太远（底下已经没有那一栏了）：" + JSON.stringify({ inputBottom: probe.input.bottom, innerHeight: probe.innerHeight }));
+      // 量完把草稿清掉，别影响后面的用例。
+      await evaluate(`(() => { const i = document.querySelector('#messageInput'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
     });
 
     // 用户 2026-09-12：「文字还是会超出输入框」。
@@ -354,27 +465,34 @@ async function main() {
 
     await check(`${viewport.label}：「本次请求」和发送键不挤在一起`, async () => {
       // 用户 2026-09-12：「手机版的本次请求离那个发送按钮太近了」。
-      // 手机上 .composer-footer 原来是 gap:0 → 两者贴住。这里要求两者之间有实实在在的间距，
-      // 并且不重叠（矩形相交直接算失败）。
+      // 2026-09-18（微信式输入条）：两者不再贴在一起了 —— 「本次请求」收进「+」面板里，
+      // 发送键在另一头。这里改成量**现在的口径**：有草稿时发送键与输入框并排、不重叠、
+      // 在视口内；「本次请求」不再出现在输入条那一行上（那一行只留微信那四个控件）。
       const gapInfo = await evaluate(`(() => {
         const peek = document.querySelector('#requestPeekButton');
         const send = document.querySelector('#sendButton');
-        if (!peek || !send) return { missing: true };
-        if (peek.hidden || getComputedStyle(peek).display === 'none') return { peekHidden: true };
-        const a = peek.getBoundingClientRect();
+        const input = document.querySelector('#messageInput');
+        // ⚠ 只设值、**不派发 input**：派发 input 会顺带把「本次请求」露出来（有草稿就算），
+        //   而这条要量的正是"输入条那一行里没有它"。发送键那一侧由 updateComposerAffordances
+        //   直接读 value 判定，所以不派发也照样会变成发送（这也正是要钉的行为）。
+        input.value = '量一量间距';
+        window.TASK21.updateComposerAffordances();
+        const peekShown = !!peek && peek.hidden !== true && getComputedStyle(peek).display !== 'none';
         const b = send.getBoundingClientRect();
-        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-        const overlaps = overlapX > 1 && overlapY > 1;
-        // 同一个方向上的净间距：竖排取上下，横排取左右。
-        const vertical = overlapX > 1;
-        const gap = vertical ? Math.round(Math.min(Math.abs(b.top - a.bottom), Math.abs(a.top - b.bottom)))
-          : Math.round(Math.min(Math.abs(b.left - a.right), Math.abs(a.left - b.right)));
-        return { overlaps: overlaps, vertical: vertical, gap: gap, peek: [Math.round(a.left), Math.round(a.top), Math.round(a.width), Math.round(a.height)], send: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)] };
+        const c = input.getBoundingClientRect();
+        const overlapX = Math.min(c.right, b.right) - Math.max(c.left, b.left);
+        const overlapY = Math.min(c.bottom, b.bottom) - Math.max(c.top, b.top);
+        return {
+          peekShown: peekShown,
+          peekInRow: !!(peek && peek.closest('.composer-row')),
+          sendVisible: b.width > 0,
+          sendInViewport: b.right <= window.innerWidth + 1 && b.left >= -1 && b.bottom <= window.innerHeight + 1,
+          overlap: overlapX > 1 && overlapY > 1,
+        };
       })()`);
-      if (gapInfo.missing || gapInfo.peekHidden) return;   // 还没发过消息时这个入口不显示
-      assert(!gapInfo.overlaps, "「本次请求」和发送键重叠了：" + JSON.stringify(gapInfo));
-      assert(gapInfo.gap >= 6, "「本次请求」离发送键太近（" + gapInfo.gap + "px）：" + JSON.stringify(gapInfo));
+      assert(!gapInfo.peekShown, "「本次请求」不该再出现在输入条那一行上（已收进「+」面板）：" + JSON.stringify(gapInfo));      assert(gapInfo.sendVisible && gapInfo.sendInViewport, "有草稿时发送键必须可见且在视口内：" + JSON.stringify(gapInfo));
+      assert(!gapInfo.overlap, "发送键和输入框叠在一起了：" + JSON.stringify(gapInfo));
+      await evaluate(`(() => { const i = document.querySelector('#messageInput'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
     });
 
     await check(`${viewport.label}：「本次请求」弹层能开、能关、内容可滚动`, async () => {
@@ -546,40 +664,35 @@ async function main() {
       await waitFor("document.querySelector('#companionDialog').hidden === true", 8000);
     });
 
-    await check(`${viewport.label}：触屏上「记错 / 编造」按钮够大好点`, async () => {
-      const probe = await evaluate(`(() => {
-        const button = document.querySelector('.message-flag');
-        if (!button) return { exists: false };
-        const r = button.getBoundingClientRect();
-        const style = getComputedStyle(button);
-        return {
-          exists: true,
-          w: Math.round(r.width),
-          h: Math.round(r.height),
-          fontSize: parseFloat(style.fontSize) || 0,
-          opacity: parseFloat(style.opacity),
-          count: document.querySelectorAll('.message-flag').length,
-        };
-      })()`);
-      assert(probe.exists, "没有找到「记错 / 编造」按钮");
-      assert(probe.count >= 2, "标记按钮数量不对：" + probe.count);
-      // 命中区是最硬的判据：窄屏（可能用手指点）要 ≥44px。
-      // 刻意不把 opacity 当判据 —— 有些环境把 hover 报成 hover，媒体查询判不准；
-      // 而"够不够大好点"这件事只跟尺寸有关。
-      if (viewport.width <= 760) {
-        assert(probe.h >= 44 && probe.w >= 44,
-          "窄屏上标记按钮命中区不足 44px：" + JSON.stringify(probe));
-      } else {
-        assert(probe.h >= 20 && probe.w >= 20,
-          "桌面标记按钮命中区过小：" + JSON.stringify(probe));
-      }
+    await check(`${viewport.label}：取消记错 / 编造之后，消息旁不再有点不动的旧入口`, async () => {
+      // 用户 2026-09-18：「全局取消记错和编造」。这条原来量的是那两个按钮够不够大好点；
+      // 按钮取消之后改为量**它们不存在**（同一个检查位、不同的正确判据），
+      // 顺带确认消息行本身还在（否则"没有按钮"可能只是因为整页没画出来，那是假通过）。
+      const probe = await evaluate(`(() => ({
+        rows: document.querySelectorAll('#dynamicMessages .message-row-assistant').length,
+        boxes: document.querySelectorAll('.message-flags').length,
+        buttons: document.querySelectorAll('.message-flag').length,
+      }))()`);
+      assert(probe.rows > 0, "前置不成立：这一段对话里一条助手消息都没有：" + JSON.stringify(probe));
+      assert(probe.boxes === 0 && probe.buttons === 0,
+        "消息旁还有「记错 / 编造」的入口（已经取消了）：" + JSON.stringify(probe));
     });
 
-    // 设置面板：滚到底时最后一行不能被底部导航挡住。
+    // 设置面板：滚到底时最后一行不能被挡住。
     // 用户 2026-09-12 报了两次都没修好 —— 前两版把 padding 加在 .settings-scroll / .settings-body 上，
     // 这两个类名在 index.html 里根本不存在，等于没改。所以这里量的是**结果**：
     // 每个分区滚到底，最后可见元素的底边必须在底栏之上，且它中心点的命中测试要落在它自己身上。
-    await check(`${viewport.label}：设置每个分区滚到底，最后一行不被底部一栏挡住`, async () => {
+    // 2026-09-18：手机底部那一栏**已经删掉**（用户口径），所以"上面"的边界就是屏幕底边；
+    // 这一条同时钉住"底栏真的不在了"（它还留在 DOM 里但永远是 hidden）。
+    await check(`${viewport.label}：设置每个分区滚到底，最后一行不被挡住（底部那一栏已删）`, async () => {
+      const navGone = await evaluate(`(() => {
+        const nav = document.querySelector('.mobile-bottom-nav');
+        if (!nav) return { exists: false };
+        const style = getComputedStyle(nav);
+        return { exists: true, hidden: nav.hidden, display: style.display, height: Math.round(nav.getBoundingClientRect().height) };
+      })()`);
+      assert(navGone.exists === false || navGone.hidden === true || navGone.display === "none",
+        "手机底部那一栏还在显示（2026-09-18 用户要求删掉）：" + JSON.stringify(navGone));
       await evaluate(`(() => { const b = document.querySelector('[data-action="open-settings"]'); if (b) b.click(); return true; })()`);
       await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
       const sections = await evaluate(`Array.from(document.querySelectorAll('.settings-nav-item')).map((b) => b.dataset.settingsSection)`);
@@ -595,6 +708,12 @@ async function main() {
           const navVisible = nav && getComputedStyle(nav).display !== 'none';
           const navTop = navVisible ? Math.round(nav.getBoundingClientRect().top) : window.innerHeight;
           const panel = document.querySelector('[data-settings-panel="${section}"]');
+          // ⚠ 面板找不到时要说清"是哪一个、现有哪几个"，别让异常信息只剩一句 querySelectorAll。
+          if (!panel) {
+            return { section: '${section}', missing: true,
+              have: Array.from(document.querySelectorAll('[data-settings-panel]')).map((n) => n.dataset.settingsPanel),
+              nav: Array.from(document.querySelectorAll('[data-settings-section]')).map((n) => n.dataset.settingsSection) };
+          }
           const nodes = Array.from(panel.querySelectorAll('*')).filter((n) => {
             const r = n.getBoundingClientRect();
             const s = getComputedStyle(n);
@@ -617,6 +736,7 @@ async function main() {
           };
         })()`);
         if (row.empty) continue;
+        if (row.missing) { bad.push(row); continue; }
         if (row.hiddenBehindNav || !row.reachable) bad.push(row);
       }
       assert(bad.length === 0, "这些分区滚到底还是被挡住/点不到：" + JSON.stringify(bad));

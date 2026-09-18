@@ -16,11 +16,17 @@
  *   worlds      keyPath=name                   { name, entries:{ uid: {...} } }
  *   kv          keyPath=k                      { k, v }  —— 设置 / 档案 / 界面偏好
  *   blobs       keyPath=id                     { id, blob, type } —— 原始卡片文件、头像
+ *   voice       keyPath=id                     { id, base64, type, bytes, at, usedAt } —— 合成好的语音
+ *
+ * voice 这一本刻意**不进导出存档**：它是可以重新生成的派生数据（而且很占地方），
+ * 存档里带上它只会让"导出→发给别人"变得很笨重。
  */
 
 (function (global) {
   const DB_NAME = "roleworld";
-  const DB_VERSION = 1;
+  // 2 起有 voice 这一本（合成语音的缓存）。onupgradeneeded 只补缺失的存储，
+  // 老用户的数据（角色、对话、记忆）原样保留 —— 不需要写迁移代码。
+  const DB_VERSION = 2;
 
   const STORE_SPEC = {
     characters: { keyPath: ["avatar"] },
@@ -28,6 +34,7 @@
     worlds: { keyPath: ["name"] },
     kv: { keyPath: ["k"] },
     blobs: { keyPath: ["id"] },
+    voice: { keyPath: ["id"] },
   };
 
   const STORE_NAMES = Object.keys(STORE_SPEC);
@@ -415,6 +422,32 @@
     return "avatar:" + avatar;
   }
 
+  /* ---------------------------- 语音缓存 ---------------------------- */
+
+  async function putVoiceRecord(record) {
+    if (!record || !record.id) throw new Error("语音缓存记录缺少 id");
+    await put("voice", record);
+    return record;
+  }
+
+  async function getVoiceRecord(id) {
+    return (await get("voice", id)) || null;
+  }
+
+  async function removeVoiceRecord(id) {
+    await remove("voice", id);
+    return true;
+  }
+
+  async function listVoiceRecords() {
+    return getAll("voice");
+  }
+
+  async function clearVoiceRecords() {
+    await clear("voice");
+    return true;
+  }
+
   /* ---------------------------- 存档导出/导入 ---------------------------- */
 
   const EXPORT_STORES = ["characters", "chats", "worlds", "kv"];
@@ -531,6 +564,11 @@
     getBlob,
     removeBlob,
     avatarBlobId,
+    putVoiceRecord,
+    getVoiceRecord,
+    removeVoiceRecord,
+    listVoiceRecords,
+    clearVoiceRecords,
     exportAll,
     importAll,
     clearAll,

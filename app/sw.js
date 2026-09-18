@@ -16,7 +16,16 @@
 
 const CACHE_NAME = "roleworld-shell-v1";
 // 首次安装时先存下外壳；其余文件在第一次访问时顺手存。
-const PRECACHE = ["./", "./index.html", "./manifest.webmanifest"];
+// 表情包的两个清单也放进来：不然断网时角色发了个表情，界面只有一张破图
+// （表情图自己会在第一次显示时被顺手缓存，清单必须在装的时候就存下来）。
+const PRECACHE = [
+  "./",
+  "./index.html",
+  "./manifest.webmanifest",
+  "./stickers/index.json",
+  "./stickers/mood/index.json",
+  "./stickers/reply/index.json",
+];
 
 /**
  * 这确实是我们的应用页面吗？

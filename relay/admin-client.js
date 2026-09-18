@@ -92,6 +92,8 @@ function createAdminClient(options) {
     usage: async (days) => must("/admin/usage" + (days ? "?days=" + encodeURIComponent(days) : "")),
     setDisabled: async (id, disabled) => must(`/admin/cards/${encodeURIComponent(id)}/${disabled ? "disable" : "enable"}`, { method: "POST" }),
     revoke: async (id) => must(`/admin/cards/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    /** 语音配置（**只读**）：配没配凭据、有哪些音色、并发与上限。不联网、不合成、不花钱。 */
+    voiceConfig: async () => must("/admin/voice/config"),
     quota: async (token) => {
       const result = await call("/card/quota", { admin: false, headers: { Authorization: "Bearer " + token } });
       return result.body;

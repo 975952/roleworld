@@ -223,6 +223,162 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .assistant-bubble { color: var(--secondary-text); }
 .user-bubble { padding: 10px 14px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: var(--input-radius); background: var(--hover); }
 .narration-line { margin: 0 0 3px; color: var(--muted-text); font-size: 13px; font-style: italic; line-height: 1.65; white-space: pre-wrap; }
+/* 「角色语音」入口（输入框旁边）。
+   2026-09-16 按产品设计 §7 改版：**带文字的胶囊**，一直可见 ——
+   以前是"没配好就藏起来"的麦克风图标，用户根本不知道有语音这回事（实测："手机版语音一直是灰的"）。 */
+.reply-voice-toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; height: 30px; padding: 0 10px; gap: 6px; color: var(--muted-text); border: 1px solid var(--hairline, rgba(127,127,127,.28)); border-radius: 15px; background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, border-color var(--hover-motion) ease, background var(--hover-motion) ease; }
+.reply-voice-toggle .rw-voice-label { font-size: 12px; line-height: 1; white-space: nowrap; }
+.reply-voice-toggle.is-off { color: var(--main-text); border-style: dashed; }
+.reply-voice-toggle:hover:not(:disabled) { color: var(--main-text); background: var(--hover); }
+.reply-voice-toggle.is-on { color: var(--main-text); border-color: var(--main-text); background: var(--hover); }
+.reply-voice-toggle:disabled { color: var(--quiet-text); cursor: not-allowed; opacity: .55; }
+.reply-voice-toggle[hidden] { display: none; }
+
+/* 顶栏右上角的「设置」（手机版专用，2026-09-18 用户口径：「设置挪顶栏右上角」）。
+   桌面版不显示它：那里右边一列是 模型 / 语言 / 体验卡 / 记忆，而设置本来就在侧栏用户菜单里。 */
+.topbar-settings-button { display: none; flex: 0 0 auto; }
+@media (max-width: 760px) {
+  .topbar-settings-button { display: inline-flex; align-items: center; justify-content: center; width: var(--tap, 44px); height: var(--tap, 44px); color: var(--muted-text); border: 0; background: transparent; }
+  .topbar-settings-button:hover { color: var(--main-text); }
+  .topbar-settings-button svg { display: block; }
+}
+
+/* ---- 「开启角色语音」底部面板（2026-09-16 按产品设计 §7） ----
+   为什么要一个底部面板而不是跳设置：手机端 我的 → 设置 → 连接方式 要点三层，
+   用户实测就卡在"语音是灰的、根本不会开"。这里一次说完三件事（服务 / 声音 / 首次说明），
+   只有**一项主要操作**：同意并开启。 */
+.rw-voice-sheet-wrap { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end;
+  justify-content: center; padding: 0; background: rgba(6, 8, 12, .55); backdrop-filter: blur(2px); }
+.rw-voice-sheet { width: min(560px, 100%); max-height: 88vh; overflow: auto;
+  padding: 16px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-radius: 18px 18px 0 0; background: var(--panel, var(--canvas)); color: var(--main-text);
+  border: 1px solid var(--hairline, rgba(127,127,127,.28)); border-bottom: 0;
+  box-shadow: 0 -18px 50px rgba(0,0,0,.34); display: grid; gap: 14px; }
+.rw-voice-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rw-voice-sheet-head strong { font-size: 16px; }
+.rw-voice-sheet-close { width: 30px; height: 30px; border-radius: 15px; border: 0; cursor: pointer;
+  background: transparent; color: var(--muted-text); font-size: 20px; line-height: 1; }
+.rw-voice-sheet-close:hover { background: var(--hover); color: var(--main-text); }
+.rw-voice-sheet-section { display: grid; gap: 8px; padding-top: 12px;
+  border-top: 1px solid var(--hairline, rgba(127,127,127,.2)); }
+.rw-voice-sheet-section h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted-text); letter-spacing: .02em; }
+.rw-voice-sheet-note { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--muted-text); }
+.rw-voice-sheet-note.is-bad { color: var(--danger, #e06a6a); }
+.rw-voice-sheet-card { display: grid; gap: 8px; }
+.rw-voice-sheet-card input { padding: 9px 11px; border-radius: 10px; font: inherit; font-size: 14px;
+  border: 1px solid var(--hairline, rgba(127,127,127,.3)); background: var(--canvas); color: inherit; }
+.rw-voice-sheet-card input:focus { outline: 2px solid var(--accent, #6f8cff); outline-offset: 1px; }
+.rw-voice-sheet-voices { display: grid; gap: 6px; }
+.rw-voice-sheet-voice { display: grid; gap: 2px; text-align: left; padding: 9px 12px; cursor: pointer;
+  border-radius: 12px; background: transparent; color: inherit;
+  border: 1px solid var(--hairline, rgba(127,127,127,.26)); }
+.rw-voice-sheet-voice:hover { background: var(--hover); }
+.rw-voice-sheet-voice strong { font-size: 13.5px; font-weight: 600; }
+.rw-voice-sheet-voice span { font-size: 12px; color: var(--muted-text); }
+.rw-voice-sheet-voice.is-active { border-color: var(--main-text); background: var(--hover); }
+.rw-voice-sheet-voice.is-active strong::after { content: " ✓"; }
+.rw-voice-sheet-link { justify-self: start; padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--muted-text); font: inherit; font-size: 12.5px; text-decoration: underline; }
+.rw-voice-sheet-link:hover { color: var(--main-text); }
+/* 「全部音色」那一行：一个分组下拉 + 一颗试听。
+   用户 2026-09-16 反馈「角色声音应该要全部能够在角色语音那个界面显示」—— 三个推荐候选之外，
+   这里能选到这个中转开放的**全部同语言音色**（与「设置 → 语音」同一份表、同一个保存入口）。 */
+.rw-voice-sheet-all { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.rw-voice-sheet-all > label { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
+  font-size: 12.5px; color: var(--muted-text); }
+.rw-voice-sheet-all select { flex: 1 1 auto; min-width: 0; max-width: 100%; padding: 8px 10px; border-radius: 10px;
+  font: inherit; font-size: 13px; color: inherit;
+  border: 1px solid var(--hairline, rgba(127,127,127,.3)); background: var(--canvas); }
+.rw-voice-sheet-all select:focus { outline: 2px solid var(--accent, #6f8cff); outline-offset: 1px; }
+.rw-voice-sheet-all .plain-button { flex: 0 0 auto; }
+.rw-voice-sheet-consent { display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12.5px; line-height: 1.6; color: var(--muted-text); }
+.rw-voice-sheet-consent input { margin-top: 2px; flex: 0 0 auto; }
+.rw-voice-sheet-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.rw-voice-sheet-actions .primary-button { flex: 1 1 auto; }
+@media (min-width: 721px) {
+  .rw-voice-sheet-wrap { align-items: center; padding: 20px; }
+  .rw-voice-sheet { border-radius: 18px; border-bottom: 1px solid var(--hairline, rgba(127,127,127,.28)); }
+}
+
+/* 「角色回复方式」小面板（自动 / 下条语音 / 下条文字 + 声音设置）。
+   贴在那个胶囊上方，三项一眼看完；点外面就关。 */
+.rw-voice-menu { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
+  min-width: 230px; padding: 6px; border-radius: 14px;
+  background: var(--panel, var(--canvas)); color: var(--main-text);
+  border: 1px solid var(--hairline, rgba(127,127,127,.28));
+  box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+.rw-voice-menu-item { display: block; width: 100%; text-align: left; padding: 9px 11px; border: 0; border-radius: 10px;
+  background: transparent; color: inherit; cursor: pointer; }
+.rw-voice-menu-item:hover { background: var(--hover); }
+.rw-voice-menu-item strong { display: block; font-size: 13.5px; font-weight: 600; }
+.rw-voice-menu-item span { display: block; font-size: 12px; color: var(--muted-text); margin-top: 2px; }
+.rw-voice-menu-item.is-active { background: var(--hover); }
+.rw-voice-menu-item.is-active strong::after { content: " ✓"; }
+.rw-voice-menu-item.is-plain { border-top: 1px solid var(--hairline, rgba(127,127,127,.22)); border-radius: 0 0 10px 10px; }
+
+/* ---- 一轮多条消息（微信式"一条一条发"）+ 语音消息（2026-09-14 用户拍板）----
+   一轮回复可以分成几条：每条一个气泡、依次出现（不是整轮一起蹦出来）。 */
+.message-parts { display: grid; gap: 8px; }
+.message-part { min-width: 0; }
+/* 还没"送到"的那几条：不占位、不可点（真人在打字，屏幕上就是还没有这一条）。 */
+.message-part.is-tbd, .message-part.is-waiting { display: none; }
+.message-parts .assistant-bubble { padding: 9px 13px; color: var(--main-text); border: 1px solid var(--hairline); border-radius: 14px; background: var(--raised); }
+.message-parts .assistant-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- 「伴侣 + 软件聊天（无动作）」这一档的排版与语音消息（2026-09-14 用户拍板）----
+   只有**定制角色 + 伴侣模式 + 软件聊天**才发语音；其他角色一律纯文字。
+   排版也跟着这一档走：像微信一样一条一句，只有对白，不掺旁白/动作描写。 */
+.assistant-body-plain { gap: 9px; }
+.assistant-body-plain:empty { display: none; }
+.assistant-body-plain p, .assistant-body-plain .stream-text { color: var(--main-text); font-size: 14.5px; line-height: 1.62; white-space: pre-wrap; }
+/* 角色发来的语音消息：一个气泡（时长 + 点一下播），下面能看到"它说的是什么"。
+   为什么点一下才播：浏览器不许"没交互就出声"（autoplay 策略），
+   而微信里本来也是点一下才听 —— 需求与限制正好同向。 */
+.voice-bubble { display: grid; gap: 6px; margin: 8px 0 2px; max-width: 340px; }
+.voice-bubble-play { display: flex; align-items: center; gap: 9px; width: calc(92px + 150px * var(--voice-scale, .5)); max-width: 100%; padding: 9px 13px; color: var(--main-text); border: 1px solid var(--strong-line); border-radius: 14px; background: var(--raised); cursor: pointer; transition: border-color var(--hover-motion) ease, transform var(--hover-motion) ease; }
+.voice-bubble-play:hover { border-color: var(--main-text); transform: translateY(-1px); }
+.voice-bubble-icon { flex: 0 0 auto; font-size: 12px; line-height: 1; }
+.voice-bubble-seconds { color: var(--secondary-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.voice-bubble.is-playing .voice-bubble-play { border-color: var(--main-text); background: var(--hover); }
+.voice-bubble.is-playing .voice-bubble-icon { animation: voicePulse 900ms ease-in-out infinite; }
+@keyframes voicePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .voice-bubble.is-playing .voice-bubble-icon { animation: none; } }
+/* 文字就是**这一条语音说的内容**（和送去合成的完全同一份），默认直接显示：
+   听不清时不该逼用户去别处找它说了什么。 */
+.voice-bubble-text[hidden] { display: none; }
+.voice-bubble-text { margin: 0; color: var(--muted-text); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 语音条的另外两态（2026-09-14 用户实测反馈「先看到文字 → 文字消失 → 出现语音」）：
+   准备中显示一个**固定位置**的转圈气泡，合成完原位换成可播放气泡（不重新入场、不跳动）；
+   失败时给出原因 + 「重试」/「改为文字」两个去处，**都不显示正文**。 */
+.voice-bubble-state { display: flex; align-items: center; gap: 9px; min-width: 150px; padding: 9px 13px; color: var(--secondary-text); border: 1px dashed var(--strong-line); border-radius: 14px; background: var(--raised); }
+/* ⚠ 转圈必须转在**图标本身**上：`transform` 挂到 flex 容器上会让它成为新的包含块，
+   旁边的文字会跟着一起转 —— 第一次写成 `.voice-bubble-state.is-pending .voice-bubble-icon`
+   时选择器命中不了（图标在容器里，不在状态块上），于是"准备中"那一行整个在打转。 */
+.voice-bubble-state.is-pending .voice-bubble-icon { display: inline-block; animation: voiceSpin 1200ms linear infinite; }
+.voice-bubble-state.is-failed { color: var(--error); border-style: solid; border-color: var(--error); }
+.voice-bubble-label { font-size: 12.5px; }
+@keyframes voiceSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .voice-bubble-state.is-pending .voice-bubble-icon { animation: none; } }
+.voice-bubble-note { margin: 0; color: var(--muted-text); font-size: 12px; line-height: 1.6; }
+.voice-bubble-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-bubble-action { padding: 5px 11px; color: var(--main-text); font-size: 12px; border: 1px solid var(--strong-line); border-radius: 10px; background: var(--raised); cursor: pointer; }
+.voice-bubble-action:hover:not(:disabled) { border-color: var(--main-text); }
+.voice-bubble-action:disabled { color: var(--muted-text); cursor: default; opacity: .65; }
+/* 「对方正在输入…」：软件聊天模式下、消息类型还没定的那几秒，屏幕上**只许有它**。 */
+.assistant-body-typing { display: flex; align-items: center; min-height: 24px; }
+.typing-dots { display: inline-flex; gap: 4px; align-items: center; padding: 10px 14px; border: 1px solid var(--strong-line); border-radius: 14px; background: var(--raised); }
+.typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--secondary-text); animation: typingDot 1200ms ease-in-out infinite; }
+.typing-dots i:nth-child(2) { animation-delay: 160ms; }
+.typing-dots i:nth-child(3) { animation-delay: 320ms; }
+@keyframes typingDot { 0%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .typing-dots i { animation: none; opacity: .6; } }
+/* 「这条回复的语言和角色设定对不上」那一行（原文照常显示，只是挂一句说明）。 */
+.message-language { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 0; padding: 7px 11px; color: var(--secondary-text); font-size: 12px; line-height: 1.6; border: 1px solid var(--strong-line); border-radius: 12px; background: var(--raised); }
+.message-language-fix { padding: 4px 10px; color: var(--main-text); font-size: 12px; border: 1px solid var(--strong-line); border-radius: 10px; background: transparent; cursor: pointer; }
+.message-language-fix:hover { border-color: var(--main-text); }
+/* 「这条本来要发语音，但没做成」：原因挂在文字气泡下面（用户要知道发生了什么）。 */
+.message-voice-note { margin: 4px 0 0; color: var(--muted-text); font-size: 11.5px; line-height: 1.6; }
 .composer-cost { color: var(--muted-text); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
 .composer-cost:empty { display: none; }
 /* 花费与预估已从输入区搬到「本次请求」面板（2026-09-12 用户要求）。
@@ -242,7 +398,7 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 @keyframes thinkingPulse { 0%, 100% { opacity: .32; transform: scale(.78); box-shadow: 0 0 0 0 rgba(174,184,202,0); } 50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 5px rgba(174,184,202,.08), 0 0 14px rgba(174,184,202,.36); } }
 
 .composer-shell { position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; padding: 20px 12px 16px; pointer-events: none; background: linear-gradient(180deg, transparent, var(--canvas) 38%); }
-.composer-box { width: min(880px, 100%); margin: 0 auto; padding: 10px 10px 8px 14px; pointer-events: auto; border: 1px solid var(--strong-line); border-radius: var(--input-radius); background: var(--raised); box-shadow: 0 10px 32px rgba(0,0,0,.26); transition: border-color var(--hover-motion) ease, box-shadow var(--panel-motion) var(--motion-ease), transform var(--panel-motion) var(--motion-ease); }
+.composer-box { width: min(880px, 100%); margin: 0 auto; padding: 8px 10px; pointer-events: auto; border: 1px solid var(--strong-line); border-radius: var(--input-radius); background: var(--raised); box-shadow: 0 10px 32px rgba(0,0,0,.26); transition: border-color var(--hover-motion) ease, box-shadow var(--panel-motion) var(--motion-ease), transform var(--panel-motion) var(--motion-ease); }
 /* 「上次说到」：隔了日子回来时的一行提示。窄屏上允许换行，不能撑出横向滚动。 */
 .recap-bar { display: flex; align-items: center; gap: 8px; width: min(880px, 100%); margin: 0 auto 8px; padding: 6px 8px 6px 11px; pointer-events: auto; color: var(--secondary-text); font-size: 11px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
 .recap-bar[hidden] { display: none; }
@@ -253,6 +409,28 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-box textarea { width: 100%; max-width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; overflow-wrap: anywhere; word-break: break-word; }
 .composer-box textarea::placeholder { color: var(--quiet-text); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
+/* ===== 微信式输入条（2026-09-18 用户指定的形态）=====
+   [语音] [输入框] [表情] [+] →（有字时 [+] 变成发送）
+   一条一行：输入框随字长变高（JS 里 autoGrowComposer），两侧按钮各自成组。
+   以前是"输入框一行 + 下面一排按钮"，手机上再叠一条 58px 底栏 —— 输入框离屏幕下侧很远。 */
+.composer-row { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.composer-side { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.composer-side-right { justify-content: flex-end; }
+.composer-row > textarea { flex: 1 1 auto; min-width: 0; }
+/* 「+」：微信里那颗方框加号。尺寸与 mic/sticker 一致（手机上 44px 命中区）。 */
+.composer-plus { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: var(--muted-text, #6b7280); border: 1px solid var(--line, rgba(120,120,140,.28)); border-radius: 50%; background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, border-color var(--hover-motion) ease; }
+.composer-plus:hover { color: var(--main-text); border-color: currentColor; }
+.composer-plus[aria-expanded="true"] { color: var(--main-text); border-color: var(--main-text); background: var(--hover); }
+/* 「+」面板：贴着输入条往上弹（手机上从底部弹）。里面只有真正的入口，没有解释文字。 */
+.composer-menu { position: absolute; right: 10px; bottom: calc(100% + 8px); z-index: 6; display: none; width: min(320px, calc(100vw - 24px)); padding: 10px; border: 1px solid var(--strong-line); border-radius: 16px; background: var(--raised); box-shadow: 0 16px 40px rgba(0,0,0,.34); }
+.composer-menu.is-open { display: grid; gap: 6px; }
+.composer-menu[hidden] { display: none; }
+.composer-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 0 12px; color: var(--main-text); font: inherit; font-size: 13px; text-align: left; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+.composer-menu-item:hover { background: var(--hover); }
+/* 面板里的角色语音入口：从输入条挪进来之后不再需要描边框，保持"一行一个入口"的观感。 */
+.composer-menu .reply-voice-toggle { justify-content: flex-start; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 10px; }
+.composer-menu .reply-voice-toggle:hover:not(:disabled) { background: var(--hover); }
+.composer-menu .reply-voice-toggle .rw-voice-label { font-size: 13px; }
 /* 撞上输出上限时的那一行：说明 + 一个「接着说」。 */
 .message-truncated { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 2px; color: var(--muted-text); font-size: 10px; }
 .message-continue { padding: 2px 8px; color: var(--secondary-text); font-size: 10px; border: 1px solid var(--hairline); border-radius: 999px; background: transparent; cursor: pointer; }
@@ -271,6 +449,10 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .message-refs-item { padding: 6px 9px; color: var(--secondary-text); font-size: 10px; line-height: 1.5; text-align: left; border: 1px dashed var(--hairline); border-radius: 8px; background: transparent; cursor: pointer; }
 .message-refs-item:hover { color: var(--main-text); border-color: var(--strong-line); }
 .composer-hint { overflow: hidden; flex: 1; color: var(--muted-text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+/* 语音状态（正在生成 / 正在播放）：输入区上方一行小字。
+   为什么要有：云端合成本来就有等待，"点了没反应"是最伤的体验。 */
+.voice-status { margin: 6px 2px 0; color: var(--muted-text); font-size: 11.5px; }
+.voice-status[hidden] { display: none; }
 /* 发送前预估（输入 token / 费用 / 输出上限）已搬进「本次请求」面板，
    这里只保留"万一还被放回输入区"时的兜底样式；面板内由 .request-peek-cost 接管，
    窄屏不再隐藏（面板是弹层，不受输入区宽度限制）。 */
@@ -554,6 +736,13 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
    默认"跟随设置"= 按角色卡自己写的语言说话，所以大多数行都停在这一档。 */
 .character-manage-language { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-text); font-size: 11px; white-space: nowrap; }
 .character-manage-language select { padding: 6px 22px 6px 8px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); cursor: pointer; }
+/* 伴侣模式：内置小说角色这一行**不给开**（2026-09-14 用户拍板：「小说人物不设置伴侣」）。
+   关掉的原因写在 title 与行内文字里，不是画一个点了没反应的勾。 */
+.character-manage-companion { display: inline-flex; align-items: center; gap: 6px; color: var(--secondary-text); font-size: 11px; white-space: nowrap; }
+.character-manage-companion input { margin: 0; accent-color: var(--focus); cursor: pointer; }
+.character-manage-companion.is-blocked { color: var(--quiet-text); cursor: not-allowed; }
+.character-manage-companion.is-blocked input { cursor: not-allowed; }
+.companion-blocked { color: var(--quiet-text); }
 
 
 /* Task-33A: builtin-character badge (lightweight, no bold/dark border). */
@@ -561,8 +750,11 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .character-picker-item-name .builtin-badge { margin-left: 6px; color: var(--focus); }
 
 /* Task-36A: mobile shell.  Desktop keeps the existing three-column layout;
- * every mobile-only surface is opt-in below the 760px breakpoint. */
-.mobile-drawer-backdrop, .mobile-bottom-nav { display: none; }
+ * every mobile-only surface is opt-in below the 760px breakpoint.
+ * 2026-09-18：底部那一栏按用户要求去掉 —— 这里只留抽屉遮罩；
+ * `.mobile-bottom-nav` 连节点都带 hidden（见 index.html 顶部注释）。 */
+.mobile-drawer-backdrop { display: none; }
+.mobile-bottom-nav { display: none !important; }
 
 @media (max-width: 760px) {
   :root {
@@ -570,7 +762,6 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     --mobile-safe-right: env(safe-area-inset-right, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
     --mobile-safe-left: env(safe-area-inset-left, 0px);
-    --mobile-bottom-nav-height: 62px;
     --mobile-topbar-height: calc(56px + var(--mobile-safe-top));
   }
 
@@ -673,7 +864,9 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    padding: 22px 12px calc(190px + var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom));
+    /* 底部留出输入条的位置（输入条是浮在聊天区上的，见 .composer-shell）。
+       2026-09-18：底下那一栏没了，这个数只留给输入条本身。 */
+    padding: 22px 12px calc(150px + var(--mobile-safe-bottom));
   }
   .date-divider { margin-left: 0; }
   .message-row { gap: 8px; margin-bottom: 24px; min-width: 0; }
@@ -687,21 +880,28 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     right: 0;
     bottom: 0;
     left: 0;
-    padding: 10px max(10px, var(--mobile-safe-right)) calc(var(--mobile-bottom-nav-height) + 8px + var(--mobile-safe-bottom)) max(10px, var(--mobile-safe-left));
+    /* 2026-09-18：底部那一栏删掉之后，输入条**紧贴屏幕下侧**（只留安全区 + 一点内边距）。
+       以前这里是 `--mobile-bottom-nav-height + 8px + 安全区`（58px 底栏的位置）。 */
+    padding: 10px max(10px, var(--mobile-safe-right)) calc(8px + var(--mobile-safe-bottom)) max(10px, var(--mobile-safe-left));
     background: linear-gradient(180deg, transparent, var(--canvas) 30%);
   }
-  .composer-box { width: 100%; max-width: 100%; padding: 8px 10px 8px 12px; border-radius: 16px; }
-  .composer-box textarea { min-height: 34px; max-height: 132px; padding: 4px 2px 7px; font-size: 16px; line-height: 1.45; }
-  .composer-footer { min-height: var(--tap); }
+  .composer-box { width: 100%; max-width: 100%; padding: 6px 8px; border-radius: 18px; }
+  .composer-box textarea { min-height: 34px; max-height: 132px; padding: 6px 4px; font-size: 16px; line-height: 1.45; }
+  .composer-row { gap: 6px; }
+  .composer-side { gap: 4px; }
   .send-button { width: var(--tap); height: var(--tap); flex: 0 0 var(--tap); }
   .stop-button { min-width: 64px; min-height: var(--tap); }
+  /* 「+」在手机上要够大好点（与 mic / sticker 同一档 44px）。 */
+  .composer-plus { width: var(--tap); height: var(--tap); }
+  .composer-menu { right: max(8px, var(--mobile-safe-right)); left: max(8px, var(--mobile-safe-left)); width: auto; bottom: calc(100% + 6px); padding: 8px; }
+  .composer-menu-item, .composer-menu .reply-voice-toggle { min-height: var(--tap); }
   .character-picker { padding: 0 0 6px; }
   .character-picker-trigger { min-height: var(--tap); padding-inline: 12px; }
   .character-picker-menu {
     position: fixed;
     top: auto;
     right: max(12px, var(--mobile-safe-right));
-    bottom: calc(var(--mobile-bottom-nav-height) + 76px + var(--mobile-safe-bottom));
+    bottom: calc(8px + var(--mobile-safe-bottom) + 60px);
     left: max(12px, var(--mobile-safe-left));
     z-index: 95;
     width: auto;
@@ -712,42 +912,6 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     overscroll-behavior: contain;
   }
   .character-picker-item, .character-picker-action { min-height: var(--tap); padding-block: 10px; }
-
-  .mobile-bottom-nav {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 60;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    min-height: var(--mobile-bottom-nav-height);
-    padding: 4px max(8px, var(--mobile-safe-right)) var(--mobile-safe-bottom) max(8px, var(--mobile-safe-left));
-    border-top: 1px solid var(--hairline);
-    background: color-mix(in srgb, var(--navigation) 94%, transparent);
-    box-shadow: 0 -10px 28px rgba(0,0,0,.18);
-    backdrop-filter: blur(14px);
-  }
-  .mobile-bottom-nav-item {
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 3px;
-    min-width: 0;
-    min-height: 54px;
-    padding: 4px 6px;
-    color: var(--muted-text);
-    font-size: 10px;
-    border: 0;
-    border-radius: 10px;
-    background: transparent;
-    cursor: pointer;
-  }
-  .mobile-bottom-nav-item.is-active, .mobile-bottom-nav-item[aria-current="page"] { color: var(--main-text); background: var(--selected); }
-  .mobile-bottom-nav-icon { position: relative; display: grid; place-items: center; width: 22px; height: 22px; color: currentColor; }
-  .mobile-bottom-nav-icon.nav-icon-chat::before { width: 12px; height: 9px; }
-  .mobile-bottom-nav-icon.nav-icon-character::before { top: 3px; }
-  .mobile-bottom-nav-account-icon { font-size: 21px; line-height: 1; }
 
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -821,17 +985,13 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .modal-field-check span, .dialog-check { min-height: var(--tap); }
   .modal-actions, .confirm-actions { flex-wrap: wrap; }
   .modal-actions button, .confirm-actions button { min-width: var(--tap); min-height: var(--tap); }
-  .toast { right: max(12px, var(--mobile-safe-right)); bottom: calc(var(--mobile-bottom-nav-height) + 12px + var(--mobile-safe-bottom)); left: max(12px, var(--mobile-safe-left)); max-width: none; }
+  .toast { right: max(12px, var(--mobile-safe-right)); bottom: calc(12px + var(--mobile-safe-bottom)); left: max(12px, var(--mobile-safe-left)); max-width: none; }
 }
 
 /* Mobile refinement: use the desktop theme and controls with a compact phone layout. */
 @media (max-width: 760px) {
-  :root { --mobile-bottom-nav-height: 58px; }
-  /* 底部导航条是 #appShell 的**兄弟**节点，不跟着「界面大小」缩放（见 zoom.js），
-     所以在缩放过的壳里给它留位置时得把缩放除回去：
-     壳里写 58px 只渲染出 52.2px，导航条却还是 58px 高 —— 下面会被压住 ~6px。
-     --nav-reserve 就是"在壳里要写多少"，凡是给导航条让位的地方都用它。 */
-  :root { --nav-reserve: calc((var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom, 0px)) / var(--ui-scale, 1)); }
+  /* 2026-09-18：底部导航那一栏**整个删掉**，所以这里不再有 --mobile-bottom-nav-height /
+     --nav-reserve 这两个"给底栏让位"的变量（它们以前散在输入区、设置页、toast 上）。 */
   .topbar, .settings-topbar { border-bottom-color: transparent; }
   .topbar h1, .settings-topbar h1 { font-size: 16px; font-weight: 600; }
   .topbar-title { gap: 10px; }
@@ -851,34 +1011,29 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .narration-line { font-size: 14px; line-height: 1.8; }
   .message-row-user .message-stack { max-width: 88%; }
   .user-bubble { padding: 11px 14px; border-radius: 14px 14px 4px 14px; }
-  .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom, 0px))) + 10px) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
-  .composer-box { display: grid; grid-template-columns: minmax(0, 1fr) var(--tap); align-items: end; column-gap: 8px; padding: 8px; border-radius: var(--input-radius); box-shadow: none; }
+  .composer-shell { position: relative; flex: 0 0 auto; padding: 8px max(12px, var(--mobile-safe-right)) calc(10px + var(--mobile-safe-bottom, 0px)) max(12px, var(--mobile-safe-left)); background: var(--canvas); }
+  /* 一条一行：左侧 [语音/本次请求]、中间输入框、右侧 [表情][+][发送]。
+     以前这里是两列网格（输入框左边、按钮整列在右边），手机上按钮那一列把输入框挤短了。 */
+  .composer-box { display: block; padding: 6px 8px; border-radius: var(--input-radius); box-shadow: none; }
   .composer-box:focus-within { box-shadow: none; transform: none; border-color: var(--muted-text); }
-  .composer-box .character-picker { grid-column: 1 / -1; grid-row: 1; padding: 0; }
+  .composer-row { align-items: flex-end; }
+  .composer-box .character-picker { padding: 0 0 4px; }
   .character-picker-trigger { min-height: var(--tap); padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; }
   .character-picker-trigger:hover { background: var(--hover); }
-  .composer-box textarea { grid-column: 1; grid-row: 2; min-width: 0; min-height: var(--tap); max-height: 132px; padding: 10px 6px; line-height: 1.5; }
-  /* 手机上这一列（本次请求 / 停止 / 发送）以前是 gap:0，「本次请求」会**贴住**发送键
-     （用户 2026-09-12：「本次请求离那个发送按钮太近了」）。给它一个竖排间距。 */
-  .composer-footer { grid-column: 2; grid-row: 2; align-self: end; gap: 8px; flex-direction: column; align-items: flex-end; }
-  .composer-footer .stop-button { min-width: var(--tap); width: var(--tap); }
-  .character-picker-menu { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; width: 100%; max-height: min(58vh, max(88px, calc(var(--visual-viewport-height, 100dvh) - var(--mobile-topbar-height) - var(--mobile-bottom-nav-height) - var(--mobile-safe-bottom) - 220px))); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
+  .composer-box textarea { min-width: 0; min-height: var(--tap); max-height: 132px; padding: 10px 6px; line-height: 1.5; }
+  .composer-menu { position: fixed; right: max(8px, var(--mobile-safe-right)); bottom: calc(8px + var(--mobile-safe-bottom) + 60px); left: max(8px, var(--mobile-safe-left)); }
+  .character-picker-menu { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; width: 100%; max-height: min(58vh, max(88px, calc(var(--visual-viewport-height, 100dvh) - var(--mobile-topbar-height) - var(--mobile-safe-bottom) - 220px))); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
   .character-picker-item, .character-picker-action { font-size: 14px; }
 
-  .mobile-bottom-nav { min-height: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom)); padding-top: 0; background: var(--canvas); box-shadow: none; backdrop-filter: none; }
-  /* 设置滚到底时最后一行被底部导航压住（用户 2026-09-12 报了两次都没修好）。
+  /* 设置滚到底时最后一行被挡住（用户 2026-09-12 报了两次都没修好）。
      0.1.46 / 0.1.47 两版把 padding 加在 .settings-scroll / .settings-body 上 ——
-     这两个类名在 index.html 里**根本不存在**，等于什么都没改；
-     真正能滚动的只有 .settings-layout，装内容的是 .settings-content，露在底栏下面的是 .settings-surface。
-     三层一起量：① surface 先把底栏高度从自己盒子里扣掉，内容区不再伸到底栏底下；
-     ② content 补一段底边距，滚到底时最后一行整体上移；③ 滚动容器 .settings-layout 同步补 + scroll-padding。 */
-  .settings-surface { padding-bottom: var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))); }
-  .settings-surface .settings-content { padding-bottom: calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px); }
-  .mobile-bottom-nav-item { position: relative; min-height: 57px; gap: 4px; padding: 6px; font-size: 11px; border-radius: 0; }
-  .mobile-bottom-nav-item.is-active, .mobile-bottom-nav-item[aria-current="page"] { background: transparent; }
-  .mobile-bottom-nav-item[aria-current="page"]::after { content: ''; position: absolute; top: 0; left: calc(50% - 12px); width: 24px; height: 2px; background: var(--main-text); border-radius: 0 0 2px 2px; }
+     这两个类名在 index.html 里**根本不存在**，等于什么都没改。
+     2026-09-18：底部导航那一栏已经删掉，所以"被底栏挡住"这件事本身不存在了；
+     这里保留"内容区底部留一段余量"，让最后一行滚到底时不被屏幕边缘的安全区切掉。 */
+  .settings-surface { padding-bottom: calc(8px + var(--mobile-safe-bottom)); }
+  .settings-surface .settings-content { padding-bottom: calc(20px + var(--mobile-safe-bottom)); }
 
-  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px) max(16px, var(--mobile-safe-left)); scroll-padding-bottom: calc(var(--nav-reserve, calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom))) + 28px); }
+  .settings-layout { align-content: start; grid-template-rows: auto minmax(0, auto); gap: 24px; padding: 10px max(16px, var(--mobile-safe-right)) calc(28px + var(--mobile-safe-bottom)) max(16px, var(--mobile-safe-left)); scroll-padding-bottom: calc(28px + var(--mobile-safe-bottom)); }
   .settings-nav { gap: 16px; min-height: 45px; margin: 0; padding: 0; border-bottom: 1px solid var(--hairline); scrollbar-width: none; }
   .settings-nav-item { min-height: var(--tap); padding: 0 2px; border-bottom: 2px solid transparent; border-radius: 0; font-size: 13px; }
   .settings-nav-item.is-active, .settings-nav-item:hover { background: transparent; }
@@ -979,6 +1134,8 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .key-actions { display: flex; align-items: center; gap: 8px; }
 .key-actions input { width: 220px; padding: 7px 9px; color: var(--secondary-text); border: 1px solid var(--hairline); border-radius: 7px; background: var(--hover); }
 #chatDeepseekKeyStatus.is-error { color: var(--error); }
+/* 体验卡“刚刚启用成功”的那一行：要看得出来是成功，而不是和普通状态一个样（用户 2026-09-17 反馈）。 */
+.rw-status.is-ok { color: #1f9d63; font-weight: 600; }
 @media (max-width: 760px) {
   .chat-model { display: none; }
   .key-actions { flex-wrap: wrap; width: 100%; }
@@ -999,6 +1156,11 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .composer-peek { padding: 0; color: var(--quiet-text); font: inherit; font-size: 12px; border: 0; background: none; cursor: pointer; white-space: nowrap; transition: color var(--hover-motion) ease; }
 .composer-peek:hover { color: var(--secondary-text); }
 .composer-peek[hidden] { display: none; }
+/* 2026-09-18：「本次请求」的入口收进「+」面板之后，这颗按钮只是**状态锚点**
+   （`setRequestPeekVisible` 按"有没有草稿 / 发过消息"改它的 hidden；用户看到的是面板里那一行）。
+   用 !important 藏住它：`setRequestPeekVisible` 会把它设成显示，而它**不该**在输入条那一行上出现。
+   保留节点是因为用例与设置页都按 `#requestPeekButton` 找这个状态。 */
+.composer-peek-anchor { display: none !important; }
 
 .request-peek { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--overlay); }
 .request-peek[hidden] { display: none; }
@@ -1046,6 +1208,12 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .topbar-character-avatar { flex: 0 0 auto; width: 22px; height: 22px; border: 1px solid var(--hairline); border-radius: 50%; background: var(--hover) center/cover no-repeat; }
 .topbar-character-avatar:empty { background-image: none; }
 .topbar-character-caret { flex: 0 0 auto; color: var(--quiet-text); font-size: 11px; }
+/* 「当前方式」小字（文档 §6：顶栏要说清现在是什么方式）：日常聊天 / 剧情对话 / 伴侣 · …。
+   只说你正在用什么，不显示在线、最后上线、已读这些没实现的状态。窄屏会让位给角色名。 */
+.topbar-mode { flex: 0 0 auto; padding: 1px 7px; border: 1px solid var(--hairline, rgba(127,127,127,.3));
+  border-radius: 9px; color: var(--muted-text); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.topbar-mode[hidden] { display: none; }
+@media (max-width: 560px) { .topbar-mode { display: none; } }
 @media (max-width: 760px) { .topbar-character { min-height: var(--tap, 49px); } .topbar-character-avatar { width: 26px; height: 26px; } }
 
 /* 面板本身：复用「本次请求」弹层的骨架，中间换成三个分页。 */
@@ -1152,6 +1320,11 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 .turn-failure-text { margin: 0; color: var(--main-text); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .turn-failure-why { margin: 0; color: var(--muted-text); font-size: 11px; line-height: 1.6; }
 .turn-failure button { justify-self: start; }
+/* 「注定 401，所以没发出去」那张卡（2026-09-18 第三版）：说明 + 一两个能点的下一步。
+   刻意沿用 `.turn-failure` 的外观（用户已经认识这张卡长什么样），只把按钮排成一行。 */
+.chat-preflight { border-left-color: var(--focus); }
+.chat-preflight-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.chat-preflight-actions button { min-height: 32px; }
 @media (hover: none) { .message-flag { opacity: .6; } }
 /* 窄屏给足命中区：不只看 (hover: none) —— 有些环境（含无头浏览器）会把
    hover 报成 hover，只按媒体查询会让手机拿到 24px 的小按钮。
@@ -1161,3 +1334,122 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
   .message-flags { gap: 4px; margin-left: 6px; }
   .message-meta { flex-wrap: wrap; }
 }
+
+/* ==========================================================================
+   表情包（2026-09-13）
+   角色在回复里写 [[表情: 开心]]，系统把它换成一张图。
+   注意：这里是**消息正文里的一张图**，不是界面图标 —— 所以尺寸要按"贴纸"来
+   （比气泡小一圈、圆角、自带一点阴影），不能占满整行。
+   ========================================================================== */
+.message-sticker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 132px;
+  margin-top: 2px;
+  border-radius: 16px;
+  /* 图本身是圆角方贴纸，这里再给一点点边与投影，贴在气泡下面才不像"贴歪了" */
+  box-shadow: 0 2px 10px rgba(15, 12, 30, .10);
+  background: rgba(255, 255, 255, .55);
+  overflow: hidden;
+}
+.message-sticker img {
+  display: block;
+  width: 124px;
+  height: 124px;
+  object-fit: contain;
+  /* 表情图不参与"长按选中文字"，否则手机上长按会弹选择菜单 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* 加载不出来时不要把破图图标摆出来（alt 文字会显示成一行说明）。 */
+.message-sticker img:not([src]), .message-sticker img[src=""] { display: none; }
+/* 一张图看不出是什么情绪，鼠标悬停给名字（手机上长按图片本身也能看到 alt）。 */
+.message-sticker:hover img { transform: scale(1.03); }
+.message-sticker img { transition: transform .16s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .message-sticker img { transition: none; }
+}
+@media (max-width: 760px) {
+  /* 手机上气泡本来就窄，贴纸再小一点，免得一条消息半个屏 */
+  .message-sticker { max-width: 104px; }
+  .message-sticker img { width: 96px; height: 96px; }
+}
+
+/* ==========================================================================
+   语音输入 / 发表情 按钮，以及表情选择面板（2026-09-13）
+   ========================================================================== */
+.mic-button, .sticker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line, rgba(120, 120, 140, .28));
+  background: transparent;
+  color: var(--muted-text, #6b7280);
+  cursor: pointer;
+}
+.mic-button:hover, .sticker-button:hover { color: var(--main-text); border-color: currentColor; }
+/* 正在录音：变红并轻微呼吸，让用户一眼看出"还在听" */
+.mic-button.is-listening {
+  color: #fff;
+  background: #e04a4a;
+  border-color: #e04a4a;
+  animation: micPulse 1.1s ease-in-out infinite;
+}
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 74, 74, .55); }
+  50% { box-shadow: 0 0 0 7px rgba(224, 74, 74, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-button.is-listening { animation: none; }
+}
+/* 手机上给足命中区（和 .message-flag 同一套标准：>= 44px） */
+@media (max-width: 760px) {
+  .mic-button, .sticker-button { width: var(--tap, 44px); height: var(--tap, 44px); }
+}
+
+/* 表情选择面板：贴着输入框底部弹出来 */
+.sticker-picker {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(340px, calc(100vw - 28px));
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line, rgba(120, 120, 140, .28));
+  background: var(--panel-bg, #fff);
+  box-shadow: 0 10px 30px rgba(20, 16, 40, .22);
+}
+.sticker-picker[hidden] { display: none; }
+.sticker-picker-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted-text, #6b7280);
+}
+.sticker-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+}
+.sticker-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted-text, #6b7280);
+}
+.sticker-picker-item:hover { border-color: var(--line, rgba(120, 120, 140, .28)); background: rgba(127, 127, 160, .07); }
+.sticker-picker-item img { width: 48px; height: 48px; display: block; }

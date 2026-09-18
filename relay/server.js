@@ -8,27 +8,45 @@
  *
  * 路由：
  *   POST /v1/chat/completions   聊天（流式 / 非流式都透传）
+ *   POST /v1/audio/speech       角色语音（火山「豆包语音合成模型 2.0」，服务端持凭据）
  *   GET  /v1/models             模型清单（透传上游）
- *   GET  /card/quota            查这张卡还能用多少
+ *   GET  /card/quota            查这张卡还能用多少（聊天 + 语音）
+ *   GET  /voice/info            这个中转提供哪些音色、一次能合成多长
  *   GET  /healthz               存活检查
  *   POST /admin/cards           发卡（需要 ADMIN_SECRET）
  *   GET  /admin/cards           列卡（不含卡号）
  *   POST /admin/cards/:id/disable | /enable
+ *   PATCH /admin/cards/:id/update
  *   DELETE /admin/cards/:id     吊销
+ *   GET  /admin/voice/config    语音上游配没配（**不联网、不产生费用**）
  *
- * 两条硬规矩（写进代码，不靠自觉）：
- *   ① 不记正文：日志只有 时间/卡 id/模型/是否流式/耗时/用量，永远没有 messages 的内容。
+ * 三条硬规矩（写进代码，不靠自觉）：
+ *   ① 不记正文：日志只有 时间/卡 id/模型/是否流式/耗时/用量，永远没有 messages 的内容，
+ *      语音这一路也一样 —— 只有字符数，没有合成的是哪句话。
  *   ② 卡的哈希入库：账本里存 sha256(token)，不存 token 本身。
+ *   ③ 火山凭据只从服务端环境变量读，绝不出现在任何响应里，也绝不发给客户端。
  */
 
 const http = require("node:http");
 const https = require("node:https");
 const { URL } = require("node:url");
 const storeLib = require("./store.js");
+const ttsLib = require("./tts.js");
+const voiceLib = require("./voices.js");
 
 const DEFAULT_UPSTREAM = "https://api.deepseek.com";
 const DEFAULT_ALLOW_MODELS = [];      // 空 = 不限制
-const CARD_HEADERS = ["x-rw-card-calls-left", "x-rw-card-tokens-left", "x-rw-card-expires", "x-rw-card-id"];
+const CARD_HEADERS = [
+  "x-rw-card-calls-left", "x-rw-card-tokens-left", "x-rw-card-expires", "x-rw-card-id",
+  // 语音是**独立**的一份额度（按字符计），所以单独两个头：客户端据此提前提醒"语音快用完了"。
+  "x-rw-voice-left", "x-rw-voice-chars-left",
+];
+/** 一次语音请求最多合成多少字。太长会：①上游更慢 ②用户想停就得等。客户端按句切分后再发。 */
+const DEFAULT_VOICE_MAX_CHARS = 400;
+/** 整个中转同时最多几路语音合成（火山按 QPS 限流，堆太多只会一起超时）。 */
+const DEFAULT_VOICE_CONCURRENCY = 4;
+/** 同一张卡同时最多几路（默认 1：客户端本来就是一句一句播的，多路多半是误点/转借）。 */
+const DEFAULT_VOICE_PER_CARD = 1;
 
 function sendJson(res, status, payload, extraHeaders) {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
@@ -43,7 +61,7 @@ function sendJson(res, status, payload, extraHeaders) {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,DELETE,PATCH,OPTIONS",
     "Access-Control-Allow-Headers": "authorization,content-type,x-requested-with",
     "Access-Control-Max-Age": "86400",
     "Access-Control-Expose-Headers": CARD_HEADERS.join(","),
@@ -75,22 +93,55 @@ function readBody(req, limitBytes) {
 function checkCard(card) {
   const callsLeft = card && Number(card.quota.calls) > 0 ? Number(card.quota.calls) - Number(card.used.calls || 0) : Infinity;
   const tokensLeft = card && Number(card.quota.tokens) > 0 ? Number(card.quota.tokens) - Number(card.used.tokens || 0) : Infinity;
-  if (!card) return { ok: false, code: "CARD_UNKNOWN", message: "这张体验卡不认识：卡号可能抄错了，或者已经被收回。", callsLeft, tokensLeft };
-  if (card.disabled) return { ok: false, code: "CARD_DISABLED", message: "这张体验卡已被停用。找发卡的人问问，或者换成自己的 API Key。", callsLeft, tokensLeft };
+  // 语音额度是独立一份（按字符计），所以这两个数无论聊天能不能用都要算出来。
+  const voiceLeft = card && Number(card.quota.voice) > 0 ? Number(card.quota.voice) - Number(card.used.voice || 0) : Infinity;
+  const voiceCharsLeft = card && Number(card.quota.voiceChars) > 0
+    ? Number(card.quota.voiceChars) - Number(card.used.voiceChars || 0)
+    : Infinity;
+  const extra = { voiceLeft, voiceCharsLeft };
+  if (!card) return Object.assign({ ok: false, code: "CARD_UNKNOWN", message: "这张体验卡不认识：卡号可能抄错了，或者已经被收回。", callsLeft, tokensLeft }, extra);
+  if (card.disabled) return Object.assign({ ok: false, code: "CARD_DISABLED", message: "这张体验卡已被停用。找发卡的人问问，或者换成自己的 API Key。", callsLeft, tokensLeft }, extra);
   if (card.expiresAt && Date.parse(card.expiresAt) < Date.now()) {
-    return { ok: false, code: "CARD_EXPIRED", message: "这张体验卡已到期（" + card.expiresAt.slice(0, 10) + "）。", callsLeft, tokensLeft };
+    return Object.assign({ ok: false, code: "CARD_EXPIRED", message: "这张体验卡已到期（" + card.expiresAt.slice(0, 10) + "）。", callsLeft, tokensLeft }, extra);
   }
-  if (callsLeft <= 0) return { ok: false, code: "CARD_NO_CALLS", message: "这张体验卡的次数用完了（上限 " + card.quota.calls + " 次）。", callsLeft, tokensLeft };
-  if (tokensLeft <= 0) return { ok: false, code: "CARD_NO_TOKENS", message: "这张体验卡的额度用完了（上限 " + card.quota.tokens + " token）。", callsLeft, tokensLeft };
-  return { ok: true, callsLeft, tokensLeft };
+  if (callsLeft <= 0) return Object.assign({ ok: false, code: "CARD_NO_CALLS", message: "这张体验卡的次数用完了（上限 " + card.quota.calls + " 次）。", callsLeft, tokensLeft }, extra);
+  if (tokensLeft <= 0) return Object.assign({ ok: false, code: "CARD_NO_TOKENS", message: "这张体验卡的额度用完了（上限 " + card.quota.tokens + " token）。", callsLeft, tokensLeft }, extra);
+  return Object.assign({ ok: true, callsLeft, tokensLeft }, extra);
+}
+
+/**
+ * 语音这一路单独的判断：先过卡本身（不认识/停用/到期），再看语音的两份额度（次数、字符）。
+ * 为什么不让语音吃聊天的次数：语音按字符计费、聊天按 token 计费，混在一起之后
+ * "次数还剩 3 次却发不出声"没法解释。chars 是这一次请求要合成的字数（用于"够不够"的判断）。
+ */
+function checkVoiceCard(card, chars) {
+  const base = checkCard(card);
+  const need = Math.max(0, Number(chars) || 0);
+  if (!base.ok) return base;
+  if (base.voiceLeft <= 0) {
+    return Object.assign({}, base, {
+      ok: false, code: "CARD_NO_VOICE",
+      message: "这张体验卡的语音次数用完了（上限 " + card.quota.voice + " 次）。文字聊天不受影响。",
+    });
+  }
+  if (base.voiceCharsLeft < need) {
+    return Object.assign({}, base, {
+      ok: false, code: "CARD_NO_VOICE_CHARS",
+      message: "这张体验卡的语音字数不够了（上限 " + card.quota.voiceChars + " 字，这次要 " + need + " 字）。文字聊天不受影响。",
+    });
+  }
+  return base;
 }
 
 function cardHeaders(card, verdict) {
+  const finite = (value) => (Number.isFinite(value) ? String(value) : "unlimited");
   return {
     "x-rw-card-id": card.id,
-    "x-rw-card-calls-left": Number.isFinite(verdict.callsLeft) ? String(verdict.callsLeft) : "unlimited",
-    "x-rw-card-tokens-left": Number.isFinite(verdict.tokensLeft) ? String(verdict.tokensLeft) : "unlimited",
+    "x-rw-card-calls-left": finite(verdict.callsLeft),
+    "x-rw-card-tokens-left": finite(verdict.tokensLeft),
     "x-rw-card-expires": card.expiresAt || "never",
+    "x-rw-voice-left": finite(verdict.voiceLeft),
+    "x-rw-voice-chars-left": finite(verdict.voiceCharsLeft),
   };
 }
 
@@ -122,6 +173,19 @@ function createRelay(options) {
   // 日志只有元数据：时间、卡 id、模型、是否流式、状态、耗时、用量。**没有正文**。
   const logSink = opts.logSink || ((line) => console.log(JSON.stringify(line)));
 
+  /* ---------------- 语音（火山「豆包语音合成模型 2.0」） ---------------- */
+
+  const voiceMaxChars = Number(opts.voiceMaxChars || process.env.VOICE_MAX_CHARS) || DEFAULT_VOICE_MAX_CHARS;
+  const voiceConcurrency = Number(opts.voiceConcurrency || process.env.VOICE_CONCURRENCY) || DEFAULT_VOICE_CONCURRENCY;
+  const voicePerCard = Number(opts.voicePerCard || process.env.VOICE_PER_CARD) || DEFAULT_VOICE_PER_CARD;
+  const tts = opts.tts || ttsLib.createTtsClient({ env: process.env, timeoutMs: Number(process.env.VOICE_TIMEOUT_MS) || 30000 });
+  const envSource = opts.voiceEnv || process.env;
+  const speakerTable = () => voiceLib.resolveSpeakers(envSource);
+  // 正在跑的语音路数（全局 + 每张卡）。进程级计数，重启归零 —— 它只是限流，不是账本。
+  let voiceRunning = 0;
+  const voiceRunningByCard = new Map();
+  const voiceBusy = (cardId) => (voiceRunningByCard.get(cardId) || 0);
+
   async function usageOfCard(card) {
     const verdict = checkCard(card);
     return {
@@ -133,15 +197,17 @@ function createRelay(options) {
       used: card.used,
       callsLeft: Number.isFinite(verdict.callsLeft) ? verdict.callsLeft : null,
       tokensLeft: Number.isFinite(verdict.tokensLeft) ? verdict.tokensLeft : null,
+      voiceLeft: Number.isFinite(verdict.voiceLeft) ? verdict.voiceLeft : null,
+      voiceCharsLeft: Number.isFinite(verdict.voiceCharsLeft) ? verdict.voiceCharsLeft : null,
     };
   }
 
   async function recordUsage(card, usage) {
+    const isVoice = !!(usage && usage.kind === "voice");
     const next = Object.assign({}, card, {
-      used: {
-        calls: Number(card.used.calls || 0) + 1,
-        tokens: Number(card.used.tokens || 0) + (usage && usage.total ? usage.total : 0),
-      },
+      used: Object.assign({ calls: 0, tokens: 0, voice: 0, voiceChars: 0 }, card.used, isVoice
+        ? { voice: Number(card.used.voice || 0) + 1, voiceChars: Number(card.used.voiceChars || 0) + (Number(usage.chars) || 0) }
+        : { calls: Number(card.used.calls || 0) + 1, tokens: Number(card.used.tokens || 0) + (usage && usage.total ? usage.total : 0) }),
       lastUsedAt: new Date().toISOString(),
     });
     // 按天也记一笔（2026-09-12）：累计值看不出"今天谁用得多"。
@@ -175,6 +241,8 @@ function createRelay(options) {
       try { body = JSON.parse(raw.toString("utf8") || "{}"); } catch (_) { return sendJson(res, 400, { error: "请求体不是 JSON" }, corsHeaders()); }
       const calls = Math.max(0, Number(body.calls) || 0);
       const tokens = Math.max(0, Number(body.tokens) || 0);
+      const voice = Math.max(0, Number(body.voice) || 0);
+      const voiceChars = Math.max(0, Number(body.voiceChars) || 0);
       const days = Math.max(0, Number(body.days) || 0);
       const token = storeLib.randomToken();
       const card = storeLib.blankCard({
@@ -182,7 +250,7 @@ function createRelay(options) {
         label: String(body.label || "").slice(0, 60),
         note: String(body.note || "").slice(0, 200),
         expiresAt: days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null,
-        quota: { calls, tokens },
+        quota: { calls, tokens, voice, voiceChars },
       });
       await store.save(card);
       return sendJson(res, 200, {
@@ -191,7 +259,8 @@ function createRelay(options) {
         label: card.label,
         quota: card.quota,
         expiresAt: card.expiresAt,
-        hint: "卡号只显示这一次，请立刻复制给对方（账本里只存哈希，找不回来）。",
+        hint: "卡号只显示这一次，请立刻复制给对方（账本里只存哈希，找不回来）。"
+          + (voice || voiceChars ? "" : "（这次没给语音额度 —— 语音是可选的，不加就不占。）"),
       }, corsHeaders());
     }
 
@@ -208,6 +277,9 @@ function createRelay(options) {
       const next = Object.assign({}, card);
       if (body.calls !== undefined) next.quota = Object.assign({}, next.quota, { calls: Math.max(0, Number(body.calls) || 0) });
       if (body.tokens !== undefined) next.quota = Object.assign({}, next.quota, { tokens: Math.max(0, Number(body.tokens) || 0) });
+      // 语音额度（2026-09-14）：同样按"新的上限"理解，加语音不用重新发卡。
+      if (body.voice !== undefined) next.quota = Object.assign({}, next.quota, { voice: Math.max(0, Number(body.voice) || 0) });
+      if (body.voiceChars !== undefined) next.quota = Object.assign({}, next.quota, { voiceChars: Math.max(0, Number(body.voiceChars) || 0) });
       if (body.days !== undefined) {
         const days = Math.max(0, Number(body.days) || 0);
         next.expiresAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
@@ -234,10 +306,12 @@ function createRelay(options) {
       for (const card of cards) {
         const daily = (card && card.daily) || {};
         for (const [day, row] of Object.entries(daily)) {
-          const current = byDay.get(day) || { calls: 0, tokens: 0, cards: 0 };
+          const current = byDay.get(day) || { calls: 0, tokens: 0, voice: 0, chars: 0, cards: 0 };
           current.calls += Number(row && row.calls) || 0;
           current.tokens += Number(row && row.tokens) || 0;
-          if ((Number(row && row.calls) || 0) > 0) current.cards += 1;
+          current.voice += Number(row && row.voice) || 0;
+          current.chars += Number(row && row.chars) || 0;
+          if ((Number(row && row.calls) || 0) > 0 || (Number(row && row.voice) || 0) > 0) current.cards += 1;
           byDay.set(day, current);
         }
       }
@@ -245,25 +319,58 @@ function createRelay(options) {
       const out = [];
       for (let i = days - 1; i >= 0; i -= 1) {
         const day = new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10);
-        const row = byDay.get(day) || { calls: 0, tokens: 0, cards: 0 };
-        out.push({ day: day, calls: row.calls, tokens: row.tokens, cards: row.cards });
+        const row = byDay.get(day) || { calls: 0, tokens: 0, voice: 0, chars: 0, cards: 0 };
+        out.push({ day: day, calls: row.calls, tokens: row.tokens, voice: row.voice, chars: row.chars, cards: row.cards });
       }
       const totalCalls = cards.reduce((sum, card) => sum + (Number(card.used && card.used.calls) || 0), 0);
+      const totalVoice = cards.reduce((sum, card) => sum + (Number(card.used && card.used.voice) || 0), 0);
       return sendJson(res, 200, {
         days: out,
         cards: cards.length,
         totalCalls: totalCalls,
+        totalVoice: totalVoice,
         hint: "按天只统计这张卡自己记得的日子；账本里最多留 " + storeLib.DAILY_KEEP + " 天。",
       }, corsHeaders());
     }
 
+    /* 语音上游配没配 —— **只看环境变量，不联网、不产生任何费用**。
+     * 为什么刻意不做"真调一次"的自检：语音是按字符计费的，
+     * 一个自检按钮不该悄悄花掉用户的钱（真联调要单独授权）。 */
+    if (req.method === "GET" && parts.length === 3 && parts[1] === "voice" && parts[2] === "config") {
+      const table = speakerTable();
+      return sendJson(res, 200, {
+        configured: !!tts.config.configured,
+        missing: tts.config.missing,
+        base: tts.config.base,
+        path: tts.config.path,
+        resourceId: tts.config.resourceId,
+        model: tts.config.model,
+        speakers: table.speakers.map((one) => ({ id: one.id, label: one.label, verified: one.verified !== false })),
+        speakersSource: table.source,
+        defaultSpeaker: table.defaultSpeaker,
+        maxChars: voiceMaxChars,
+        timeoutMs: tts.timeoutMs,
+        concurrency: { global: voiceConcurrency, perCard: voicePerCard },
+        running: voiceRunning,
+        hint: "这里只报「配没配」，不会真的去合成 —— 语音按字符计费，自检不该花钱。"
+          + "要真联调请单独授权，并把 VOLC_TTS_APP_ID / VOLC_TTS_ACCESS_KEY 注入到中转服务。",
+      }, corsHeaders());
+    }
+
     /* 上游自检：拿服务端的真 Key 打一次最小请求，把"配错了 Key / 路径不对 / 模型名不对"
-     * 和"账本坏了"这两类问题分开。回复只回前 60 个字符，不落任何日志。 */
+     * 和"账本坏了"这两类问题分开。回复只回前 60 个字符，不落任何日志。
+     *
+     * ⚠ 2026-09-14 修：这里原来写死 `max_tokens: 64`，而 `deepseek-flash` 这类模型
+     * **会先吐思考内容**（reasoning_content）—— 64 个 token 全被思考吃掉，正文是空的，
+     * 于是自检报 `ok: true`（因为 HTTP 是 200）却什么都没回。
+     * "报成功但没内容"比报错更坑：用户会以为链路是好的。现在：
+     *   · max_tokens 提到 512（够思考 + 两三个字）；
+     *   · `ok` 的含义改成"**真的拿到正文了**"，没拿到就带一句 warning 说清为什么。 */
     if (req.method === "GET" && parts.length === 3 && parts[1] === "upstream" && parts[2] === "selftest") {
       if (!upstreamKey) return sendJson(res, 503, { ok: false, error: "服务端没有配置 UPSTREAM_KEY" }, corsHeaders());
       const model = String(url.searchParams.get("model") || allowModels[0] || "deepseek-flash");
       const target = new URL(upstreamBase + upstreamChatPath);
-      const payload = Buffer.from(JSON.stringify({ model, messages: [{ role: "user", content: "只回复两个字：可用" }], max_tokens: 64, stream: false }), "utf8");
+      const payload = Buffer.from(JSON.stringify({ model, messages: [{ role: "user", content: "只回复两个字：可用" }], max_tokens: 512, stream: false }), "utf8");
       const startedAt = Date.now();
       const result = await new Promise((resolve) => {
         const request = agentFor(target).request({
@@ -277,16 +384,34 @@ function createRelay(options) {
           upstreamRes.on("end", () => {
             const text = Buffer.concat(chunks).toString("utf8");
             let reply = "";
-            try { reply = String(JSON.parse(text).choices[0].message.content || ""); } catch (_) {}
-            resolve({ status: upstreamRes.statusCode || 0, reply: reply.slice(0, 60), body: reply ? "" : text.slice(0, 300) });
+            let reasoning = "";
+            try {
+              const parsed = JSON.parse(text);
+              const message = (parsed.choices && parsed.choices[0] && parsed.choices[0].message) || {};
+              reply = String(message.content || "");
+              reasoning = String(message.reasoning_content || message.reasoning || "");
+            } catch (_) { /* 解析不了就当没有正文 */ }
+            resolve({
+              status: upstreamRes.statusCode || 0,
+              reply: reply.slice(0, 60),
+              reasoningLen: reasoning.length,
+              body: reply ? "" : text.slice(0, 300),
+            });
           });
         });
         request.on("error", (error) => resolve({ status: 0, error: error.message }));
         request.end(payload);
       });
-      return sendJson(res, result.status === 200 ? 200 : 502, Object.assign({
-        ok: result.status === 200, model, url: upstreamBase + upstreamChatPath, ms: Date.now() - startedAt,
-      }, result), corsHeaders());
+      const gotContent = result.status === 200 && !!String(result.reply || "").trim();
+      const response = Object.assign({
+        ok: gotContent, model, url: upstreamBase + upstreamChatPath, ms: Date.now() - startedAt,
+      }, result);
+      if (result.status === 200 && !gotContent) {
+        response.warning = result.reasoningLen
+          ? "上游 HTTP 200，但正文是空的：这个模型把额度都花在思考内容上了（reasoning " + result.reasoningLen + " 字）。链路是通的，但**不能算可用**。"
+          : "上游 HTTP 200，但正文是空的 —— 链路通、模型没给出内容。";
+      }
+      return sendJson(res, gotContent ? 200 : 502, response, corsHeaders());
     }
 
     /* 账本自检：配好环境变量后调一次，就能知道"卡到底存哪、存不存得住"。
@@ -432,19 +557,190 @@ function createRelay(options) {
     });
   }
 
+  /* ---------------- 角色语音（文字 → 音频） ----------------
+   *
+   * 客户端只发：卡号（Authorization）+ 要念的那句话 + 音色 + 语速。
+   * 火山凭据在服务端，永远不出现在响应里。
+   *
+   * 这一路**不是** OpenAI 的 /audio/speech 兼容口：请求体是我们自己的窄接口，
+   * 参数只有中转允许的那几个（音色必须在服务端白名单里），这样客户端改不动
+   * 中转不打算开放的参数，也顺手挡掉了"把任意文本塞进别人的账号合成"的用法。
+   */
+
+  function voiceError(res, status, code, message, extraHeaders) {
+    return sendJson(res, status, { error: { code, message } }, Object.assign({}, corsHeaders(), extraHeaders || {}));
+  }
+
+  async function handleVoice(req, res) {
+    const token = bearer(req);
+    const card = token ? await store.findByToken(token) : null;
+    const raw = await readBody(req, 64 * 1024);
+    let body = null;
+    try { body = JSON.parse(raw.toString("utf8") || "{}"); } catch (_) {
+      return voiceError(res, 400, "BAD_JSON", "请求体不是 JSON");
+    }
+
+    const text = String(body.text === undefined || body.text === null ? "" : body.text).trim();
+    const chars = text.length;
+    // 顺序很重要：先判"这个请求本身合不合法"（400/413），再判"这张卡还有没有额度"（402）。
+    // 反过来的话，一张小额度的卡去发超长文本会得到"字数不够"，而真正的原因是"一次发太长了"。
+    const speakerDefault = speakerTable().defaultSpeaker;
+    const wanted = String(body.speaker || "").trim() || speakerDefault;
+    const speaker = voiceLib.findSpeaker(wanted, envSource);
+    if (!text) {
+      const verdict = checkVoiceCard(card, 0);
+      logSink({ at: new Date().toISOString(), event: "voice-reject", code: "VOICE_EMPTY_TEXT", cardId: card ? card.id : null, chars: 0 });
+      return voiceError(res, 400, "VOICE_EMPTY_TEXT", "没有要合成的内容。", card ? cardHeaders(card, verdict) : {});
+    }
+    if (chars > voiceMaxChars) {
+      const verdict = checkVoiceCard(card, 0);
+      logSink({ at: new Date().toISOString(), event: "voice-reject", code: "VOICE_TEXT_TOO_LONG", cardId: card ? card.id : null, chars });
+      return voiceError(res, 413, "VOICE_TEXT_TOO_LONG",
+        "一次最多合成 " + voiceMaxChars + " 个字（这次 " + chars + " 个字）；长回复应当在客户端按句切分后分几次发。",
+        card ? cardHeaders(card, verdict) : {});
+    }
+    // 再拿"这次想合成多少字"去判额度 —— 否则会出现"额度剩 10 字却发了 300 字"。
+    const verdict = checkVoiceCard(card, chars);
+    if (!verdict.ok) {
+      logSink({ at: new Date().toISOString(), event: "voice-reject", code: verdict.code, cardId: card ? card.id : null, chars });
+      return voiceError(
+        res,
+        verdict.code === "CARD_UNKNOWN" ? 401 : 402,
+        verdict.code, verdict.message,
+        card ? cardHeaders(card, verdict) : {},
+      );
+    }
+    if (!speaker) {
+      return voiceError(res, 400, "VOICE_SPEAKER_UNKNOWN",
+        "这个中转没有开放音色「" + wanted + "」。可用音色见 GET /voice/info。",
+        cardHeaders(card, verdict));
+    }
+
+    if (!tts.config.configured) {
+      return voiceError(res, 503, "RELAY_NO_VOICE_KEY",
+        "中转服务端还没配火山语音凭据（缺 " + tts.config.missing.join(" / ") + "），语音暂时用不了；文字聊天不受影响。",
+        cardHeaders(card, verdict));
+    }
+
+    if (voiceRunning >= voiceConcurrency || voiceBusy(card.id) >= voicePerCard) {
+      logSink({ at: new Date().toISOString(), event: "voice-busy", cardId: card.id, running: voiceRunning });
+      return voiceError(res, 429, "VOICE_BUSY", "语音合成正忙（同一时间只能合成一句），稍等一下再试。", cardHeaders(card, verdict));
+    }
+
+    // 客户端中断（切角色 / 切会话 / 点停止）时，必须把上游也掐掉 ——
+    // 否则用户已经听不见了，钱还在烧。
+    // ⚠ 判据是 **res 的 close + writableFinished**，不是 req 的 close：
+    // 请求体早就读完了，`req.on("close")` 在客户端断开时**不会**触发（实测，
+    // 见 tests/relay-check.cjs 的"客户端中断"用例）。用错了的话上游会一直挂着。
+    const controller = new AbortController();
+    let clientGone = false;
+    const onClose = () => {
+      if (res.writableFinished) return;
+      clientGone = true;
+      controller.abort();
+    };
+    res.on("close", onClose);
+
+    voiceRunning += 1;
+    voiceRunningByCard.set(card.id, voiceBusy(card.id) + 1);
+    const startedAt = Date.now();
+    let result = null;
+    try {
+      result = await tts.synthesize({
+        text,
+        speaker: speaker.id,
+        format: String(body.format || "mp3").toLowerCase(),
+        sample_rate: Number(body.sample_rate) || 24000,
+        speech_rate: body.speech_rate,
+      }, { signal: controller.signal, uid: card.id });
+    } finally {
+      voiceRunning -= 1;
+      const left = voiceBusy(card.id) - 1;
+      if (left > 0) voiceRunningByCard.set(card.id, left); else voiceRunningByCard.delete(card.id);
+      res.removeListener("close", onClose);
+    }
+
+    if (clientGone || (result && result.code === "VOICE_CANCELED")) {
+      logSink({ at: new Date().toISOString(), event: "voice-canceled", cardId: card.id, chars, ms: Date.now() - startedAt });
+      try { res.destroy(); } catch (_) { /* 已经断了 */ }
+      return undefined;
+    }
+
+    if (!result || !result.ok) {
+      const code = (result && result.code) || "VOICE_FAILED";
+      const status = code === "VOICE_TIMEOUT" ? 504
+        : code === "RELAY_NO_VOICE_KEY" ? 503
+          : code === "UPSTREAM_UNREACHABLE" ? 502
+            : 502;
+      logSink({
+        at: new Date().toISOString(), event: "voice-error", cardId: card.id, chars,
+        code, status, ms: Date.now() - startedAt,   // 只有用量与错误码，没有那句话
+      });
+      // 失败也记一次用量吗？**不记**：合成没成功就不该扣用户的钱。
+      return voiceError(res, status, code, (result && result.message) || "语音合成失败。", cardHeaders(card, verdict));
+    }
+
+    const updated = await recordUsage(card, { kind: "voice", chars: result.chars || chars });
+    const after = checkCard(updated);
+    logSink({
+      at: new Date().toISOString(), event: "voice", cardId: card.id, speaker: speaker.id, chars: result.chars || chars,
+      bytes: result.audio.length, ms: Date.now() - startedAt,
+      voiceCalls: updated.used.voice, voiceChars: updated.used.voiceChars,
+    });
+
+    const headers = Object.assign({}, corsHeaders(), cardHeaders(updated, after), {
+      "Content-Type": result.contentType || "audio/mpeg",
+      "Content-Length": String(result.audio.length),
+      "Cache-Control": "no-store",
+      // 音频是按 (文本+音色+参数) 缓存的：把最终用的参数回报给客户端，缓存键才算得准。
+      "x-rw-voice-speaker": speaker.id,
+      "x-rw-voice-chars": String(result.chars || chars),
+    });
+    res.writeHead(200, headers);
+    res.end(result.audio);
+    return undefined;
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://relay.local");
     try {
       if (req.method === "OPTIONS") { res.writeHead(204, corsHeaders()); return res.end(); }
-      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, storeAuth: storeLib.describeAuth(), upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), upstreamChatPath, upstreamKeySet: !!upstreamKey, adminEnabled: !!adminSecret, at: new Date().toISOString() }, corsHeaders());
+      if (url.pathname === "/healthz") return sendJson(res, 200, { ok: true, store: store.kind, storeAuth: storeLib.describeAuth(), upstream: upstreamBase.replace(/\/\/[^@]*@/, "//"), upstreamChatPath, upstreamKeySet: !!upstreamKey, adminEnabled: !!adminSecret, voiceKeySet: !!tts.config.configured, voiceResourceId: tts.config.resourceId, voiceSpeakers: speakerTable().speakers.length, voiceMaxChars, at: new Date().toISOString() }, corsHeaders());
       if (url.pathname === "/card/quota") {
         const card = await store.findByToken(bearer(req));
         const verdict = checkCard(card);
         if (!card) return sendJson(res, 401, { error: { code: "CARD_UNKNOWN", message: verdict.message } }, corsHeaders());
         return sendJson(res, 200, Object.assign({ ok: verdict.ok, reason: verdict.ok ? null : verdict.message }, await usageOfCard(card)), corsHeaders());
       }
+      /* 这个中转的语音能力：有哪些音色、一次多长。客户端用它渲染「设置 → 语音」，
+       * 并且**只在真有语音时才把朗读相关的东西露出来**（没配就不显示，而不是点了没反应）。 */
+      if (url.pathname === "/voice/info") {
+        const card = await store.findByToken(bearer(req));
+        const verdict = checkCard(card);
+        if (!card) return sendJson(res, 401, { error: { code: "CARD_UNKNOWN", message: verdict.message } }, corsHeaders());
+        const table = speakerTable();
+        const usable = verdict.ok && tts.config.configured;
+        return sendJson(res, 200, {
+          ok: true,
+          enabled: !!tts.config.configured,
+          reason: tts.config.configured ? null : "这个中转还没配语音（服务端缺火山凭据）。",
+          speakers: table.speakers.map((one) => ({
+            id: one.id, label: one.label, lang: one.lang,
+            // 界面按下拉分组显示（中文 / 英语 / 其他语言）—— 二百多个音色不分组根本没法挑。
+            langLabel: one.langLabel || (one.lang === "en" ? "英语" : (one.lang === "zh" ? "中文" : "其他语言")),
+            gender: one.gender, scene: one.scene,
+          })),
+          defaultSpeaker: table.defaultSpeaker,
+          maxChars: voiceMaxChars,
+          format: "mp3",
+          canSpeakNow: usable,
+          voiceLeft: Number.isFinite(verdict.voiceLeft) ? verdict.voiceLeft : null,
+          voiceCharsLeft: Number.isFinite(verdict.voiceCharsLeft) ? verdict.voiceCharsLeft : null,
+        }, corsHeaders());
+      }
       if (url.pathname.startsWith("/admin/")) return await handleAdmin(req, res, url);
       if (url.pathname === "/v1/chat/completions" && req.method === "POST") return await handleChat(req, res);
+      if (url.pathname === "/v1/audio/speech" && req.method === "POST") return await handleVoice(req, res);
       if (url.pathname === "/v1/models" && req.method === "GET") {
         const card = await store.findByToken(bearer(req));
         const verdict = checkCard(card);
@@ -471,13 +767,18 @@ function createRelay(options) {
     }
   });
 
-  server.relay = { store, checkCard, createCard: async (fields) => {
-    const token = storeLib.randomToken();
-    const card = storeLib.blankCard(Object.assign({ tokenHash: storeLib.hashToken(token) }, fields || {}));
-    await store.save(card);
-    return { card, token };
-  } };
+  server.relay = {
+    store, checkCard, checkVoiceCard, tts,
+    voiceState: () => ({ running: voiceRunning, byCard: voiceRunningByCard.size }),
+    speakers: () => speakerTable(),
+    createCard: async (fields) => {
+      const token = storeLib.randomToken();
+      const card = storeLib.blankCard(Object.assign({ tokenHash: storeLib.hashToken(token) }, fields || {}));
+      await store.save(card);
+      return { card, token };
+    },
+  };
   return server;
 }
 
-module.exports = { createRelay, checkCard, usageFromText, corsHeaders };
+module.exports = { createRelay, checkCard, checkVoiceCard, usageFromText, corsHeaders };

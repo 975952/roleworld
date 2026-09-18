@@ -59,6 +59,20 @@
     // 记住发生过的事：模型用 [[事件: …]] 记"你们之间发生了什么"，注入时标成 [此前发生]。
     // 默认开 —— 用户要的是角色记得"之前发生了什么"。关掉就只记玩家本人的事实。
     auto_event_memory: true,
+    // 表情包：角色可以在回复里发一个表情（[[表情: 开心]]）。默认开 ——
+    // 用户要的是"像真人"，真人聊天是会发表情的。一个表情包都没装时这个开关不起作用
+    // （提示词里不会出现 [Stickers] 那一段），见 app/sticker-core.js 与 adapter/stickers.js。
+    stickers_enabled: true,
+    // 角色语音（朗读）：默认**关**。开成 auto 就是每轮回复自动读出来，
+    // on-demand 是只在气泡上的小喇叭被点时才读。
+    voice_enabled: false,
+    voice_mode: "on-demand",
+    // 用户自己设的音色：{ "<角色卡文件名>": { rate, pitch, voiceURI } }
+    voice_by_card: {},
+    // 语音输入（按住说话 → 文字）：默认开（只是把按钮露出来，不点就不会用麦克风）。
+    speech_input_enabled: true,
+    // 用哪条通道转写：auto（先试浏览器自带，不行再试云端）/ web / cloud。
+    speech_input_engine: "auto",
     // 体验卡用的中转地址（用过体验卡才会写入）。卡号本身存在密钥位，不在这里、也不进导出存档。
     card_relay: "",
     // 角色语言：界面本来就是中文，这一项管的是**角色说什么语言**。

@@ -168,10 +168,15 @@ async function main() {
       assert.equal(issued.body.cards.length, 2, "张数不对");
       const card = issued.body.cards[0];
       assert.ok(/^RW-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(card.token), "卡号格式不对：" + card.token);
-      assert.ok(card.shareText.indexOf(card.token + "@" + relayUrl) >= 0, "那段话里没有被粘贴的一整行");
-      assert.ok(card.shareText.indexOf("只粘卡号是不够的") >= 0, "那段话里缺少「新设备要带中转地址」的提示");
-      assert.ok(card.shareText.indexOf("http") >= 0, "那段话里没有一键链接");
-      assert.ok(card.pasteLine.indexOf("@") > 0, "pasteLine 不对：" + card.pasteLine);
+      // 2026-09-16：交付文案改过一轮 —— **不再给一键链接**（那条链接会先撞腾讯云的
+      // 「测试域名风险提醒」页，同学点过去片段容易丢）。现在只给：卡号 + 中转地址 +
+      // 应用里怎么填的三步说明。这几条断言就照新的交付文案钉。
+      assert.ok(card.shareText.indexOf("卡号：" + card.token) >= 0, "那段话里没有卡号：" + card.shareText.slice(0, 200));
+      assert.ok(card.shareText.indexOf(relayUrl) >= 0, "那段话里没有中转地址");
+      assert.ok(card.shareText.indexOf("中转地址") >= 0, "那段话里没写「中转地址」这一栏要填什么");
+      assert.ok(card.shareText.indexOf("1.") >= 0, "那段话里没有「第一次打开时照着做」的步骤");
+      assert.ok(card.pasteLine === card.token + "@" + relayUrl, "pasteLine 不是可粘贴的那一整行：" + card.pasteLine);
+      assert.ok(card.shareText.indexOf(card.pasteLine) >= 0, "那段话里没有被粘贴的一整行");
 
       // 留底文件里应当有这两张卡的卡号（服务端只有哈希，只能靠这份）。
       const written = fs.readFileSync(recordFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -269,6 +274,165 @@ async function main() {
       const all = logs.map((line) => JSON.stringify(line)).join("\n");
       assert.ok(!/RW-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}/.test(all), "中转日志里出现了卡号明文");
       assert.ok(all.indexOf(ADMIN_SECRET) < 0, "中转日志里出现了发卡口令");
+    });
+
+    /* ------------------------------------------------------------------ *
+     * 2026-09-14：把控制台做成"顺手的体验卡管理工具"之后新增的用例。
+     * 覆盖用户点名的五条工作流：发卡（含语音额度）→ 查找 → 看用量 → 续期 → 停用 → 恢复。
+     * ------------------------------------------------------------------ */
+
+    await check("发卡能一次写全五份额度（聊天次数 / token / 语音次数 / 语音字数 / 天数）", async () => {
+      const issued = await api(base, "/api/issue", {
+        method: "POST",
+        body: { label: "同学G", calls: 30, tokens: 500000, voice: 20, voiceChars: 3000, days: 30, count: 1 },
+      });
+      assert.equal(issued.status, 200, JSON.stringify(issued.body));
+      const card = issued.body.cards[0];
+      assert.equal(card.quota.calls, 30, "聊天次数没写上：" + JSON.stringify(card.quota));
+      assert.equal(card.quota.tokens, 500000, "token 上限没写上");
+      assert.equal(card.quota.voice, 20, "语音次数没写上 —— 语音是独立的一份额度");
+      assert.equal(card.quota.voiceChars, 3000, "语音字数没写上");
+      // 交付文案要把语音的两份额度分开写清楚（不然同学以为语音吃聊天的次数）。
+      assert.ok(card.shareText.indexOf("30 次聊天") >= 0, "那段话里没写聊天次数：" + card.shareText.slice(0, 200));
+      assert.ok(card.shareText.indexOf("20 次语音") >= 0, "那段话里没写语音次数");
+      assert.ok(card.shareText.indexOf("3000 字语音") >= 0, "那段话里没写语音字数");
+      // 「不限制」= 0，交付文案应当说"不限"。
+      const unlimited = await api(base, "/api/issue", { method: "POST", body: { label: "同学H", calls: 0, days: 0, count: 1 } });
+      assert.equal(unlimited.body.cards[0].quota.calls, 0, "「不限制」应当是 0（服务端语义）");
+      assert.ok(unlimited.body.cards[0].shareText.indexOf("额度：不限") >= 0, "不限额度时那段话没说清：" + unlimited.body.cards[0].shareText.slice(0, 160));
+    });
+
+    await check("防重复提交：同一个 requestId 连发两次只会真的发一次卡", async () => {
+      const before = (await api(base, "/api/cards")).body.cards.length;
+      const requestId = "test-idem-1";
+      const first = await api(base, "/api/issue", { method: "POST", body: { label: "同学I", calls: 10, days: 7, count: 2, requestId: requestId } });
+      const second = await api(base, "/api/issue", { method: "POST", body: { label: "同学I", calls: 10, days: 7, count: 2, requestId: requestId } });
+      assert.equal(first.body.cards.length, 2, "第一次应当发 2 张");
+      assert.equal(second.body.cards.length, 2, "重放应当把上次的结果还回来");
+      assert.equal(second.body.replayed, true, "重放没有标出来（界面就不知道这次没真发）");
+      assert.deepEqual(second.body.cards.map((c) => c.token), first.body.cards.map((c) => c.token), "重放回来的卡号应当和上次一样");
+      const after = (await api(base, "/api/cards")).body.cards.length;
+      assert.equal(after, before + 2, "重复提交真的多发卡了：账本从 " + before + " 变成 " + after);
+      // 不同的 requestId 必须照常发（不能把"防重复"做成"只能发一次"）。
+      const third = await api(base, "/api/issue", { method: "POST", body: { label: "同学I", calls: 10, days: 7, count: 1, requestId: "test-idem-2" } });
+      assert.equal(third.body.replayed, undefined, "换了 requestId 却当成重放");
+      assert.equal(third.body.cards.length, 1, "换了 requestId 应当正常发卡");
+    });
+
+    await check("部分失败保留已成功的结果，并给出「只补失败那几张」的口径", async () => {
+      // 直接打桩：让第 2 张创建失败（模拟中转抖了一下 / 一张卡写不进去）。
+      const inner = consoleServer.console.client.createCard;
+      let calls = 0;
+      consoleServer.console.client.createCard = async (fields) => {
+        calls += 1;
+        if (calls === 2) throw new Error("模拟：中转这一张没写进去");
+        return inner(fields);
+      };
+      try {
+        const data = await api(base, "/api/issue", { method: "POST", body: { label: "同学J", calls: 5, days: 3, count: 3, requestId: "test-partial-1" } });
+        assert.equal(data.status, 200, JSON.stringify(data.body));
+        assert.equal(data.body.cards.length, 2, "成功的那两张必须留住（它们真的发出去了）");
+        assert.equal(data.body.failures.length, 1, "失败的张数不对：" + JSON.stringify(data.body.failures));
+        assert.equal(data.body.ok, false, "有失败却报 ok");
+        assert.ok(data.body.retryHint.indexOf("只补这几张") >= 0, "没给出「只补失败那几张」的口径：" + data.body.retryHint);
+        // 成功的两张必须在账本里查得到（不是只在响应里）。
+        const list = (await api(base, "/api/cards")).body.cards;
+        for (const card of data.body.cards) {
+          assert.ok(list.some((row) => row.id === card.id), "成功的卡没进账本：" + card.id);
+        }
+      } finally {
+        consoleServer.console.client.createCard = inner;
+      }
+    });
+
+    await check("卡详情：单独的接口给出这张卡的最近用量，且不泄漏别人的卡", async () => {
+      const created = await issueOnRelay({ label: "同学K", calls: 12, voice: 4, voiceChars: 800, days: 9 });
+      // 先真的用一次（聊天），这样按天用量里有东西。
+      await fetch(relayUrl + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + created.token },
+        body: JSON.stringify({ model: "deepseek-flash", messages: [{ role: "user", content: "在吗" }] }),
+      }).then((res) => res.text());
+      const detail = await api(base, "/api/card/" + created.id);
+      assert.equal(detail.status, 200, JSON.stringify(detail.body));
+      assert.equal(detail.body.card.id, created.id);
+      assert.ok(Array.isArray(detail.body.daily), "缺按天用量");
+      const today = new Date().toISOString().slice(0, 10);
+      const row = detail.body.daily.find((one) => one.day === today);
+      assert.ok(row && row.calls >= 1, "今天的用量没回来：" + JSON.stringify(detail.body.daily));
+      // 不存在的卡要 404（不是 500，也不是空对象）。
+      const missing = await api(base, "/api/card/nope-nope");
+      assert.equal(missing.status, 404, "不存在的卡应当 404：" + missing.status);
+    });
+
+    await check("聊天与语音**各判各的**：聊天额度用完，独立的语音额度不该跟着被判死", async () => {
+      const created = await issueOnRelay({ label: "同学L", calls: 1, voice: 5, voiceChars: 500, days: 7 });
+      // 把聊天的那一次用掉。
+      await fetch(relayUrl + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + created.token },
+        body: JSON.stringify({ model: "deepseek-flash", messages: [{ role: "user", content: "你好" }] }),
+      }).then((res) => res.text());
+      const quota = await fetch(relayUrl + "/card/quota", { headers: { Authorization: "Bearer " + created.token } }).then((res) => res.json());
+      assert.equal(quota.callsLeft, 0, "聊天次数应当用完了：" + JSON.stringify(quota));
+      assert.equal(quota.voiceLeft, 5, "语音次数**不该**被聊天额度带着一起扣：" + JSON.stringify(quota));
+      assert.equal(quota.voiceCharsLeft, 500, "语音字数不该被聊天额度带着一起扣：" + JSON.stringify(quota));
+    });
+
+    await check("续期能同时改四份额度（聊天 / token / 语音 / 语音字数）", async () => {
+      const created = await issueOnRelay({ label: "同学M", calls: 5, voice: 1, voiceChars: 100, days: 3 });
+      const extended = await api(base, "/api/card/" + created.id + "/extend", {
+        method: "POST",
+        body: { calls: 60, tokens: 200000, voice: 30, voiceChars: 4000, days: 20, label: "同学M（续）" },
+      });
+      assert.equal(extended.status, 200, JSON.stringify(extended.body));
+      const quota = extended.body.card.quota;
+      assert.equal(quota.calls, 60);
+      assert.equal(quota.tokens, 200000);
+      assert.equal(quota.voice, 30, "语音次数没改上");
+      assert.equal(quota.voiceChars, 4000, "语音字数没改上");
+      assert.equal(extended.body.card.label, "同学M（续）", "标签没改上");
+      // 服务端看到的是同一份（不是只在响应里）。
+      const list = (await api(base, "/api/cards")).body.cards;
+      const row = list.find((one) => one.id === created.id);
+      assert.equal(row.quota.voiceChars, 4000, "账本里的语音字数没改上");
+    });
+
+    await check("发卡 → 查找 → 看用量 → 续期 → 停用 → 恢复（一条完整流程走通）", async () => {
+      const issued = await api(base, "/api/issue", { method: "POST", body: { label: "流程同学", calls: 2, voice: 2, voiceChars: 200, days: 5, count: 1, requestId: "test-flow-1" } });
+      const token = issued.body.cards[0].token;
+      const id = issued.body.cards[0].id;
+      // 查找（控制台列表里的筛选是前端做的，这里验的是"列表里有它、且带得回卡号"）
+      const listed = (await api(base, "/api/cards")).body.cards.find((one) => one.id === id);
+      assert.ok(listed, "发出去的卡在列表里找不到");
+      assert.equal(listed.token, token, "留过底的卡应当带得出卡号（否则复制不了交付文案）");
+      // 看用量
+      const detail = await api(base, "/api/card/" + id);
+      assert.equal(detail.body.card.used.calls, 0, "新卡的用量应当是 0");
+      // 续期
+      const extended = await api(base, "/api/card/" + id + "/extend", { method: "POST", body: { calls: 9, days: 10 } });
+      assert.equal(extended.body.card.quota.calls, 9);
+      // 停用 → 拿卡去查额度应当被拒
+      await api(base, "/api/card/" + id + "/disable", { method: "POST" });
+      const off = await fetch(relayUrl + "/card/quota", { headers: { Authorization: "Bearer " + token } }).then((res) => res.json());
+      assert.equal(off.ok, false, "停用之后还能用");
+      // 恢复 → 又能用了
+      await api(base, "/api/card/" + id + "/enable", { method: "POST" });
+      const on = await fetch(relayUrl + "/card/quota", { headers: { Authorization: "Bearer " + token } }).then((res) => res.json());
+      assert.equal(on.ok, true, "恢复之后还是不能用：" + JSON.stringify(on));
+      assert.equal(on.callsLeft, 9, "续期之后的剩余次数不对：" + JSON.stringify(on));
+    });
+
+    await check("语音配置只读自检：只报配没配，不做任何合成（不花钱）", async () => {
+      const before = logs.length;
+      const voiceInfo = await api(base, "/api/selftest/voice");
+      assert.equal(voiceInfo.status, 200, JSON.stringify(voiceInfo.body));
+      assert.equal(typeof voiceInfo.body.configured, "boolean", "没报「配没配」：" + JSON.stringify(voiceInfo.body).slice(0, 200));
+      // 没有配火山凭据时应当如实说 configured=false，而不是假装成功。
+      assert.equal(voiceInfo.body.configured, false, "假中转没配语音凭据，不该报成已配");
+      // 这条自检不该往语音上游发任何请求 —— 用"日志没有新增语音记录"来钉。
+      const added = logs.slice(before).filter((line) => JSON.stringify(line).indexOf("voice") >= 0);
+      assert.equal(added.length, 0, "只读自检竟然发了语音请求：" + JSON.stringify(added));
     });
   } finally {
     consoleServer.close();

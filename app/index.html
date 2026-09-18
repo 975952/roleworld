@@ -133,10 +133,13 @@
             <span class="panel-toggle-icon" aria-hidden="true"><i></i></span>
           </button>
           <!-- 角色名本身就是入口：点开 = 当前角色的「设定 / 记忆 / 关系」。
-               以前要改这个角色的记忆或关系，得先分清三四个不同的按钮（2026-09-13 统一）。 -->
+               以前要改这个角色的记忆或关系，得先分清三四个不同的按钮（2026-09-13 统一）。
+               后面那个小字是**当前方式**（文档 §6：「顶部：角色头像、名字、当前方式」）：
+               日常聊天 / 剧情对话 / 伴侣……只说你正在用什么，不显示假的在线或已读状态。 -->
           <button class="topbar-character" id="topbarCharacterButton" type="button" data-action="open-character-panel" aria-haspopup="dialog" title="查看这个角色的设定、记忆与关系">
             <span class="topbar-character-avatar" id="topbarCharacterAvatar" aria-hidden="true"></span>
             <h1 id="topbarTitle">Harry Potter</h1>
+            <span class="topbar-mode" id="topbarMode" hidden></span>
             <span class="topbar-character-caret" aria-hidden="true">⌄</span>
           </button>
         </div>
@@ -155,6 +158,13 @@
            <!-- 体验卡的剩余次数：用过体验卡才出现，点一下去设置里换卡/查额度。
                 每轮回复回来时会按中转回的次数刷新（x-rw-card-calls-left）。 -->
            <button class="plain-button card-chip" type="button" id="cardChip" data-level="ok" hidden>体验卡</button>
+           <!-- 手机版极简（2026-09-18 用户口径）：底栏整个去掉，「设置」挪到**顶栏右上角**。
+                桌面版不显示它（那里有侧栏与用户菜单，右边一列留给模型/语言/体验卡/记忆）。
+                记忆在「设置 → 记忆」里也有入口，所以去掉底栏不会让记忆变不可达。 -->
+           <button class="icon-button topbar-settings-button" id="topbarSettingsButton" type="button"
+                   data-action="open-settings" aria-label="设置" title="设置">
+             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.1 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"/></svg>
+           </button>
            <!-- 这颗按钮原来带 hidden，而没有任何代码把它摘掉：右栏只能靠 TASK21.openMemoryPanel() 打开，
                 用户点不到「记忆」。2026-09-12 修。 -->
            <button class="plain-button" type="button" data-action="open-memories" aria-expanded="false">记忆</button>
@@ -208,17 +218,67 @@
               </button>
               <div class="character-picker-menu" id="characterPickerMenu" role="listbox" hidden></div>
             </div>
-            <textarea id="messageInput" rows="1" placeholder="给 Harry 发消息" aria-label="消息输入"></textarea>
-            <div class="composer-footer">
-              <button class="composer-peek" id="requestPeekButton" type="button" hidden>本次请求</button>
-              <span class="composer-hint" hidden></span>
-              <span class="composer-engine" id="composerEngine" hidden></span>
-              <button class="stop-button" id="stopButton" type="button" hidden>停止</button>
-              <button class="send-button" id="sendButton" type="button" aria-label="发送">
-                <span class="sr-only">发送</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-              </button>
+            <!-- 2026-09-18 用户指定的微信式输入条：
+                 [语音] [输入框] [表情] [+]（右边那颗按需变成发送 / 停止）。
+                 以前这些控件在**下面一行**（`.composer-footer`），输入框孤零零占一行，
+                 手机上底栏又占掉 58px；现在并成一行、底栏去掉，输入框贴着屏幕下侧。
+                 ⚠ 所有 `#id` 都**没改**（micButton / stickerButton / replyVoiceToggle /
+                   sendButton / stopButton / requestPeekButton）—— 用例与设置页都按 id 找它们。 -->
+            <div class="composer-row">
+              <div class="composer-side composer-side-left">
+                <!-- 按住说话：说话 → 文字进输入框。默认只在真的有识别能力时露出来（见 integration.js）；
+                     没能力时这一格让给「+」，不摆点了没反应的控件。 -->
+                <button class="mic-button" id="micButton" type="button" hidden
+                        aria-label="按住说话" title="按住说话（松开结束）">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+                </button>
+                <!-- 「本次请求」：**状态锚点**，永远不显示（`setRequestPeekVisible` 按"有没有草稿 /
+                     发过消息"改它的 hidden）。用户看到的入口是「+」面板里那一行（代理），
+                     两者共用一个判据。它必须留在 DOM 里：用例与设置页都按 `#requestPeekButton` 找它。 -->
+                <button class="composer-peek composer-peek-anchor" id="requestPeekButton" type="button" hidden aria-hidden="true" tabindex="-1">本次请求</button>
+              </div>
+              <textarea id="messageInput" rows="1" placeholder="给 Harry 发消息" aria-label="消息输入"></textarea>
+              <div class="composer-side composer-side-right">
+                <!-- 发表情：用户也能发（记录里写成 [玩家发了一个表情：开心]）。 -->
+                <button class="sticker-button" id="stickerButton" type="button" hidden
+                        aria-label="发表情" title="发表情">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8.5 14.5a4.5 4.5 0 0 0 7 0"/></svg>
+                </button>
+                <!-- 输入框旁的「+」：微信里它管"更多"。这里装的是角色语音这一档与本次请求，
+                     点开是底部面板（见 integration.openComposerMenu）。**永远可见**，
+                     这样"角色语音"这个功能不会因为没开而变得不可达。 -->
+                <button class="composer-plus" id="composerPlusButton" type="button"
+                        aria-label="更多" title="更多" aria-haspopup="dialog" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <!-- 输入框旁那个**带文字**的角色语音入口（2026-09-16 按产品设计 §7 重写）。
+                     以前是一个只在小屏上露出来的麦克风图标，旁边什么都没有 —— 用户的原话是
+                     「手机版语音一直是灰的，根本打不开」：看不到字，就不知道这里能做什么。
+                     现在它常驻在「+」面板里（手机与桌面都是同一个入口，形态统一），
+                     文字由 integration.updateReplyVoiceToggle() 写：
+                       未开启 →「开启角色语音」（点了开一次面板）
+                       已开启 →「角色回复：自动 ▾」（自动 / 下条语音 / 下条文字）
+                     用扬声器形状而不是单独一个麦克风：麦克风会被读成"给我自己录音"。 -->
+                <button class="reply-voice-toggle" id="replyVoiceToggle" type="button" hidden
+                        aria-pressed="false" aria-haspopup="menu" aria-expanded="false"
+                        title="打开角色语音">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+                  <span class="rw-voice-label">角色语音</span>
+                </button>
+                <button class="stop-button" id="stopButton" type="button" hidden>停止</button>
+                <!-- 发送：2026-09-18 用户要求「发送键按需出现」—— 输入框里有字、
+                     或者正在生成（这时它是"停止"）才出现。空着的时候那一格是「+」。 -->
+                <button class="send-button" id="sendButton" type="button" aria-label="发送" hidden>
+                  <span class="sr-only">发送</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                </button>
+              </div>
             </div>
+            <!-- 「+」面板里的那几项（构建在 integration.openComposerMenu 里）。 -->
+            <div class="composer-menu" id="composerMenu" role="dialog" aria-label="更多" hidden></div>
           </div>
+          <!-- 语音状态：正在生成 / 正在播放。由 integration.js 按 adapter 的事件显示，
+               不让界面去猜（"点了没反应"最伤）。 -->
+          <p class="voice-status" id="voiceStatus" hidden></p>
         </div>
       </section>
     </main>
@@ -281,7 +341,11 @@
           <h3 class="character-pane-title" id="companionTitle">关系档案</h3>
           <p class="modal-helper" id="companionSubtitle"></p>
 
-          <label class="modal-field modal-field-check"><span><input type="checkbox" id="companionEnabled"> 给这个角色打开伴侣模式</span></label>
+          <label class="modal-field modal-field-check" id="companionEnabledRow"><span><input type="checkbox" id="companionEnabled"> 给这个角色打开伴侣模式</span></label>
+          <!-- 内置小说人物不给开伴侣（2026-09-14 用户拍板：「小说人物不设置伴侣」）。
+               视图由 renderCompanionPanel 按 companion-core 的 companionAccess 决定 ——
+               规则只在那一个地方判，界面不自己写一套。 -->
+          <p class="modal-helper companion-blocked" id="companionBlockedNote" hidden></p>
 
           <div id="companionFields">
             <label class="modal-field"><span>关系</span><select id="companionRelation"></select></label>
@@ -290,6 +354,19 @@
             <label class="modal-field"><span>你怎么称呼他</span><input id="companionUserCallsChar" maxlength="12" autocomplete="off" placeholder="留空就用角色卡里的名字"></label>
             <label class="modal-field"><span>关系起点（可留空）</span><input type="date" id="companionSince"></label>
             <label class="modal-field"><span>你们之间的事（一行一件，最多 8 件）</span><textarea id="companionShared" rows="5" spellcheck="false" placeholder="例如：第一次聊天是在雨天的图书馆"></textarea></label>
+
+            <!-- 2026-09-16 产品整理（ROLEWORLD_PRODUCT_DESIGN.md §5）：这两档正式改名 ——
+                 普通（带动作/旁白）→ **剧情对话**；软件聊天（不带动作）→ **日常聊天**。
+                 旧名字是内部视角（"软件""无动作"），普通人看不懂；存的还是 action / plain，老存档照读。
+                 ⚠ 一律不许再写"只有这一档能发语音"：语音现在由「角色语音」自己的开关决定，
+                   跟这一档无关（2026-09-16 用户拍板：朋友也可以发语音）。 -->
+            <label class="modal-field"><span>它在对话里怎么写</span>
+              <select id="companionChatStyle">
+                <option value="plain">日常聊天：像微信一样，只写对白</option>
+                <option value="action">剧情对话：带动作和旁白，像小说</option>
+              </select>
+            </label>
+            <p class="modal-helper" id="companionChatStyleNote"></p>
 
             <!-- 2026-09-12 用户拍板：伴侣模式可以有亲近度 / 冷落反应 / 主动消息（默认都克制）。
                  目标只有一个：尽可能像真人。 -->
@@ -365,6 +442,7 @@
           <button class="settings-nav-item" type="button" data-settings-section="conversation">回复偏好</button>
           <button class="settings-nav-item" type="button" data-settings-section="memory">记忆</button>
           <button class="settings-nav-item" type="button" data-settings-section="characters">角色管理</button>
+          <button class="settings-nav-item" type="button" data-settings-section="voice">语音</button>
           <button class="settings-nav-item" type="button" data-settings-section="connection">连接方式</button>
           <button class="settings-nav-item" type="button" data-settings-section="advanced">高级设置</button>
           <button class="settings-nav-item" type="button" data-settings-section="about">关于</button>
@@ -396,6 +474,11 @@
             <div class="settings-card">
               <label class="settings-row"><div><strong>自动记忆</strong><span>让模型自己记要点：每个角色一本「自动记忆」书，跨对话保留。关掉就只用手写的记忆书。</span></div><input type="checkbox" data-roleworld="auto-memory"></label>
               <label class="settings-row"><div><strong>记住发生过的事</strong><span>让角色记得你们之间发生过什么（约定、一起做过的事、关系变化）。这类内容会标成「此前发生」再发给模型，不会和"关于你的事实"混在一起。关掉就只记你本人的事实。</span></div><input type="checkbox" data-roleworld="event-memory"></label>
+              <label class="settings-row"><div><strong>表情包</strong><span>角色可以在回复里发一个表情（写 <code>[[表情: 开心]]</code>，界面会换成图）。一轮最多一个，只在它真想表达情绪时发。关掉之后提示词里不再提表情，它也就不会发。</span></div><input type="checkbox" data-roleworld="stickers"></label>
+              <!-- ⚠ 语音那两行（角色语音 / 语音输入）**不在这里** —— 它们搬去「设置 → 语音」了。
+                   为什么搬：侧栏明明有一页叫「语音」，开关却藏在「记忆」里，
+                   用户（2026-09-14）打开「语音」那一页看到的只有音色列表、找不到任何开关，
+                   反馈就是「角色语音根本没有」。开关要和它管的东西在同一页。 -->
               <label class="settings-row"><div><strong>每个角色最多记几条</strong><span><b>全局默认</b>：所有角色都用这个数（不是单个角色的设置）。超出时挤掉最旧的（会在提示里说明挤掉了几条）。留空用默认 50，可填 5–500。条数越多，每次请求带的上下文也越多。</span></div><input class="rw-field rw-field-num" type="number" min="5" max="500" step="5" data-roleworld="memory-max" placeholder="50" aria-label="自动记忆上限"></label>
               <div class="settings-row settings-action-row"><div><strong>当前角色的记忆</strong><span>看它记住了什么、每条是从哪段对话来的，可确认、改写、删除。</span></div><button class="plain-button" type="button" data-action="open-character-memories">打开记忆</button></div>
             </div>
@@ -413,6 +496,23 @@
             </div>
           </section>
 
+          <section class="settings-section" id="settings-voice" data-settings-panel="voice">
+            <div class="settings-section-heading"><h2>语音</h2><p>角色怎么说话、你怎么说话，都在这一页。<b>语音走云端</b>（火山引擎「豆包语音合成模型 2.0」），经体验卡中转合成 —— 所以要用体验卡，你不需要自己配火山密钥。</p></div>
+            <div class="settings-card">
+              <!-- 语音的两行**开关**就在这里（以前在「记忆」里，用户找不到 —— 2026-09-14 实测反馈）。
+                   显示与禁用由 applyVoiceCapability() 决定：看的是"在用体验卡吗 + 中转配了火山吗"，
+                   不再是 speechSynthesis / 安卓原生桥（那两个这一轮砍掉了）。 -->
+              <label class="settings-row" id="voiceEnabledRow"><div><strong>角色语音</strong><span id="voiceEnabledNote">打开后，每条回复的「⋯」菜单里会多一个「朗读」，由云端合成。<b>打开时会把角色要说的话经体验卡中转发给火山引擎</b>（只发那句话与音色，不发你的对话记录）。</span></div><input type="checkbox" data-roleworld="voice-enabled"></label>
+              <label class="settings-row" id="speechInputRow" hidden><div><strong>语音输入</strong><span id="speechInputNote">按住输入框旁边的麦克风说话，松开转成文字。用不了时会说明原因。</span></div><input type="checkbox" data-roleworld="speech-input"></label>
+              <p class="settings-empty" id="voiceEngineNote">正在确认这个中转有没有语音能力…</p>
+              <p class="settings-empty">音色由云端提供，同一个角色默认固定一个（按角色卡算出来的，改名字不会换声音）。想换就在下面单独挑；<b>「试听」</b>会立刻用这个声音念一句。声明的语音在<b>体验卡额度里单独计</b>（按字符），不动文字聊天的次数。</p>
+              <p class="settings-empty"><b>音高没有开关</b>：旧版本里那个"音高"是本机系统 TTS 的参数，云端接口没有对应项 —— 拿它去冒充云端参数只会让人以为调了有用。旧值仍留在你的存档里（键名 <code>voice_by_card_legacy</code>），不再参与合成。</p>
+              <div class="character-manage-list" id="voiceVoiceList"></div>
+              <p class="settings-empty" id="voiceListEmpty">正在加载角色…</p>
+              <div class="settings-row settings-action-row"><div><strong>语音缓存</strong><span id="voiceCacheNote">正在读取缓存…</span></div><button class="plain-button" type="button" data-voice-clear-cache>清空缓存</button></div>
+            </div>
+          </section>
+
           <section class="settings-section" data-settings-panel="connection">
             <div class="settings-section-heading"><h2>连接方式</h2><p id="connectionSummary">正在读取当前连接方式…</p></div>
             <div class="settings-card">
@@ -427,7 +527,7 @@
               <p class="settings-empty rw-status" data-roleworld="connection-status"></p>
 
               <div id="connectionCardBlock" hidden>
-                <div class="settings-row"><div><strong>体验卡</strong><span class="rw-status" data-roleworld="card-status">没有使用体验卡</span></div><div class="rw-actions"><input class="rw-field" type="text" data-roleworld="card" placeholder="RW-XXXXX-XXXXX-XXXXX@中转地址（或他发的整条链接）" spellcheck="false" autocomplete="off" maxlength="400"><button class="plain-button" type="button" data-roleworld="card-use">使用体验卡</button><button class="plain-button" type="button" data-roleworld="card-check">查额度</button></div></div>
+                <div class="settings-row rw-keep-note"><div><strong>体验卡</strong><span class="rw-status" data-roleworld="card-status">没有使用体验卡</span></div><div class="rw-actions"><input class="rw-field" type="text" data-roleworld="card" placeholder="RW-XXXXX-XXXXX-XXXXX@中转地址（或他发的整条链接）" spellcheck="false" autocomplete="off" maxlength="400"><button class="plain-button" type="button" data-roleworld="card-use">使用体验卡</button><button class="plain-button" type="button" data-roleworld="card-check">查额度</button></div></div>
                 <p class="settings-empty">体验卡走的是发卡人搭的中转：对话内容会经过那台中转服务再送到模型，<b>卡号只存在你的本机、不进导出存档</b>。中转那边能看到"这张卡用了多少次"，本项目的中转实现不记录聊天正文。<b>换设备 / 换浏览器要重新粘一次</b>：必须带上中转地址（发卡人给你的那一整行 <code>卡号@中转地址</code>，或整条链接），只给卡号是不够的。</p>
               </div>
 
@@ -435,7 +535,7 @@
                 <label class="settings-row"><div><strong>服务商</strong><span>选择预设，或自定义一个支持跨域访问的 OpenAI 兼容云端接口。</span></div><select data-roleworld="provider"><option value="deepseek">DeepSeek 官方</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="siliconflow">硅基流动</option><option value="custom">自定义云端服务</option></select></label>
                 <label class="settings-row"><div><strong>接口地址</strong><span>留空则使用服务商默认地址；自定义服务必须填写 HTTPS 地址。</span></div><input class="rw-field" type="text" data-roleworld="endpoint" placeholder="https://api.deepseek.com/chat/completions" spellcheck="false" autocomplete="off"></label>
                 <label class="settings-row"><div><strong>模型名</strong><span>DeepSeek 正式版：deepseek-flash（V4.1 Flash）；也可填写其他服务商的模型名。</span></div><input class="rw-field" type="text" data-roleworld="model" placeholder="deepseek-flash" spellcheck="false" autocomplete="off"></label>
-                <div class="settings-row"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-form-type="other" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
+                <div class="settings-row rw-keep-note"><div><strong>API Key</strong><span class="rw-status" data-roleworld="key-status">正在读取…</span></div><div class="rw-actions"><input class="rw-field" type="password" data-roleworld="key" placeholder="sk-…" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-form-type="other" spellcheck="false" maxlength="200"><button class="plain-button" type="button" data-roleworld="key-save">保存</button><button class="plain-button" type="button" data-roleworld="key-delete">删除</button></div></div>
                 <p class="settings-empty">每一家服务商的 Key 存在<b>各自的格子</b>里：换了服务商要重新填一次，否则会用上一个服务商的 Key 去请求（会 401）。</p>
               </div>
 
@@ -457,7 +557,7 @@
           </section>
           <section class="settings-section" id="settings-account" data-settings-panel="about">
             <div class="settings-section-heading"><h2>关于</h2><p>角色世界是本地开源应用：<b>聊天记录、角色卡与记忆都存在这台设备上</b>；生成回复时，相关对话内容会发送给你当前选的模型服务（自己配的 API 是直连，体验卡则经过发卡人的中转）。</p></div>
-            <div class="settings-card"><div class="settings-row"><div><strong>版本</strong><span class="rw-status" data-roleworld="app-version">正在读取…</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="force-update">检查更新</button></div></div><div class="settings-row"><div><strong>开源许可</strong><span>MIT License · 源码与问题反馈见仓库 README。</span></div><a class="plain-button" href="about.html" target="_blank" rel="noopener">查看说明</a></div><div class="settings-row"><div><strong>同人作品声明</strong><span>内置角色包属于同人二次创作，仅供个人非商业使用，版权归原作者所有。</span></div><span class="settings-value">非商业</span></div><div class="settings-row"><div><strong>数据位置</strong><span>角色卡、对话与记忆书都保存在本机数据库，可直接导出备份。</span></div><span class="settings-value">仅本机</span></div><div class="settings-row settings-action-row"><div><strong>使用教程</strong><span>五步说明：配模型、内置角色、数据在哪、怎么开始。</span></div><button class="plain-button" type="button" data-roleworld="tutorial">再看一次教程</button></div></div>
+            <div class="settings-card"><div class="settings-row rw-keep-note"><div><strong>版本</strong><span class="rw-status" data-roleworld="app-version">正在读取…</span></div><div class="rw-actions"><button class="plain-button" type="button" data-roleworld="force-update">检查更新</button></div></div><div class="settings-row"><div><strong>开源许可</strong><span>MIT License · 源码与问题反馈见仓库 README。</span></div><a class="plain-button" href="about.html" target="_blank" rel="noopener">查看说明</a></div><div class="settings-row"><div><strong>同人作品声明</strong><span>内置角色包属于同人二次创作，仅供个人非商业使用，版权归原作者所有。</span></div><span class="settings-value">非商业</span></div><div class="settings-row"><div><strong>数据位置</strong><span>角色卡、对话与记忆书都保存在本机数据库，可直接导出备份。</span></div><span class="settings-value">仅本机</span></div><div class="settings-row settings-action-row"><div><strong>使用教程</strong><span>五步说明：配模型、内置角色、数据在哪、怎么开始。</span></div><button class="plain-button" type="button" data-roleworld="tutorial">再看一次教程</button></div></div>
             <div class="settings-card">
               <div class="settings-row"><div><strong>本地档案</strong><span>这台设备上的一个档案：没有密码、不会同步。称呼与显示名都在下面改。</span></div><span class="settings-value">仅本机</span></div>
             </div>
@@ -471,7 +571,7 @@
             <!-- 概览：一眼看清"我有什么、上次备份是什么时候"。数字来自本机数据库，不编。 -->
             <div class="settings-card">
               <div class="settings-card-heading"><div><strong>本机概况</strong><span class="rw-status" data-roleworld="data-summary">正在读取…</span></div></div>
-              <div class="settings-row settings-action-row"><div><strong>最近一次导出</strong><span class="rw-status" data-roleworld="last-backup">还没有导出过</span></div><span class="settings-value">仅本机</span></div>
+              <div class="settings-row settings-action-row rw-keep-note"><div><strong>最近一次导出</strong><span class="rw-status" data-roleworld="last-backup">还没有导出过</span></div><span class="settings-value">仅本机</span></div>
             </div>
 
             <!-- 备份：日常操作。导出/导入在同一张卡里，说明写清楚导入是"整份替换"。 -->
@@ -530,7 +630,12 @@
 
   <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" type="button" data-action="close-mobile-drawer" aria-label="关闭主导航" hidden></button>
 
-  <nav class="mobile-bottom-nav" aria-label="手机版导航">
+  <nav class="mobile-bottom-nav" aria-label="手机版导航" hidden>
+    <!-- 2026-09-18 用户口径：「手机版最下面那一栏删掉」+「设置挪到顶栏右上角」。
+         节点**保留但永久 hidden**（不再有任何代码摘掉它）：删掉整段 HTML 会牵动
+         app.js 的 updateMobileBottomNav / openMobileView 与两个套件里的选择器，
+         那属于"另一件事"；现在它既不占位置也不显示，用户看到的手机版没有底栏。
+         入口：☰（左侧导航抽屉，含对话 / 角色 / 剧情模式 / 设置）+ 顶栏右上角「设置」。 -->
     <button class="mobile-bottom-nav-item is-active" type="button" data-mobile-view="chat" data-action="mobile-view-chat" aria-current="page">
       <span class="mobile-bottom-nav-icon nav-icon-chat" aria-hidden="true"></span>
       <span>对话</span>
@@ -632,6 +737,10 @@
 <script src="memory-core.js"></script>
 <script src="search-core.js"></script>
 <script src="metrics-core.js"></script>
+<script src="sticker-core.js"></script>
+<script src="language-core.js"></script>
+<script src="voice-core.js"></script>
+<script src="voice-cache.js"></script>
 <script src="companion-core.js"></script>
   <script src="adapter/store.js"></script>
   <script src="adapter/desktop.js"></script>
@@ -640,13 +749,18 @@
 <script src="adapter/cards.js"></script>
 <script src="adapter/pricing.js"></script>
 <script src="adapter/card.js"></script>
+<script src="adapter/voice.js"></script>
 <script src="adapter/pack-cleanup.js"></script>
 <script src="adapter/packs.js"></script>
+<script src="adapter/stickers.js"></script>
 <script src="adapter/index.js"></script>
 <script src="adapter/settings-ui.js"></script>
 <script src="adapter/archive-ui.js"></script>
 <script src="adapter/onboarding.js"></script>
   <script src="integration.js"></script>
+  <!-- 返回手势（2026-09-18）：手机上按返回键 / 侧滑时先关掉最上层面板，到底了才退出应用。
+       它要在 integration.js **之后**加载（面板的开关动作都从 window.TASK21 上取）。 -->
+  <script src="back-nav.js"></script>
   <script src="pwa.js"></script>
 <script src="zoom.js"></script>
   <script src="seasonal-surprise.js"></script>

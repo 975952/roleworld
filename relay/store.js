@@ -39,16 +39,18 @@ function blankCard(fields) {
     label: "",
     createdAt: nowIso(),
     expiresAt: null,
-    quota: { calls: 0, tokens: 0 },   // 0 = 不限制
-    used: { calls: 0, tokens: 0 },
-    // 按天的用量（2026-09-12 加）：{"2026-09-13": {calls, tokens}}，只留最近 DAILY_KEEP 天。
+    // 0 = 不限制。语音（voice / voiceChars）是**独立**于聊天的一份额度：
+    // 语音按字符计费，跟聊天的 token 不是一回事，混在一个额度里会让"次数还够但语音没了"没法解释。
+    quota: { calls: 0, tokens: 0, voice: 0, voiceChars: 0 },
+    used: { calls: 0, tokens: 0, voice: 0, voiceChars: 0 },
+    // 按天的用量（2026-09-12 加）：{"2026-09-13": {calls, tokens, voice, chars}}，只留最近 DAILY_KEEP 天。
     // 累计 used 看不出"今天谁用得多"，而"卡被转借/被刷"只有按天看得出来。
     daily: {},
     disabled: false,
     note: "",
   }, fields || {});
-  card.quota = Object.assign({ calls: 0, tokens: 0 }, card.quota || {});
-  card.used = Object.assign({ calls: 0, tokens: 0 }, card.used || {});
+  card.quota = Object.assign({ calls: 0, tokens: 0, voice: 0, voiceChars: 0 }, card.quota || {});
+  card.used = Object.assign({ calls: 0, tokens: 0, voice: 0, voiceChars: 0 }, card.used || {});
   card.daily = card.daily && typeof card.daily === "object" ? card.daily : {};
   return card;
 }
@@ -56,13 +58,24 @@ function blankCard(fields) {
 /** 按天记账：累加今天的用量，并丢掉太旧的日期（账本行不能无限长）。 */
 const DAILY_KEEP = 30;
 
+/**
+ * 记一笔用量到当天。
+ *   usage.kind === "voice" → 记 voice/chars（语音次数与字符数）
+ *   其它                    → 记 calls/tokens（聊天轮次与 token）
+ * 两条线分开记：语音的价格口径是字符，聊天是 token，"今天用了多少"必须能分开看。
+ */
 function addDailyUsage(card, day, usage) {
   const key = String(day || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return card.daily;
   const daily = Object.assign({}, card.daily || {});
-  const row = Object.assign({ calls: 0, tokens: 0 }, daily[key] || {});
-  row.calls += 1;
-  row.tokens += Number(usage && usage.total) || 0;
+  const row = Object.assign({ calls: 0, tokens: 0, voice: 0, chars: 0 }, daily[key] || {});
+  if (usage && usage.kind === "voice") {
+    row.voice += 1;
+    row.chars += Number(usage.chars) || 0;
+  } else {
+    row.calls += 1;
+    row.tokens += Number(usage && usage.total) || 0;
+  }
   daily[key] = row;
   const keys = Object.keys(daily).sort();
   while (keys.length > DAILY_KEEP) delete daily[keys.shift()];
@@ -339,11 +352,20 @@ const PG_COLUMNS = [
   "last_used_at TIMESTAMPTZ",
   // 按天用量（2026-09-12）：老库里没有这一列，ensureTable 会用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 补上。
   "daily JSONB NOT NULL DEFAULT '{}'::jsonb",
+  // 语音额度（2026-09-14）：与聊天分开的一份用量，按字符计。
+  "quota_voice INTEGER NOT NULL DEFAULT 0",
+  "quota_voice_chars INTEGER NOT NULL DEFAULT 0",
+  "used_voice INTEGER NOT NULL DEFAULT 0",
+  "used_voice_chars INTEGER NOT NULL DEFAULT 0",
 ];
 
 /** 建表之后才加的列：只有这些需要在老库上 ALTER 补齐（PG 支持 ADD COLUMN IF NOT EXISTS）。 */
 const PG_UPGRADE_COLUMNS = [
   "daily JSONB NOT NULL DEFAULT '{}'::jsonb",
+  "quota_voice INTEGER NOT NULL DEFAULT 0",
+  "quota_voice_chars INTEGER NOT NULL DEFAULT 0",
+  "used_voice INTEGER NOT NULL DEFAULT 0",
+  "used_voice_chars INTEGER NOT NULL DEFAULT 0",
 ];
 
 function toRow(card) {
@@ -356,6 +378,10 @@ function toRow(card) {
     quota_tokens: Number(card.quota && card.quota.tokens) || 0,
     used_calls: Number(card.used && card.used.calls) || 0,
     used_tokens: Number(card.used && card.used.tokens) || 0,
+    quota_voice: Number(card.quota && card.quota.voice) || 0,
+    quota_voice_chars: Number(card.quota && card.quota.voiceChars) || 0,
+    used_voice: Number(card.used && card.used.voice) || 0,
+    used_voice_chars: Number(card.used && card.used.voiceChars) || 0,
     disabled: card.disabled === true,
     expires_at: card.expiresAt || null,
     created_at: card.createdAt || new Date().toISOString(),
@@ -370,8 +396,18 @@ function toCard(row) {
     tokenHash: row.token_hash,
     label: row.label || "",
     note: row.note || "",
-    quota: { calls: Number(row.quota_calls) || 0, tokens: Number(row.quota_tokens) || 0 },
-    used: { calls: Number(row.used_calls) || 0, tokens: Number(row.used_tokens) || 0 },
+    quota: {
+      calls: Number(row.quota_calls) || 0,
+      tokens: Number(row.quota_tokens) || 0,
+      voice: Number(row.quota_voice) || 0,
+      voiceChars: Number(row.quota_voice_chars) || 0,
+    },
+    used: {
+      calls: Number(row.used_calls) || 0,
+      tokens: Number(row.used_tokens) || 0,
+      voice: Number(row.used_voice) || 0,
+      voiceChars: Number(row.used_voice_chars) || 0,
+    },
     disabled: row.disabled === true,
     expiresAt: row.expires_at || null,
     createdAt: row.created_at || "",
@@ -506,4 +542,4 @@ function createStore(spec) {
   return createMemoryStore();
 }
 
-module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, createPgStore, describeAuth, hashToken, randomToken, blankCard, addDailyUsage, DAILY_KEEP, nowIso };
+module.exports = { createStore, createMemoryStore, createFileStore, createCloudBaseStore, createHttpStore, createPgStore, describeAuth, hashToken, randomToken, blankCard, addDailyUsage, DAILY_KEEP, PG_UPGRADE_COLUMNS, nowIso };

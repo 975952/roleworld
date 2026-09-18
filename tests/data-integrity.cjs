@@ -438,6 +438,42 @@ async function main() {
     console.log("        捕获 " + requests.length + " 个请求，全部发往 " + paths[0]);
   });
 
+  await check("语音：合成好的音频不进导出存档，也不进发给模型的请求体", async () => {
+    // 语音缓存是**派生数据**（可以重新生成）而且很占地方，进存档只会让"导出→发给别人"变笨重。
+    // 这一条同时钉住"语音那一路只发必要字段"：合成请求里只有 text / speaker / speech_rate。
+    const info = await evaluate(`(async () => {
+      const store = window.RoleWorld.store;
+      // 先塞一条假的语音缓存（不联网、不合成）
+      await store.putVoiceRecord({
+        id: 'voice:selftest', base64: 'AAAA', type: 'audio/mpeg',
+        bytes: 3, chars: 2, speaker: 'zh_female_vv_uranus_bigtts', speechRate: 0,
+        at: Date.now(), usedAt: Date.now()
+      });
+      const records = await store.listVoiceRecords();
+      const dump = await window.RoleWorld.exportArchive();
+      const dumpText = JSON.stringify(dump);
+      // 清掉，别影响后面的用例
+      await store.clearVoiceRecords();
+      return {
+        hasStore: typeof store.listVoiceRecords === 'function',
+        records: Array.isArray(records) ? records.length : -1,
+        dumpHasVoiceStore: Object.prototype.hasOwnProperty.call(dump.data || {}, 'voice'),
+        dumpHasCacheKey: dumpText.indexOf('voice:selftest') >= 0,
+        stores: Object.keys(dump.data || {}),
+      };
+    })()`);
+    assert(info.hasStore, "存储层少了语音缓存那一本（说明缓存没地方放，会退化成内存缓存）");
+    assert(info.records === 1, "刚塞进去的语音缓存读不回来：" + info.records);
+    assert(!info.dumpHasVoiceStore, "导出存档里出现了 voice 存储：" + JSON.stringify(info.stores));
+    assert(!info.dumpHasCacheKey, "导出存档里出现了语音缓存内容 —— 它是派生数据，不该进存档");
+    // 模型请求体里不许出现语音相关的字段（那条路只发给你配置的模型端点）
+    const last = requests[requests.length - 1];
+    for (const forbidden of ["speaker", "speech_rate", "voice_id"]) {
+      assert(last.raw.indexOf('"' + forbidden + '"') < 0,
+        "发给模型的请求体里出现了语音参数：" + forbidden);
+    }
+  });
+
   await cdp.sessionSend(session, "Page.removeScriptToEvaluateOnNewDocument", { identifier: fixtureScript.identifier });
   server.close();
   try { chrome.process.kill(); } catch (_) {}

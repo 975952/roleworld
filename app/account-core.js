@@ -40,7 +40,7 @@
     scale: ["0.85", "0.9", "0.95", "1", "1.05", "1.1", "1.15", "1.2"],
     // 风格：同一套布局下的不同配色（见 tokens.css）。
     style: ["default", "paper", "ink", "forest", "sakura", "gold"],
-    lastSettingsSection: ["appearance", "conversation", "memory", "characters", "connection", "advanced", "about", "local-data"],
+    lastSettingsSection: ["appearance", "conversation", "memory", "characters", "voice", "connection", "advanced", "about", "local-data"],
   });
   /** 新默认配色：白 + 返校金（2026-09-13 用户要求）。 */
   const APPEARANCE_BASE = "light+gold";

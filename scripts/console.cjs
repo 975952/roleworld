@@ -131,6 +131,46 @@ function createConsole(options) {
 
   /* ---------- 接口 ---------- */
 
+  /**
+   * 「发卡」的**防重复提交**（2026-09-14）。
+   *
+   * 为什么必须有：浏览器超时、用户连点两下、网络抖动重试 —— 任何一种都会让同一个
+   * 请求到达两次，而每一次都真的会在账本里**多发一张卡**（卡这东西没有"幂等"可言，
+   * 多发的就是白送出去的额度）。所以请求方带一个 `requestId`，同一个 id 在
+   * `IDEMPOTENT_TTL_MS` 内只执行一次，第二次直接把它上次的结果还给它。
+   *
+   * 结果缓存**只活在内存里**：控制台一关就没了。重启之后同一个 id 会重新执行 ——
+   * 这是刻意的取舍：为了"永不重复发卡"把卡号落进一个新文件，等于把凭据多抄一份。
+   * 界面上还有一道闸（提交期间按钮禁用 + 同一个 requestId 复用），两道一起上。
+   */
+  const IDEMPOTENT_TTL_MS = 10 * 60 * 1000;
+  const issueResults = new Map();
+
+  function idempotencyKey(body) {
+    const raw = body && body.requestId;
+    const key = String(raw === undefined || raw === null ? "" : raw).trim();
+    if (!key) return "";
+    return key.slice(0, 80);
+  }
+
+  function replayIssue(key) {
+    if (!key) return null;
+    const hit = issueResults.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.at > IDEMPOTENT_TTL_MS) { issueResults.delete(key); return null; }
+    return Object.assign({}, hit.body, { replayed: true });
+  }
+
+  function rememberIssue(key, body) {
+    if (!key) return body;
+    issueResults.set(key, { at: Date.now(), body: body });
+    // 顺手清掉过期的：这是个长驻进程，Map 不能无限长。
+    for (const [id, row] of issueResults) {
+      if (Date.now() - row.at > IDEMPOTENT_TTL_MS) issueResults.delete(id);
+    }
+    return body;
+  }
+
   async function handleApi(req, res, url, port) {
     if (!hostAllowed(req, port)) return sendJson(res, 403, { error: "Host 不对（只接受本机地址）" });
     if (String(req.headers["x-rw-console"] || "") !== runToken) {
@@ -148,6 +188,8 @@ function createConsole(options) {
         recordFile,
         recordCount: readRecord().length,
         health: health || null,
+        // 界面要显示"数据是什么时候取的"（用户在总览里看的是快照，不是实时值）。
+        checkedAt: new Date().toISOString(),
       });
     }
 
@@ -157,12 +199,14 @@ function createConsole(options) {
       return sendJson(res, 200, {
         // 本机有卡号就一起给（界面才能给「复制那段话」）；没有就只显示用量。
         cards: cards.map((card) => Object.assign({}, card, { token: known.has(String(card.id)) ? known.get(String(card.id)).token : null })),
+        checkedAt: new Date().toISOString(),
       });
     }
 
     if (url.pathname === "/api/record") return sendJson(res, 200, { rows: readRecord().slice().reverse() });
 
     /* 加次数 / 续期（2026-09-12）：同学用完了就地补，不用换卡、不用他重新配。 */
+    /* 2026-09-14 扩：语音的两份额度（voice / voiceChars）也在这里改。 */
     if (url.pathname === "/api/usage") {
       const days = url.searchParams.get("days") || 14;
       return sendJson(res, 200, await client.usage(days));
@@ -175,40 +219,87 @@ function createConsole(options) {
       const fields = {};
       if (body.calls !== undefined && body.calls !== null && body.calls !== "") fields.calls = normalizeInt(body.calls, 0, 0, 1000000);
       if (body.tokens !== undefined && body.tokens !== null && body.tokens !== "") fields.tokens = normalizeInt(body.tokens, 0, 0, 1000000000);
+      if (body.voice !== undefined && body.voice !== null && body.voice !== "") fields.voice = normalizeInt(body.voice, 0, 0, 1000000);
+      if (body.voiceChars !== undefined && body.voiceChars !== null && body.voiceChars !== "") fields.voiceChars = normalizeInt(body.voiceChars, 0, 0, 1000000000);
       if (body.days !== undefined && body.days !== null && body.days !== "") fields.days = normalizeInt(body.days, 0, 0, 3650);
-      if (!Object.keys(fields).length) return sendJson(res, 400, { error: "要给点什么：加次数或加天数" });
+      if (body.label !== undefined) fields.label = String(body.label || "").slice(0, 60);
+      if (body.note !== undefined) fields.note = String(body.note || "").slice(0, 200);
+      if (!Object.keys(fields).length) return sendJson(res, 400, { error: "要给点什么：聊天次数 / token / 语音次数 / 语音字数 / 天数 / 标签" });
       const updated = await client.updateCard(id, fields);
-      return sendJson(res, 200, { ok: true, card: updated });
+      return sendJson(res, 200, { ok: true, card: updated, changed: Object.keys(fields) });
+    }
+
+    /* 单张卡的用量明细（2026-09-14）：控制台的「卡详情」要用它画最近用量。 */
+    const detail = url.pathname.match(/^\/api\/card\/([^/]+)$/);
+    if (detail && req.method === "GET") {
+      const id = decodeURIComponent(detail[1]);
+      const cards = await client.listCards();
+      const card = cards.find((one) => String(one.id) === String(id));
+      if (!card) return sendJson(res, 404, { error: "没有这张卡（可能已经被吊销了）" });
+      const known = recordIndex().get(String(card.id));
+      const daily = Object.entries(card.daily || {})
+        .map(([day, row]) => ({
+          day: day,
+          calls: Number(row && row.calls) || 0,
+          tokens: Number(row && row.tokens) || 0,
+          voice: Number(row && row.voice) || 0,
+          chars: Number(row && row.chars) || 0,
+        }))
+        .sort((a, b) => (a.day < b.day ? 1 : -1))
+        .slice(0, 14);
+      return sendJson(res, 200, { card: Object.assign({}, card, { token: known ? known.token : null }), daily: daily });
     }
 
     if (url.pathname === "/api/issue" && req.method === "POST") {
       const body = await readBody(req);
+      const key = idempotencyKey(body);
+      const replayed = replayIssue(key);
+      if (replayed) return sendJson(res, 200, replayed);
       const count = normalizeInt(body.count, 1, 1, 50);
       const calls = normalizeInt(body.calls, 50, 0, 100000);
       const tokens = normalizeInt(body.tokens, 0, 0, 100000000);
+      const voice = normalizeInt(body.voice, 0, 0, 1000000);
+      const voiceChars = normalizeInt(body.voiceChars, 0, 0, 1000000000);
       const days = normalizeInt(body.days, 14, 0, 3650);
       const label = String(body.label || "").slice(0, 60);
       const note = String(body.note || "").slice(0, 200);
+      const quota = { calls, tokens, voice, voiceChars };
       const issued = [];
+      const failures = [];
+      // **部分失败也要把成功的留住**（2026-09-14）：一次发 5 张、第 3 张失败时，
+      // 前 2 张已经真的发出去了（账本里有、额度已经花了）—— 不能因为"这一批失败了"
+      // 就把它们丢掉，更不能让用户重来一次（那会重复发卡）。所以逐张记结果。
       for (let i = 1; i <= count; i += 1) {
-        const created = await client.createCard({
-          label: count > 1 && label ? `${label}${i}` : (label || (count > 1 ? `体验卡${i}` : "")),
-          calls, tokens, days, note,
-        });
-        issued.push(created);
-        appendRecord({ id: created.id, label: created.label, token: created.token, calls, tokens, days, expiresAt: created.expiresAt || null });
+        const oneLabel = count > 1 && label ? `${label}${i}` : (label || (count > 1 ? `体验卡${i}` : ""));
+        try {
+          const created = await client.createCard({ label: oneLabel, calls, tokens, voice, voiceChars, days, note });
+          appendRecord({ id: created.id, label: created.label, token: created.token, calls, tokens, voice, voiceChars, days, expiresAt: created.expiresAt || null });
+          issued.push({
+            id: created.id,
+            label: created.label,
+            token: created.token,
+            expiresAt: created.expiresAt || null,
+            quota: created.quota || quota,
+            shareText: cardText.shareText(created.token, created.quota || quota, { appUrl, relayUrl: client.relayUrl }),
+            pasteLine: cardText.pasteLine(created.token, { relayUrl: client.relayUrl }),
+          });
+        } catch (error) {
+          failures.push({ index: i, error: String((error && error.message) || error) });
+        }
       }
-      return sendJson(res, 200, {
-        cards: issued.map((card) => ({
-          id: card.id,
-          label: card.label,
-          token: card.token,
-          expiresAt: card.expiresAt || null,
-          quota: card.quota || { calls, tokens },
-          shareText: cardText.shareText(card.token, card.quota || { calls, tokens }, { appUrl, relayUrl: client.relayUrl }),
-          pasteLine: cardText.pasteLine(card.token, { relayUrl: client.relayUrl }),
-        })),
-      });
+      return sendJson(res, 200, rememberIssue(key, {
+        ok: failures.length === 0,
+        requested: count,
+        cards: issued,
+        failures: failures,
+        // 重试口径写在响应里，界面直接显示 —— 用户不该自己猜"要不要再发一次"。
+        retryHint: failures.length
+          ? (issued.length
+            ? "已经成功的 " + issued.length + " 张是真的发出去了（卡号在下面，先用这些）。剩下 "
+              + failures.length + " 张没发成 —— 补发时**只补这几张**（把张数改成 " + failures.length + "），不要再发一整批。"
+            : "这一批一张都没发成，可以直接重试同样的张数。")
+          : "",
+      }));
     }
 
     if (url.pathname === "/api/remember" && req.method === "POST") {
@@ -245,6 +336,9 @@ function createConsole(options) {
 
     if (url.pathname === "/api/selftest/store") return sendJson(res, 200, await client.storeSelftest());
     if (url.pathname === "/api/selftest/upstream") return sendJson(res, 200, await client.upstreamSelftest(url.searchParams.get("model") || ""));
+    // 语音配置（**只读**）：只报"配没配、有哪些音色"，绝不真去合成 ——
+    // 语音按字符计费，一个自检按钮不该悄悄花掉用户的钱。
+    if (url.pathname === "/api/selftest/voice") return sendJson(res, 200, await client.voiceConfig());
 
     return sendJson(res, 404, { error: "没有这个接口：" + url.pathname });
   }

@@ -55,6 +55,16 @@ function startUpstream() {
         res.end(JSON.stringify({ error: { message: "上游炸了" } }));
         return;
       }
+      if (body.model === "empty") {
+        // 200，但正文是空的、额度花在思考内容上（deepseek-flash 实测就是这个形状）。
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          id: "chatcmpl-empty",
+          choices: [{ message: { role: "assistant", content: "", reasoning_content: "The user is asking me to reply with only two characters" }, finish_reason: "length" }],
+          usage: { prompt_tokens: 11, completion_tokens: 64, total_tokens: 75 },
+        }));
+        return;
+      }
       if (body.stream === true) {
         res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
         const frames = [
@@ -76,6 +86,78 @@ function startUpstream() {
     });
   });
   return { server, seen };
+}
+
+/**
+ * 假的火山「豆包语音合成模型 2.0」上游。
+ *
+ * 把**协议**钉在这里（这些是官方文档里的硬事实，写错了整条链路就是"点了没反应"）：
+ *   - 请求头要有资源标识 X-Api-Resource-Id: seed-tts-2.0，以及两套控制台鉴权之一；
+ *   - 请求体是 { user:{uid}, req_params:{ text, speaker, audio_params } }；
+ *   - 响应是**一行一个 JSON**（HTTP Chunked），音频是 base64 的 data 字段；
+ *   - 结束那一行是 { code: 20000000, usage:{ text_words } }。
+ * 另外造三种特例给用例用：FAIL（流里报错码）、TIMEOUT（不回）、SLOW（回一半挂着）。
+ */
+function startVoiceUpstream() {
+  const seen = [];
+  const state = { slowStarted: 0, slowAborted: false, release: null, held: false };
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      let body = {};
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch (_) { body = {}; }
+      seen.push({ headers: req.headers, body });
+      const text = String((body.req_params && body.req_params.text) || "");
+      const json = (status, payload) => {
+        res.writeHead(status, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-1" });
+        res.end(JSON.stringify(payload));
+      };
+      if (!req.headers["x-api-key"] && !req.headers["x-api-app-id"]) return json(401, { code: 40100000, message: "missing auth" });
+      if (req.headers["x-api-resource-id"] !== "seed-tts-2.0") {
+        return json(400, { code: 55000000, message: "resource ID is mismatched with speaker related resource" });
+      }
+      if (text.indexOf("FAIL") >= 0) {
+        res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-2" });
+        res.write(JSON.stringify({ code: 45000000, message: "上游拒绝了这次合成" }) + "\n");
+        res.end();
+        return;
+      }
+      if (text.indexOf("TIMEOUT") >= 0) {
+        // 故意不回：让中转自己的超时兜底。
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return;
+      }
+      const line = (audio) => JSON.stringify({ code: 0, message: "", data: Buffer.from(audio).toString("base64"), done: false }) + "\n";
+      const done = JSON.stringify({ code: 20000000, message: "ok", data: null, usage: { text_words: text.length } }) + "\n";
+      if (text.indexOf("SLOW") >= 0) {
+        state.held = true;
+        state.slowStarted += 1;
+        res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-slow" });
+        res.write(line("MP3:" + text));
+        let finished = false;
+        res.on("close", () => { if (!finished) state.slowAborted = true; });
+        state.release = () => {
+          finished = true;
+          try { res.write(line("MP3:" + text)); res.write(done); res.end(); } catch (_) { /* 已经断了 */ }
+        };
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json", "X-Tt-Logid": "fake-log-3" });
+      // 两段音频：客户端拼起来必须和这里一模一样（顺序 + 内容）。
+      res.write(line("MP3:" + text));
+      setTimeout(() => {
+        try { res.write(line("MP3:" + text)); res.write(done); res.end(); } catch (_) { /* 已经断了 */ }
+      }, 10);
+    });
+  });
+  return {
+    server,
+    seen,
+    get slowStarted() { return state.slowStarted; },
+    get slowAborted() { return state.slowAborted; },
+    releaseSlow() { if (state.release) state.release(); },
+  };
 }
 
 async function main() {
@@ -312,6 +394,20 @@ async function main() {
     assert.equal(body.status, 500, "上游状态码要原样带出来：" + JSON.stringify(body));
   });
 
+  await check("上游自检：HTTP 200 但正文是空的 —— **不算可用**，并说清为什么", async () => {
+    // 真事（2026-09-14 部署后核对时发现）：deepseek-flash 会先吐思考内容，
+    // 而自检原来写死 max_tokens: 64 —— 额度全被思考吃掉，正文是空的，
+    // 结果自检报 `ok: true` 却什么都没回。"报成功但没内容"比报错更坑：
+    // 用户会以为链路是好的（当时差点因此去查一个不存在的问题）。
+    const res = await admin("GET", "/admin/upstream/selftest?model=empty");
+    assert.equal(res.status, 502, "没有正文就不该是 200：" + JSON.stringify(await res.clone().json().catch(() => ({}))));
+    const body = await res.json();
+    assert.equal(body.ok, false, "空正文不能算 ok：" + JSON.stringify(body));
+    assert.equal(body.status, 200, "上游 HTTP 状态码要如实带出来");
+    assert.ok(/空的/.test(body.warning || ""), "要说清是空的：" + JSON.stringify(body));
+    assert.ok(/reasoning|思考/.test(body.warning || ""), "要说清是思考内容吃掉了额度：" + JSON.stringify(body));
+  });
+
   await check("账本自检接口：能写能读能删，并报出真正的后端类型", async () => {
     const before = (await store.list()).length;
     const res = await admin("GET", "/admin/store/selftest");
@@ -392,6 +488,439 @@ async function main() {
     assert.equal(usage.days[6].day, today, "最后一行应当是今天");
     assert(usage.days[6].calls >= 1, "今天的汇总没算上：" + JSON.stringify(usage.days[6]));
     assert.equal(usage.days[0].calls, 0, "7 天前不该有量");
+  });
+
+  /* ==================================================================== *
+   * 角色语音：火山「豆包语音合成模型 2.0」
+   *
+   * 用**假的上游**（一个本地 HTTP 服务）把协议钉住：请求头、请求体、NDJSON
+   * 一行一个 JSON、base64 音频、结束码 20000000、错误码。
+   * 这一套跑起来不需要任何火山凭据，也不会产生任何费用。
+   * ==================================================================== */
+
+  console.log("");
+  console.log("== 体验卡中转：角色语音（假火山上游）==");
+
+  const voiceUpstream = startVoiceUpstream();
+  const voicePort = await listen(voiceUpstream.server);
+  const voiceLogs = [];
+  const voiceStore = createMemoryStore();
+  const voiceEnv = {
+    VOLC_TTS_APP_ID: "test-app-id",
+    VOLC_TTS_ACCESS_KEY: "test-access-token",
+    VOLC_TTS_BASE: "http://127.0.0.1:" + voicePort,
+    VOLC_TTS_PATH: "/api/v3/tts/unidirectional",
+  };
+  const voiceRelay = createRelay({
+    store: voiceStore,
+    upstreamBase: "http://127.0.0.1:" + upstreamPort,
+    upstreamKey: "sk-upstream-secret",
+    adminSecret: "admin-secret-123",
+    logSink: (line) => voiceLogs.push(line),
+    voiceEnv,
+    tts: require(path.join(RELAY, "tts.js")).createTtsClient({ env: voiceEnv, timeoutMs: 1500 }),
+  });
+  const voiceRelayPort = await listen(voiceRelay);
+  const voiceBase = "http://127.0.0.1:" + voiceRelayPort;
+
+  const speak = (token, body) => fetch(voiceBase + "/v1/audio/speech", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, token ? { Authorization: "Bearer " + token } : {}),
+    body: JSON.stringify(body || {}),
+  });
+
+  await check("语音：没带卡 → 401，且一个字节都不打上游", async () => {
+    const before = voiceUpstream.seen.length;
+    const res = await speak("", { text: "你好" });
+    assert.equal(res.status, 401);
+    assert.equal((await res.json()).error.code, "CARD_UNKNOWN");
+    assert.equal(voiceUpstream.seen.length, before, "没通过卡校验就不该打火山上游");
+  });
+
+  const voiceCard = await voiceRelay.relay.createCard({ label: "语音卡", quota: { calls: 5, tokens: 0, voice: 3, voiceChars: 200 } });
+
+  await check("语音：正常合成 → 200 audio/mpeg，字节与上游一致，且请求头/请求体符合官方协议", async () => {
+    const res = await speak(voiceCard.token, { text: "你好呀。", speaker: "zh_female_xiaohe_uranus_bigtts", speech_rate: 10 });
+    assert.equal(res.status, 200, "合成失败：" + await res.clone().text());
+    assert.equal(res.headers.get("content-type"), "audio/mpeg");
+    const got = Buffer.from(await res.arrayBuffer());
+    // 假上游把每段音频拼成 "MP3:" + 文本，两段 → 断言内容与顺序都对。
+    assert.equal(got.toString("utf8"), "MP3:你好呀。MP3:你好呀。", "音频字节被改动了：" + got.toString("utf8"));
+
+    const last = voiceUpstream.seen[voiceUpstream.seen.length - 1];
+    // 旧版控制台鉴权：App ID + Access Key（两件套，缺一不可）。新版控制台则是单发 X-Api-Key。
+    assert.equal(last.headers["x-api-app-id"], "test-app-id", "缺少 X-Api-App-Id");
+    assert.equal(last.headers["x-api-access-key"], "test-access-token", "缺少 X-Api-Access-Key");
+    assert.equal(last.headers["x-api-key"], undefined, "两套鉴权不要混发（同时出现会被上游当成配错）");
+    assert.equal(last.headers["x-api-connect-id"], undefined, "X-Api-Connect-Id 是 WebSocket 那条接口的头，HTTP 不该发");
+    assert.equal(last.headers["x-api-resource-id"], "seed-tts-2.0",
+      "资源标识必须是「豆包语音合成模型 2.0」的 seed-tts-2.0，实际：" + last.headers["x-api-resource-id"]);
+    assert.ok(last.headers["x-api-request-id"], "应当带一个 X-Api-Request-Id 便于排障");
+    assert.equal(last.body.req_params.text, "你好呀。");
+    assert.equal(last.body.req_params.speaker, "zh_female_xiaohe_uranus_bigtts");
+    assert.equal(last.body.req_params.audio_params.format, "mp3");
+    assert.equal(last.body.req_params.audio_params.sample_rate, 24000);
+    assert.equal(last.body.req_params.audio_params.speech_rate, 10, "语速要透传给上游（[-50,100]）");
+    assert.ok(last.body.user && last.body.user.uid, "官方协议要求 user.uid");
+    // 响应里绝不能出现服务端的火山凭据
+    const headers = JSON.stringify(Array.from(res.headers.entries()));
+    assert.ok(headers.indexOf("test-access-token") < 0, "响应头里泄漏了上游凭据");
+    assert.ok(headers.indexOf("test-app-id") < 0, "响应头里泄漏了上游凭据");
+  });
+
+  await check("语音：新版控制台鉴权（只有 X-Api-Key）也能走通，且不会混发 App-Id", async () => {
+    const store2 = createMemoryStore();
+    const env2 = Object.assign({}, voiceEnv, { VOLC_TTS_APP_ID: "", VOLC_TTS_ACCESS_KEY: "", VOLC_TTS_API_KEY: "new-console-key" });
+    const relay2 = createRelay({
+      store: store2,
+      upstreamBase: "http://127.0.0.1:" + upstreamPort,
+      upstreamKey: "sk-upstream-secret",
+      adminSecret: "admin-secret-123",
+      logSink: () => {},
+      voiceEnv: env2,
+      tts: require(path.join(RELAY, "tts.js")).createTtsClient({ env: env2, timeoutMs: 2000 }),
+    });
+    try {
+      const port2 = await listen(relay2);
+      const card2 = await relay2.relay.createCard({ label: "新版控制台", quota: { voice: 5 } });
+      const res = await fetch("http://127.0.0.1:" + port2 + "/v1/audio/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + card2.token },
+        body: JSON.stringify({ text: "新版鉴权" }),
+      });
+      assert.equal(res.status, 200, await res.clone().text());
+      await res.arrayBuffer();
+      const last = voiceUpstream.seen[voiceUpstream.seen.length - 1];
+      assert.equal(last.headers["x-api-key"], "new-console-key");
+      assert.equal(last.headers["x-api-app-id"], undefined, "新版控制台模式下不该发 App-Id");
+      const cfg = await fetch("http://127.0.0.1:" + port2 + "/admin/voice/config", { headers: { Authorization: "Bearer admin-secret-123" } }).then((r) => r.json());
+      assert.equal(cfg.configured, true);
+    } finally {
+      // ⚠ 关闭必须放在 finally 里：断言失败时若跳过关闭，监听句柄会留活 ——
+      //   汇总打完了进程也不退出，`npm test` 的 && 链就此永远卡住
+      //   （2026-09-17 实测：一次瞬时 fetch failed 让整轮回归挂死十几分钟）。
+      await new Promise((resolve) => relay2.close(resolve));
+    }
+  });
+
+  await check("语音用量：记在独立的 voice / voiceChars 上，**不**吃聊天的次数", async () => {
+    const info = await fetch(voiceBase + "/card/quota", { headers: { Authorization: "Bearer " + voiceCard.token } }).then((r) => r.json());
+    assert.equal(info.used.voice, 1, "语音次数没记上：" + JSON.stringify(info.used));
+    assert.equal(info.used.voiceChars, "你好呀。".length, "语音字符数没记上：" + JSON.stringify(info.used));
+    assert.equal(info.used.calls, 0, "语音把聊天的次数也扣了（两者必须分开）：" + JSON.stringify(info.used));
+    assert.equal(info.voiceLeft, 2);
+    assert.equal(info.voiceCharsLeft, 200 - "你好呀。".length);
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = await voiceStore.get(voiceCard.card.id);
+    assert.equal(stored.daily[today].voice, 1, "按天没记语音：" + JSON.stringify(stored.daily[today]));
+    assert.equal(stored.daily[today].chars, "你好呀。".length);
+    assert.equal(stored.daily[today].calls, 0, "语音不该算进按天的聊天次数");
+  });
+
+  await check("语音：日志里只有字符数与音色，**没有那句话**", async () => {
+    const dump = JSON.stringify(voiceLogs);
+    assert.ok(dump.indexOf("你好呀") < 0, "日志里出现了要合成的正文：" + dump.slice(0, 300));
+    assert.ok(dump.indexOf("test-access-token") < 0, "日志里出现了上游凭据");
+    const row = voiceLogs.filter((one) => one.event === "voice").pop();
+    assert.ok(row && row.chars > 0, "应当记一条语音用量：" + JSON.stringify(row));
+    assert.equal(row.speaker, "zh_female_xiaohe_uranus_bigtts");
+  });
+
+  await check("语音：音色不在中转白名单里 → 400，并且不去打上游", async () => {
+    const before = voiceUpstream.seen.length;
+    const res = await speak(voiceCard.token, { text: "你好", speaker: "zh_male_not_a_real_voice" });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error.code, "VOICE_SPEAKER_UNKNOWN");
+    assert.equal(voiceUpstream.seen.length, before, "音色没通过校验就不该打上游");
+  });
+
+  await check("语音：一次太长的文本 → 413，并说明该由客户端按句切分", async () => {
+    const res = await speak(voiceCard.token, { text: "啊".repeat(500) });
+    assert.equal(res.status, 413);
+    const body = await res.json();
+    assert.equal(body.error.code, "VOICE_TEXT_TOO_LONG");
+    assert.ok(body.error.message.indexOf("切分") >= 0, "要说清正确的做法：" + body.error.message);
+  });
+
+  await check("语音：空文本 → 400（不当作「念了个空」）", async () => {
+    const res = await speak(voiceCard.token, { text: "   " });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error.code, "VOICE_EMPTY_TEXT");
+  });
+
+  await check("语音：上游报错码原样带出来（不吞成「失败了」），并且**不扣**用量", async () => {
+    const before = (await voiceStore.get(voiceCard.card.id)).used.voice;
+    const res = await speak(voiceCard.token, { text: "请把这句话弄失败 FAIL" });
+    assert.equal(res.status, 502);
+    const body = await res.json();
+    assert.ok(body.error.message.indexOf("上游拒绝") >= 0, "上游的原话要带出来：" + JSON.stringify(body));
+    const after = (await voiceStore.get(voiceCard.card.id)).used.voice;
+    assert.equal(after, before, "合成失败却扣了用户的语音次数");
+  });
+
+  await check("语音：上游超时 → 504 VOICE_TIMEOUT，同样不扣用量", async () => {
+    const before = (await voiceStore.get(voiceCard.card.id)).used.voice;
+    const res = await speak(voiceCard.token, { text: "这句会超时 TIMEOUT" });
+    assert.equal(res.status, 504);
+    assert.equal((await res.json()).error.code, "VOICE_TIMEOUT");
+    assert.equal((await voiceStore.get(voiceCard.card.id)).used.voice, before);
+  });
+
+  await check("语音：客户端中断（切角色/点停止）→ 上游被掐掉，且不扣用量", async () => {
+    const before = (await voiceStore.get(voiceCard.card.id)).used.voice;
+    const controller = new AbortController();
+    const pending = fetch(voiceBase + "/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + voiceCard.token },
+      body: JSON.stringify({ text: "这一句会被中途取消 SLOW" }),
+      signal: controller.signal,
+    }).catch(() => null);
+    // 等上游真的收到请求了再取消（否则测的是"根本没发出去"）。
+    for (let i = 0; i < 60 && voiceUpstream.slowStarted === 0; i += 1) await new Promise((r) => setTimeout(r, 25));
+    assert(voiceUpstream.slowStarted > 0, "前置条件不成立：上游没收到那次慢请求");
+    controller.abort();
+    await pending;
+    for (let i = 0; i < 80 && !voiceUpstream.slowAborted; i += 1) await new Promise((r) => setTimeout(r, 25));
+    assert(voiceUpstream.slowAborted, "客户端断了之后，中转没有把火山上游掐掉（钱还在烧）");
+    // 中转把上游掐掉、写日志、回响应是几段异步，测试里不能假定"客户端一断日志就有了"。
+    let canceled = 0;
+    for (let i = 0; i < 80; i += 1) {
+      canceled = voiceLogs.filter((one) => one.event === "voice-canceled").length;
+      if (canceled > 0) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.equal((await voiceStore.get(voiceCard.card.id)).used.voice, before, "被取消的合成不该扣用量");
+    assert(canceled > 0, "应当记一条取消（只有元数据）");
+    const row = voiceLogs.filter((one) => one.event === "voice-canceled").pop();
+    assert.ok(JSON.stringify(row).indexOf("这一句") < 0, "取消日志里出现了正文：" + JSON.stringify(row));
+  });
+
+  await check("语音：同一张卡并发第二路 → 429 VOICE_BUSY（默认一路一句）", async () => {
+    // 计数是累计的（上一个用例也走过慢路径），所以这里必须看**增量**，
+    // 否则"等慢请求开始"会立刻通过，release 会被提前调掉。
+    const before = voiceUpstream.slowStarted;
+    const first = fetch(voiceBase + "/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + voiceCard.token },
+      body: JSON.stringify({ text: "第一句会慢一点 SLOW" }),
+    });
+    for (let i = 0; i < 80 && voiceUpstream.slowStarted === before; i += 1) await new Promise((r) => setTimeout(r, 25));
+    assert(voiceUpstream.slowStarted > before, "前置条件不成立：慢请求没到上游");
+    const second = await speak(voiceCard.token, { text: "第二句" });
+    assert.equal(second.status, 429, "同一张卡并发应当被挡住");
+    assert.equal((await second.json()).error.code, "VOICE_BUSY");
+    voiceUpstream.releaseSlow();
+    const done = await first;
+    assert.equal(done.status, 200, "被放行的那一路应当正常完成：" + await done.clone().text());
+    await done.arrayBuffer();
+  });
+
+  await check("语音：语音额度用完 → 402 CARD_NO_VOICE，**文字聊天不受影响**", async () => {
+    const card = await voiceRelay.relay.createCard({ label: "语音用完", quota: { calls: 5, tokens: 0, voice: 1, voiceChars: 0 } });
+    assert.equal((await speak(card.token, { text: "第一句" })).status, 200);
+    const blocked = await speak(card.token, { text: "第二句" });
+    assert.equal(blocked.status, 402);
+    const body = await blocked.json();
+    assert.equal(body.error.code, "CARD_NO_VOICE");
+    assert.ok(body.error.message.indexOf("文字聊天不受影响") >= 0, "要说清聊天还能用：" + body.error.message);
+    // 聊天照样能发（走假聊天上游）
+    const chat = await fetch(voiceBase + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + card.token },
+      body: JSON.stringify({ model: "deepseek-flash", messages: [] }),
+    });
+    assert.equal(chat.status, 200, "语音额度用完不该影响文字聊天");
+    await chat.text();
+  });
+
+  await check("语音：字数不够 → 402 CARD_NO_VOICE_CHARS，并写清「这次要多少字」", async () => {
+    const card = await voiceRelay.relay.createCard({ label: "字数很少", quota: { calls: 5, tokens: 0, voice: 0, voiceChars: 4 } });
+    const res = await speak(card.token, { text: "这句话有十个字" });
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    assert.equal(body.error.code, "CARD_NO_VOICE_CHARS");
+    assert.ok(body.error.message.indexOf("这次要 7 字") >= 0, "要说清差多少：" + body.error.message);
+  });
+
+  await check("语音：中转没配火山凭据 → 503 RELAY_NO_VOICE_KEY（客户端据此不显示朗读）", async () => {
+    const bareStore = createMemoryStore();
+    const bare = createRelay({
+      store: bareStore,
+      upstreamBase: "http://127.0.0.1:" + upstreamPort,
+      upstreamKey: "k",
+      adminSecret: "admin-secret-123",
+      voiceEnv: {},
+      tts: require(path.join(RELAY, "tts.js")).createTtsClient({ env: {} }),
+    });
+    const barePort = await listen(bare);
+    const card = await bare.relay.createCard({ label: "没配语音" });
+    const res = await fetch("http://127.0.0.1:" + barePort + "/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + card.token },
+      body: JSON.stringify({ text: "你好" }),
+    });
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error.code, "RELAY_NO_VOICE_KEY");
+    assert.ok(body.error.message.indexOf("VOLC_TTS_APP_ID") >= 0, "要说清缺哪个环境变量：" + body.error.message);
+    const info = await fetch("http://127.0.0.1:" + barePort + "/voice/info", { headers: { Authorization: "Bearer " + card.token } }).then((r) => r.json());
+    assert.equal(info.enabled, false, "没配凭据时 /voice/info 必须说 enabled=false");
+    assert.equal(info.canSpeakNow, false);
+    await new Promise((resolve) => bare.close(resolve));
+  });
+
+  await check("/voice/info：报出音色表、一次能合多长、还剩多少语音额度", async () => {
+    const info = await fetch(voiceBase + "/voice/info", { headers: { Authorization: "Bearer " + voiceCard.token } }).then((r) => r.json());
+    assert.equal(info.ok, true);
+    assert.equal(info.enabled, true);
+    assert.equal(info.format, "mp3");
+    assert.ok(info.maxChars >= 100, "要报出单次上限：" + info.maxChars);
+    assert.ok(Array.isArray(info.speakers) && info.speakers.length >= 4, "音色表太小：" + JSON.stringify(info.speakers));
+    for (const one of info.speakers) {
+      assert.ok(one.id && one.label, "每个音色都要有 id 与中文名：" + JSON.stringify(one));
+      assert.ok(one.id.indexOf("uranus_bigtts") >= 0, "默认只下发与 seed-tts-2.0 配套的音色：" + one.id);
+    }
+    assert.ok(info.speakers.some((one) => one.id === info.defaultSpeaker), "defaultSpeaker 必须在音色表里");
+    assert.equal(typeof info.voiceLeft, "number");
+    assert.equal(typeof info.voiceCharsLeft, "number");
+  });
+
+  await check("/admin/voice/config：只报「配没配」，绝不联网、绝不产生费用", async () => {
+    const before = voiceUpstream.seen.length;
+    const res = await fetch(voiceBase + "/admin/voice/config", { headers: { Authorization: "Bearer admin-secret-123" } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.configured, true);
+    assert.equal(body.resourceId, "seed-tts-2.0");
+    assert.equal(body.maxChars >= 100, true);
+    assert.equal(body.concurrency.perCard, 1);
+    assert.equal(voiceUpstream.seen.length, before, "自检不该真的去合成（那是付费调用）");
+    const dump = JSON.stringify(body);
+    assert.ok(dump.indexOf("test-access-token") < 0, "自检结果里泄漏了凭据");
+    // 没带管理口令时必须挡住
+    assert.equal((await fetch(voiceBase + "/admin/voice/config")).status, 401);
+  });
+
+  await check("健康检查能看出语音配没配（避免以为配了、其实是空的）", async () => {
+    const body = await (await fetch(voiceBase + "/healthz")).json();
+    assert.equal(body.voiceKeySet, true);
+    assert.equal(body.voiceResourceId, "seed-tts-2.0");
+    assert.ok(body.voiceSpeakers >= 4);
+    assert.ok(JSON.stringify(body).indexOf("test-access-token") < 0, "健康检查里泄漏了凭据");
+  });
+
+  await check("语音：发卡/改卡都能带语音额度，且列卡不泄露卡号", async () => {
+    const created = await fetch(voiceBase + "/admin/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ label: "带语音的卡", calls: 10, voice: 20, voiceChars: 5000, days: 3 }),
+    }).then((r) => r.json());
+    assert.equal(created.quota.voice, 20);
+    assert.equal(created.quota.voiceChars, 5000);
+    const updated = await fetch(voiceBase + "/admin/cards/" + created.id + "/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer admin-secret-123" },
+      body: JSON.stringify({ voice: 50, voiceChars: 9000 }),
+    }).then((r) => r.json());
+    assert.equal(updated.quota.voice, 50, "加语音次数没生效：" + JSON.stringify(updated.quota));
+    assert.equal(updated.quota.voiceChars, 9000);
+    const list = await fetch(voiceBase + "/admin/cards", { headers: { Authorization: "Bearer admin-secret-123" } }).then((r) => r.json());
+    const dump = JSON.stringify(list);
+    assert.ok(dump.indexOf("RW-") < 0, "列卡结果里不该出现卡号");
+    const usage = await fetch(voiceBase + "/admin/usage?days=3", { headers: { Authorization: "Bearer admin-secret-123" } }).then((r) => r.json());
+    assert.equal(usage.days.length, 3);
+    assert.ok(usage.totalVoice >= 1, "按天汇总里应当算上语音：" + JSON.stringify(usage));
+    assert.ok(usage.days[2].voice >= 1 && usage.days[2].chars > 0, "今天的语音用量不对：" + JSON.stringify(usage.days[2]));
+  });
+
+  await check("音色表：从官方快照生成、与磁盘一致，且**不含名人/影视角色音色**", async () => {
+    // 2026-09-14：用户问"只有 53 种吗" —— 不是。官方 2.0（`*_uranus_bigtts`）全表 230 个，
+    // 原来那张 53 个的表是**手抄**的（从一份公开实现对照着列），中文少一半、英文只剩 1/6。
+    // 现在改成从官方文档的快照生成（`scripts/make-voices.cjs`），这条守卫钉三件事：
+    //   ① 生成结果与快照一致（有人手改 relay/voices.js 就会红）；
+    //   ② 只放 2.0 那一族（别族进来上游必回 55000000）；
+    //   ③ **一个名人/影视角色音色都不许下发**（授权风险）。
+    const { execFileSync } = require("node:child_process");
+    let checkOutput = "";
+    try {
+      checkOutput = execFileSync(process.execPath, [path.join(__dirname, "..", "scripts", "make-voices.cjs"), "--check"], { encoding: "utf8" });
+    } catch (error) {
+      assert.fail("relay/voices.js 与官方快照不一致（手改了？）：" + String((error && error.stdout) || (error && error.message) || error));
+    }
+    assert(checkOutput.indexOf("是最新的") >= 0, "生成检查没通过：" + checkOutput);
+
+    const voices = require(path.join(RELAY, "voices.js"));
+    const all = voices.resolveSpeakers({}).speakers;
+    assert(all.length >= 200, "音色表太小了（官方 2.0 有两百多个）：" + all.length);
+    for (const one of all) {
+      assert(voices.ID_RE.test(one.id), "有个音色不属于 2.0 那一族（上游会回 55000000）：" + one.id);
+      assert(one.label && one.label.trim(), "音色没有名字：" + one.id);
+      assert(one.langLabel, "音色没有分组用的语言标签：" + one.id);
+    }
+    // 名人/影视角色：按 id 匹配（有几条显示名看不出来，只有 id 暴露来历）
+    const likeness = all.filter((one) => voices.LIKENESS_RE.test(one.id));
+    assert(likeness.length === 0, "下发列表里出现了名人/影视角色音色（授权风险）：" + likeness.map((one) => one.id).join(", "));
+    assert(voices.LIKENESS_EXCLUDED.length >= 10,
+      "被排除的名人音色应当是记下来的（现在只有 " + voices.LIKENESS_EXCLUDED.length + " 条）");
+    // 默认音色必须在表里，且是官方示例用的那个
+    assert(all.some((one) => one.id === voices.DEFAULT_SPEAKER), "默认音色不在表里：" + voices.DEFAULT_SPEAKER);
+    // 分组要能分出中文/英语
+    const labels = new Set(all.map((one) => one.langLabel));
+    assert(labels.has("中文") && labels.has("英语"), "语言分组不对：" + Array.from(labels).join(","));
+    console.log("        音色表 " + all.length + " 个（中文 " + all.filter((o) => o.lang === "zh").length
+      + " / 英语 " + all.filter((o) => o.lang === "en").length
+      + " / 其他 " + all.filter((o) => o.lang === "other").length
+      + "），已排除名人音色 " + voices.LIKENESS_EXCLUDED.length + " 个");
+  });
+
+  await check("/voice/info：报出分组字段（二百多个音色不分组没法挑）", async () => {
+    const info = await fetch(voiceBase + "/voice/info", { headers: { Authorization: "Bearer " + voiceCard.token } }).then((r) => r.json());
+    assert.ok(info.speakers.length >= 200, "下发的音色太少：" + info.speakers.length);
+    for (const one of info.speakers) {
+      assert(one.langLabel, "少了分组标签：" + JSON.stringify(one));
+    }
+    assert(info.speakers.some((one) => one.langLabel === "中文"), "没有中文分组");
+    assert(info.speakers.some((one) => one.langLabel === "英语"), "没有英语分组");
+    // 分组标签里不能混进名人音色（分组是界面直接显示的）
+    const dump = JSON.stringify(info.speakers);
+    assert(dump.indexOf("brad_pitt") < 0 && dump.indexOf("zendaya") < 0 && dump.indexOf("gollum") < 0,
+      "下发的音色里出现了名人/影视角色");
+  }); // ← 这两条必须放在 voiceRelay.close **之前**（后面还要打它的 /voice/info）
+
+  await new Promise((resolve) => voiceRelay.close(resolve));
+  await new Promise((resolve) => voiceUpstream.server.close(resolve));
+
+  await check("云托管镜像里必须带上所有被 require 的本地模块（漏一个 = 服务起不来）", async () => {
+    // 真事：2026-09-14 加语音时新增了 relay/tts.js 与 relay/voices.js，
+    // 但 Dockerfile 的 COPY 是**写死的白名单**（刻意的：relay/ 下有 admin-secret.local.txt
+    // 和 cards.local.jsonl 两个凭据文件，绝不能进镜像）。结果差点把"require 不到模块"
+    // 的镜像发上去 —— 那不只是语音坏，聊天的中转会**整台起不来**。
+    // 这条守卫拿"实际 require 的本地模块"去比 COPY 那一行，漏一个就红。
+    const fs = require("node:fs");
+    const dockerfile = fs.readFileSync(path.join(RELAY, "Dockerfile"), "utf8");
+    // 把**所有** COPY ... ./ 的目标加起来（Dockerfile 里有两条：package.json 与源码那几个）。
+    const copied = new Set();
+    for (const match of dockerfile.matchAll(/^COPY\s+([^\n]*?)\s+\.\/\s*$/gm)) {
+      for (const name of match[1].split(/\s+/).filter(Boolean)) copied.add(name.replace(/^\.\//, ""));
+    }
+    assert(copied.size > 0, "Dockerfile 里找不到 COPY ... ./ 那一行（结构变了？）");
+    const needed = new Set();
+    for (const file of ["server.js", "store.js", "index.js", "scf.js"]) {
+      const full = path.join(RELAY, file);
+      if (!fs.existsSync(full)) continue;
+      const source = fs.readFileSync(full, "utf8");
+      for (const match of source.matchAll(/require\(\s*["']\.\/([A-Za-z0-9_.-]+\.js)["']\s*\)/g)) needed.add(match[1]);
+    }
+    const missing = Array.from(needed).filter((name) => !copied.has(name));
+    assert(missing.length === 0,
+      "Dockerfile 的 COPY 少了这些被 require 的模块（容器里会 require 不到）：" + missing.join(", "));
+    // 反过来也要看一眼：凭据文件**绝不能**出现在 COPY 里。
+    for (const secret of ["admin-secret.local.txt", "cards.local.jsonl"]) {
+      assert(!copied.has(secret), "Dockerfile 把本机凭据文件打进镜像了：" + secret);
+    }
+    // 生成出来的音色表与快照也要一起进镜像（少一个就起不来）。
+    assert(copied.has("voices.js") && copied.has("voices.official.json") === false,
+      "Dockerfile 的 COPY 里音色表不对：voices.js 必须在（它被 require），voices.official.json 不必（只是生成用的快照）");
   });
 
   await new Promise((resolve) => server.close(resolve));
@@ -540,20 +1069,26 @@ async function main() {
     const store = createPgStore({ gatewayBase: "http://127.0.0.1:" + pgPort, apiKey: "fake-apikey", env: "cyan1-test" });
     assert.equal(store.kind, "cloudbase-pg");
     await store.save({ id: "card-9", tokenHash: hashToken("RW-PG01-PG02-PG03"), label: "同学A", quota: { calls: 20, tokens: 0 }, used: { calls: 0, tokens: 0 } });
-    // 一次建表 + 给老库补新列（2026-09-12 起有"按天用量"那一列），两者都只做一次。
-    assert.equal(pg.ddl, 2, "应当是「建表 + 补列」各一次，实际 " + pg.ddl);
-    assert.deepEqual(pg.addedColumns, ["daily"], "补的列不对：" + JSON.stringify(pg.addedColumns));
+    // 一次建表 + 给老库补上"建表之后才加的列"各一次。列清单以 store 自己导出的为准 ——
+    // 免得每次加一列（例如语音那四列）都要回来手改这个数字。
+    const expectedDdl = 1 + require(path.join(RELAY, "store.js")).PG_UPGRADE_COLUMNS.length;
+    assert.equal(pg.ddl, expectedDdl, "应当是「建表 + 补列」各一次，实际 " + pg.ddl);
+    assert.ok(pg.addedColumns.indexOf("daily") >= 0, "应当补上按天用量那一列：" + JSON.stringify(pg.addedColumns));
+    assert.ok(pg.addedColumns.indexOf("used_voice") >= 0, "应当补上语音用量那一列：" + JSON.stringify(pg.addedColumns));
     const found = await store.findByToken("RW-PG01-PG02-PG03");
     assert.ok(found && found.label === "同学A", "按卡号查不到：" + JSON.stringify(found));
     assert.equal(found.quota.calls, 20);
+    assert.equal(found.quota.voice, 0, "老库里没有语音额度时应当按 0（不限制）读出来：" + JSON.stringify(found.quota));
     assert.deepEqual(found.daily, {}, "新卡的按天用量应当是空对象");
     // 记一次用量：同一张卡再存一次应当走 upsert 合并，而不是插出第二条。
-    await store.save(Object.assign({}, found, { used: { calls: 1, tokens: 33 } }));
-    assert.equal(pg.ddl, 2, "不该重复建表/补列");
+    await store.save(Object.assign({}, found, { used: { calls: 1, tokens: 33, voice: 2, voiceChars: 40 } }));
+    assert.equal(pg.ddl, expectedDdl, "不该重复建表/补列");
     assert.equal(pg.rows.size, 1, "同一张卡不该插成两行");
     const again = await store.get("card-9");
     assert.equal(again.used.calls, 1);
     assert.equal(again.used.tokens, 33);
+    assert.equal(again.used.voice, 2, "语音次数没存进 PG：" + JSON.stringify(again.used));
+    assert.equal(again.used.voiceChars, 40);
     assert.equal((await store.list()).length, 1);
     assert.equal(await store.remove("card-9"), true);
     assert.equal(await store.get("card-9"), null);
@@ -572,6 +1107,15 @@ async function main() {
   console.log("");
   console.log(`RELAY_CHECK=${passed}/${passed + failed}`);
   if (failed) process.exitCode = 1;
+  // 兜底：某条用例失败时可能留下没关的监听句柄，于是"汇总打完了、进程却不退出"，
+  // `npm test` 的 && 链就会**永远卡住**（2026-09-17 实测：一次瞬时 fetch failed
+  // 让整轮回归挂死十几分钟，后面的套件一个都没跑）。这里给一个明确的收尾：
+  // 5 秒还没自然退出就点名并强制退出。unref 保证它自己不会把进程吊住。
+  const hangGuard = setTimeout(() => {
+    console.error("relay-check：汇总之后仍有句柄没关掉，强制退出（请检查上面失败用例里的服务器是否 close）");
+    process.exit(process.exitCode || 0);
+  }, 5000);
+  if (typeof hangGuard.unref === "function") hangGuard.unref();
 }
 
 main().catch((error) => {

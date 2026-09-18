@@ -59,6 +59,10 @@ class CDP {
 async function launchChrome(chromePath, { debugPort = 9333, viewport = "1280,900" } = {}) {
   const proc = spawn(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
+    // 语音播放要用它：无头 Chrome 里"自动播放"默认被策略挡住，
+    // 而测试里的点击是脚本发的、不算用户手势 —— 不关掉这条策略，
+    // audio.play() 会一律以 NotAllowedError 失败，测不出真实链路。
+    "--autoplay-policy=no-user-gesture-required",
     "--remote-debugging-port=" + debugPort,
     "--window-size=" + viewport,
     "--user-data-dir=" + (process.env.TEMP + "\\task31a-chrome-" + Date.now() + "-" + Math.random().toString(36).slice(2)),

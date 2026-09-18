@@ -107,6 +107,21 @@
       };
     }
 
+    // ⚠ **先探测，再落盘**。顺序不能反（2026-09-17 用户实测：「把体验卡粘贴进去点使用，
+    //   卡号会清空……也不知道成功了没有」）：
+    //   原来是先写设置、再探测，而且**不管探测成没成都返回 ok:true**（探测结果只进了 message）。
+    //   于是中转连不上时，引导页会清空卡号、显示自相矛盾的
+    //   「好了，这张卡已经在用：连不上中转：Failed to fetch」，还会把用户**原本能用的配置**
+    //   覆盖成那段连不上的地址 —— 比"没配上"更糟。
+    const info = await quota(relay, parsed.token);
+    if (!info || info.ok !== true) {
+      return {
+        ok: false,
+        message: "这张卡没用上：" + formatQuota(info)
+          + "。本机原来的设置没动，卡号还留在框里，可以再点一次「用这张卡」。",
+        quota: info,
+      };
+    }
     const patch = {
       provider: "custom",
       endpoint: endpointFor(relay),
@@ -116,7 +131,6 @@
     await adapter.saveLocalSettings(patch);
     // 卡号存在密钥位：中转就是拿它当 Bearer 的。
     await adapter.secrets.set(global.RoleWorldModel.secretKeyFor({ provider: "custom" }), parsed.token);
-    const info = await quota(relay, parsed.token);
     return { ok: true, token: parsed.token, relay, quota: info, message: formatQuota(info) };
   }
 

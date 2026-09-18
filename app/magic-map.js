@@ -506,6 +506,11 @@
     var others = state.cast.filter(function (a) { return a !== avatar; }).map(characterName);
     var promptText = sceneText() + "\n" + (state.goal || "") + "\n" + state.lines.slice(-6).map(function (line) { return line.text; }).join("\n");
     var messages = buildSceneMessages(card, avatar, others, promptText);
+    // 连接现读一次：用户在设置里换过体验卡/服务商之后没刷新也能照常说话（见 readLiveSettings）。
+    var liveSettings = await readLiveSettings();
+    if (liveSettings && liveSettings.oai_settings && liveSettings.oai_settings.custom_url) {
+      runtime.settings = liveSettings;
+    }
     var payload = window.TASK22_CORE.buildGeneratePayload({
       card: card,
       memoryBooks: booksFor(avatar),
@@ -682,16 +687,32 @@
   /* 剧情模式与对话页共用同一份模型配置（「设置 → 模型」），不再各自记一套。 */
   async function loadModelMode() {
     var core = window.TASK22_CORE;
-    var settings = {};
-    try {
-      if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
-        settings = await window.RoleWorld.getLocalSettings();
-      }
-    } catch (_) { /* 读不到就用默认值 */ }
+    var settings = await readLiveSettings();
     runtime.modelName = String(settings.model || "");
     // 语言设置整份留着：每个角色一个开关，取的时候按 avatar 现算（见 languageFor）。
     runtime.settings = settings;
     runtime.modelMode = settings.provider === "deepseek" ? core.CHAT_MODES.DEEPSEEK_FLASH : core.CHAT_MODES.LOCAL;
+  }
+
+  /**
+   * 现读一份本机设置（**每次生成都读**，不用启动时那一份快照）。
+   *
+   * 为什么：剧情页与对话页是两个页面，用户可能在设置里换过连接方式（粘体验卡 / 换服务商）
+   * 之后**不刷新**就从这个页面直接发。拿旧快照的话，`oai_settings.custom_url` 会停在旧值 ——
+   * 一旦旧值是空，载荷就会回落到"服务商默认地址"（`api.deepseek.com`）而且不带凭据，
+   * 结果是一句英文 401（对话页的"写角色"就是这样踩过一次，2026-09-16）。读一次库很便宜。
+   */
+  async function readLiveSettings() {
+    try {
+      if (window.STApi && typeof window.STApi.getSettings === "function") {
+        return parseSettings(await window.STApi.getSettings());
+      }
+      if (window.RoleWorld && typeof window.RoleWorld.getLocalSettings === "function") {
+        var local = await window.RoleWorld.getLocalSettings();
+        return { oai_settings: { custom_url: local.endpoint || "" }, roleworld: local };
+      }
+    } catch (_) { /* 读不到就用空设置 */ }
+    return {};
   }
 
   /** 这个角色该说什么语言："zh" | "en" | null（null = 按角色卡自己写的语言，这是默认）。 */
@@ -826,6 +847,16 @@
       modelMode: function () { return runtime.modelMode; },
       sceneText: sceneText,
     };
+    // 返回手势（2026-09-18）：与对话页共用 app/back-nav.js。
+    // 剧情页的浮层里没有对话页那几块面板，back-nav 认不出来时会走"到底"那条路 ——
+    // 也就是说**不会**因为按返回而把页面带走（用户最难受的那一种行为）。
+    try {
+      if (window.RoleWorldBack && typeof window.RoleWorldBack.init === "function") {
+        window.RoleWorldBack.init();
+        // 剧情页自己那两个浮层（设置抽屉 / 角色选择）用 hidden 控制，交给观测器自动补历史。
+        if (typeof window.RoleWorldBack.pushLayer === "function") window.RoleWorldBack.pushLayer();
+      }
+    } catch (_) { /* 接不上不影响剧情模式本身 */ }
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });

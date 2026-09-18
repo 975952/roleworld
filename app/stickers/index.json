@@ -1,0 +1,6 @@
+{
+  "packs": [
+    { "id": "mood", "path": "stickers/mood", "label": "情绪" },
+    { "id": "reply", "path": "stickers/reply", "label": "应答" }
+  ]
+}

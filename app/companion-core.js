@@ -286,8 +286,104 @@
       },
       neglect: NEGLECT_MODES.indexOf(src.neglect) >= 0 ? src.neglect : "soft",
       proactiveLog: cleanText(src.proactiveLog, 40),   // "2026-09-13|2" = 那天已发 2 条
+      /* 2026-09-14 新增：伴侣内部的**聊天方式**（用户拍板）。
+       *   action = 剧情对话（回复里带动作/旁白）
+       *   plain  = 日常聊天（**不写动作**，只写对白，像真实聊天软件）
+       *
+       * 2026-09-16 产品整理后（ROLEWORLD_PRODUCT_DESIGN.md §3/§5）：
+       *   · 这两个值的旧名字是"普通（带动作）/ 软件聊天（无动作）"，界面上一律改叫
+       *     **剧情对话 / 日常聊天**（`chatStyleLabel`），但**存储值不变**（老存档原样读得回来）。
+       *   · **"能不能发语音"不再由这一项决定**（见 voiceAccess）。以前绑在一起的理由是
+       *     "带旁白念出来像有声书"—— 那个理由仍然成立，所以它的作用变成：
+       *     语音那一条自己会做旁白清理（`voice-core.stripNarration`），而"日常聊天"这一档
+       *     本来就不写旁白。两者不再互相卡住。 */
+      chatStyle: src.chatStyle === "plain" ? "plain" : "action",
     };
   }
+
+  const CHAT_STYLES = ["action", "plain"];
+  /**
+   * 是不是「日常聊天」（旧名"软件聊天（无动作）"）。
+   * 兼容三种写法：`plain`（现在存的值）、`daily`（2026-09-16 文档里的名字，先收着）、
+   * 以及"没设过" —— 自定义角色默认就是日常聊天（文档 §3：新自定义角色＝日常聊天）。
+   */
+  function isPlainChat(profile) {
+    const value = normalizeProfile(profile).chatStyle;
+    return value === "plain" || value === "daily";
+  }
+
+  /** 界面上怎么叫这两种方式（文档 §5：禁止再出现"软件聊天（无动作）"这种命名）。 */
+  function chatStyleLabel(profile) {
+    return isPlainChat(profile) ? "日常聊天" : "剧情对话";
+  }
+
+  /**
+   * 这个角色**能不能发语音**（2026-09-16 产品整理后重写）。
+   *
+   * 新规则（ROLEWORLD_PRODUCT_DESIGN.md §1/§3，**替换** 2026-09-14 的旧规则）：
+   *   「**朋友也可以发语音**。这条正式替换旧的"必须先开伴侣才能发语音"规则。」
+   *   「开启声音不得自动改变关系或模式。」
+   *
+   * 所以现在只剩一条硬门槛：
+   *   · **内置小说人物不发语音**（用户 9/14 拍板："小说人物只是聊天，其他都不做语音"）——
+   *     它们继续提供文字剧情体验，不参与语音。
+   *   · 自定义角色（自己的角色、导入的卡）**都可以**发语音；关系是朋友还是伴侣、聊天方式是
+   *     日常还是剧情，都只影响**怎么说**（要不要写旁白、口吻），不再决定**能不能出声**。
+   *
+   * 判定仍然只在这一处：界面拿它决定入口怎么显示，合成之前再判一次（防绕过）。
+   */
+  function voiceAccess(info) {
+    const source = info || {};
+    if (source.isBuiltin) {
+      return {
+        allowed: false,
+        code: "BUILTIN_CHARACTER",
+        reason: "内置的小说人物不发语音（它们只做文字剧情）。想要语音消息，用「AI 创建角色」建一个自己的角色 —— "
+          + "自己的角色开着「日常聊天」就能发语音，不需要先开伴侣。",
+      };
+    }
+    if (!source.avatar) {
+      return { allowed: false, code: "NO_CHARACTER", reason: "先选一个角色。" };
+    }
+    return { allowed: true, code: "", reason: "" };
+  }
+
+  /**
+   * **谁能开伴侣模式**（2026-09-14 用户拍板）。
+   *
+   * 用户原话：「小说人物不设置伴侣……只有定制人物加上伴侣身份再打开语音。」
+   * 也就是说：**内置的小说人物（哈利那一批）不给开伴侣模式** ——
+   * 它们是"作品里的角色"，不是"你的伴侣"。这条规则只在这里判一次，
+   * 界面、提示词、语音门槛三处都调它，免得散在三个地方各写一遍（写歪一处就漏）。
+   *
+   * ⚠ 已经开过的老存档：这里返回 blocked，但**不删用户的数据** ——
+   * 档案原样留在存档里，只是不生效。用户以后把内置角色删了或改了名，也不该丢东西。
+   */
+  function companionAccess(info) {
+    const source = info || {};
+    if (source.isBuiltin) {
+      return {
+        allowed: false,
+        reason: "内置的小说人物不能开伴侣模式（伴侣只给自己的角色开）。",
+      };
+    }
+    return { allowed: true, reason: "" };
+  }
+
+  /**
+   * ⚠ 2026-09-16：这一份是**旧的** voiceAccess（"必须伴侣 + 软件聊天"），已被上面那份替换。
+   * 保留成注释是为了留痕：旧规则的三条门槛 + 旧文案，方便对照老存档与老测试。
+   * 真正生效的是文件上方那份（同名函数，后声明会覆盖前面的 —— 所以这里必须整段注释掉）。
+   *
+   *   function voiceAccess(info) { ... }   ← 旧实现已删
+   *
+   * 旧规则（作废）：
+   *   ① 不是内置小说人物；② 开着伴侣模式；③ 聊天方式是「软件聊天（无动作）」。
+   * 旧文案（作废，别再用）：
+   *   "内置的小说人物不做语音。想让它说话，用「AI 创建角色」建一个自己的角色，再开伴侣模式。"
+   *   "语音只给「伴侣模式」里的角色用。先在这个角色的档案里打开伴侣模式。"
+   *   "伴侣模式里只有「软件聊天（不带动作）」这一档能发语音……"
+   */
 
   function clampInt(value, min, max, fallback) {
     const num = Number(value);
@@ -635,6 +731,26 @@
     return { snippet: snippet, gap: gap, days: gap.days, fromUser: !!lastUser, at: cleanText(last.send_date, 40) };
   }
 
+  /**
+   * 一条消息的时间前缀（2026-09-18 用户要求："每条消息的时间也要加进给模型的提示里"）。
+   *
+   * 这是**全项目唯一**的实现：`task22-core.composeMessages`（真正发出去的请求体）
+   * 在浏览器里也调它，保证"屏幕上显示的、提示词里写的、探针看到的"完全一致。
+   * 格式 `[MM-DD HH:MM]`，按**本机时区**（用户那边几点），不带年份
+   * （老对话跨年才会歧义，那时系统提示里的今天日期足够区分）。
+   *
+   * 拿不到 / 解析不了时间就返回空串 —— **绝不编一个时间**（与「上次说到」同一口径）。
+   */
+  function messageTimePrefix(sendDate) {
+    const raw = String(sendDate === undefined || sendDate === null ? "" : sendDate).trim();
+    if (!raw) return "";
+    const date = new Date(raw);
+    if (isNaN(date.getTime())) return "";
+    const pad = (n) => (n < 10 ? "0" + n : String(n));
+    return "[" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+      + " " + pad(date.getHours()) + ":" + pad(date.getMinutes()) + "]";
+  }
+
   /** 写档案时顺手记下"这次是几号改的"，以及下次聊天时间要用的时间戳。 */
   function touch(profile, at) {
     const next = normalizeProfile(profile);
@@ -668,6 +784,11 @@
     NEGLECT_MODES,
     NEGLECT_TIERS,
     PROACTIVE_DEFAULTS,
+    CHAT_STYLES,
+    isPlainChat,
+    chatStyleLabel,
+    companionAccess,
+    voiceAccess,
     SHARED_MAX,
     SHARED_ITEM_MAX,
     ADDRESS_MAX,
@@ -684,6 +805,7 @@
     gapText,
     daysSince,
     isoDay,
+    messageTimePrefix,
     affinityTier,
     suggestAffinity,
     affinityOf,

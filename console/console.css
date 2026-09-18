@@ -76,3 +76,53 @@ td .tag.bad { color: var(--bad); border-color: rgba(255,122,122,.4); }
 .usage-bar .usage-fill { width: 100%; min-height: 2px; border-radius: 5px 5px 2px 2px; background: linear-gradient(180deg, var(--accent), rgba(111,140,255,.35)); }
 .usage-bar span { font-size: 12px; color: var(--fg); }
 .usage-bar em { font-style: normal; font-size: 11px; color: var(--muted); }
+
+/* ---- 2026-09-14：从"能用"做成"顺手"的一批样式 ---- */
+
+/* 总览的格子：桌面一行放得下，窄屏自动折成两列 / 一列。 */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { display: grid; gap: 2px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; background: #12161e; }
+.tile strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.tile-label { font-size: 12.5px; color: var(--fg); }
+.tile-hint { font-style: normal; font-size: 11px; color: var(--muted); }
+
+/* 「数字框 + 不限制」成对出现：勾上之后数字框灰掉，用户不用猜 0 是什么意思。 */
+.field-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.field-row input[type="number"] { flex: 1 1 90px; }
+.field-row input[type="number"]:disabled { opacity: .45; }
+label .inline-check { white-space: nowrap; }
+
+/* 表格里的额度格子：主值是 `已用 / 上限`，下面一行小字给剩余。 */
+.quota-cell { display: grid; font-variant-numeric: tabular-nums; }
+.quota-cell em { font-style: normal; font-size: 11px; color: var(--muted); }
+td.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+td.row-actions .btn { padding: 5px 10px; font-size: 12px; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+button.link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+button.link:hover { text-decoration: underline; }
+
+/* 卡详情 */
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 16px; margin-bottom: 14px; }
+.detail-grid > div { display: grid; gap: 2px; }
+.detail-grid span { font-size: 11.5px; }
+.detail-grid strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+table.mini { font-size: 12.5px; }
+table.mini th, table.mini td { padding: 6px 9px; }
+/* 不可逆的动作用一块单独的底：跟"停用"必须一眼分得开。 */
+.danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px; padding: 10px 12px; border: 1px solid rgba(255,122,122,.35); border-radius: 11px; background: rgba(255,122,122,.06); }
+.danger-zone p { margin: 0; }
+
+/* 窄屏：表格横向滚动、表单折成一列、按钮不换行到看不见的地方。 */
+@media (max-width: 720px) {
+  body { padding: 0 12px 32px; }
+  main { gap: 12px; }
+  .card { padding: 13px 13px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .topbar { gap: 10px; }
+  .topbar-right { width: 100%; }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .usage-bars { height: 68px; }
+  .issue-item textarea { min-height: 150px; }
+  .detail-grid { grid-template-columns: 1fr; }
+}

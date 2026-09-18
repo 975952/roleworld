@@ -689,6 +689,53 @@ async function main() {
       !/default\s*=\s*\[[^\]]*custom-protocol/.test(cargo),
       "custom-protocol 不能进 Cargo.toml 的 default features（会让 tauri dev 失去热更新）",
     );
+
+    // 5) 手机侧的地基。
+    //    ⚠ 这一段在 2026-09-14 换过判据：**语音方向变了** —— 语音只走云端
+    //    （火山豆包 TTS 2.0，经体验卡中转），不再做 Android 系统 TTS / 浏览器朗读。
+    //    所以"必须接原生语音桥"那条断言**已经不再是事实**，换成：
+    //      · 麦克风权限仍然要有（**语音输入没变**，删了它录音直接拿不到权限）；
+    //      · 前端**不许**再接系统朗读那两条路（防止哪天有人"顺手加个兜底"又把方向带回去）；
+    //      · 云端那条路必须真的在（否则手机上就彻底没声了，而且没人会发现）。
+    const shell = fs.readFileSync(path.join(root, "scripts", "ensure-android-shell.cjs"), "utf8");
+    assert.ok(
+      shell.indexOf("RECORD_AUDIO") >= 0 && shell.indexOf("MODIFY_AUDIO_SETTINGS") >= 0,
+      "ensure-android-shell.cjs 少了麦克风权限：Android 上 getUserMedia 会直接失败（语音输入会一起坏掉）",
+    );
+    // 前端这一侧：语音输入必须还在；系统朗读那两条路必须都不在。
+    const voiceCore = fs.readFileSync(path.join(root, "app", "voice-core.js"), "utf8");
+    assert.ok(
+      voiceCore.indexOf("startRecording") >= 0 && voiceCore.indexOf("transcribeBlob") >= 0,
+      "voice-core.js 少了录音或转写：清理系统朗读时误伤了语音输入",
+    );
+    assert.ok(
+      voiceCore.indexOf("__rwNativeTts") < 0 && voiceCore.indexOf("__rwVoiceCallback") < 0,
+      "voice-core.js 又接回原生语音桥了 —— 语音这一轮只走云端，不做安卓系统 TTS",
+    );
+    assert.ok(
+      voiceCore.indexOf("speechSynthesis") < 0 && voiceCore.indexOf("SpeechSynthesisUtterance") < 0,
+      "voice-core.js 又接回浏览器自带了朗读 —— 那会让同一个角色有时候是情感音色、有时候是播报腔",
+    );
+    // 云端那条路必须真的在：客户端发什么、往哪发、用什么资源标识，都在这里钉住。
+    const voiceAdapter = fs.readFileSync(path.join(root, "app", "adapter", "voice.js"), "utf8");
+    assert.ok(
+      voiceAdapter.indexOf("/v1/audio/speech") >= 0 && voiceAdapter.indexOf("/voice/info") >= 0,
+      "adapter/voice.js 少了云端语音的两个接口（合成 / 音色表）",
+    );
+    const relayTts = fs.readFileSync(path.join(root, "relay", "tts.js"), "utf8");
+    assert.ok(
+      relayTts.indexOf("seed-tts-2.0") >= 0,
+      "relay/tts.js 的资源标识不是「豆包语音合成模型 2.0」的 seed-tts-2.0",
+    );
+    assert.ok(
+      relayTts.indexOf("/api/v3/tts/unidirectional") >= 0,
+      "relay/tts.js 打的不是官方 HTTP 单向流式端点",
+    );
+    // 两套控制台鉴权都支持，而且**不会混发**（同时发会被上游当成配错）。
+    assert.ok(
+      relayTts.indexOf("X-Api-App-Id") >= 0 && relayTts.indexOf("X-Api-Key") >= 0 && relayTts.indexOf("X-Api-Access-Key") >= 0,
+      "relay/tts.js 少了某一套控制台鉴权头",
+    );
   });
 
   await test("index.html 里没有重复的 id", () => {
@@ -821,11 +868,16 @@ async function main() {
 
     // 发卡文案是同学唯一会照着做的东西 —— 静态检查它必须给"可直接粘贴的那一行"。
     // 0.1.30 起这份文案抽到 relay/card-text.js（CLI 与控制台共用同一份，免得两边写歪）。
+    // 2026-09-16：文案改过一轮 —— **不再给一键链接**（那条链接会先撞腾讯云的「测试域名风险提醒」页），
+    //   改成"卡号 + 中转地址 + 三步说明"。所以这里钉的也换成新的三样：
+    //   ① 有一整行可粘贴的形式；② 明说中转地址要填；③ 有"打开网址之后怎么填"的步骤。
     const text = fs.readFileSync(path.join(__dirname, "..", "relay", "card-text.js"), "utf8");
     assert.ok(/function pasteLine\(token,\s*options\)/.test(text), "card-text 里应当有「可直接粘贴的那一行」");
     const sharePart = text.split("function shareText")[1] || "";
     assert.ok(/pasteLine\(token/.test(sharePart), "发卡文案没有把那一整行放进去");
-    assert.ok(text.indexOf("只粘卡号是不够的") >= 0, "发卡文案要说明新设备为什么必须带中转地址");
+    assert.ok(sharePart.indexOf("中转地址") >= 0, "发卡文案要说明新设备必须带中转地址（否则照着做必然失败）");
+    assert.ok(sharePart.indexOf("卡号：") >= 0 && sharePart.indexOf("怎么用") >= 0,
+      "发卡文案要给「卡号 + 怎么用」这两样（同学照着做的东西）");
     // CLI 与控制台都必须用这一份，不许各写一份。
     const cli = fs.readFileSync(path.join(__dirname, "..", "scripts", "card-cli.cjs"), "utf8");
     assert.ok(cli.indexOf('relay", "card-text.js"') >= 0, "card-cli 没用共用文案");
@@ -1059,6 +1111,9 @@ async function main() {
           continue;
         }
         if (!exts.includes(path.extname(entry.name).toLowerCase()) && !names.has(entry.name)) continue;
+        // ⚠ 按字节保留的**受损原件**不参与这条断言：`*.pre-replace-*.cjs` 是历史上那个坏掉的
+        //   测试文件（用户明确要求留档），它本来就不是合法 UTF-8 —— 扫它只会得到一个假的失败。
+        if (/\.pre-replace-[0-9]+\.cjs$/.test(entry.name)) continue;
         const file = path.join(dir, entry.name);
         const buffer = fs.readFileSync(file);
         checked += 1;
@@ -1904,6 +1959,67 @@ async function main() {
     assert.equal(written.preferences.nickname, "阿远");
     const read = AccountCore.readPreferences(storage, "local", {});
     assert.equal(read.preferences.nickname, "阿远");
+  });
+
+  console.log("");
+  console.log("== 每条消息的时间进提示词（2026-09-18 用户要求） ==");
+
+  await test("消息时间：真的进了请求体，而且是 [MM-DD HH:MM] 的本机时间", () => {
+    // 用户原话：「每条消息的时间也要加进给模型的提示里」。
+    // 这条**只认请求体**（payload.messages），不看界面、不看中间变量 ——
+    // 否则又是"看着在守、其实什么都没守"。
+    const card = { name: "Harry", description: "d", first_mes: "hi", data: {} };
+    const stamp = "2026-09-18T14:32:00+08:00";
+    const payload = Core22.buildGeneratePayload({
+      card, memoryBooks: [], history: [{ is_user: false, mes: "我回来了。", send_date: stamp }],
+      userText: "在吗", engine: "A", mode: "local", settings: {},
+    });
+    const assistant = payload.messages.filter((m) => m.role === "assistant").map((m) => String(m.content));
+    assert.equal(assistant.length, 1, "历史里那条助手消息应当原样送过去一条：" + JSON.stringify(payload.messages));
+    assert.equal(assistant[0], "[09-18 14:32] 我回来了。",
+      "历史消息没有带上时间前缀：" + JSON.stringify(assistant[0]));
+    // 系统提示里要有一句说明这些前缀是什么（否则模型只会看到一个方括号）。
+    assert.ok(/\[Message times\]/.test(String(payload.messages[0].content)),
+      "系统提示里没有说明时间前缀的含义");
+    // 时间用的是**本机时区**：这条前缀必须与同一台机器上的本地时刻一致（换时区跑 CI 时也不假失败）。
+    const local = new Date(stamp);
+    const pad = (n) => (n < 10 ? "0" + n : String(n));
+    assert.equal(Core22.messageTimePrefix(stamp),
+      "[" + pad(local.getMonth() + 1) + "-" + pad(local.getDate()) + " " + pad(local.getHours()) + ":" + pad(local.getMinutes()) + "]",
+      "messageTimePrefix 与本机时区不一致");
+  });
+
+  await test("消息时间：老存档没有时间戳就**不加**，绝不编一个", () => {
+    // 既有口径（「上次说到」那一套）：缺数据时宁可不说，也不编一个日期。
+    const card = { name: "Harry", description: "d", first_mes: "hi", data: {} };
+    const payload = Core22.buildGeneratePayload({
+      card, memoryBooks: [],
+      history: [{ is_user: true, mes: "以前说过的话。" }, { is_user: false, mes: "嗯。", send_date: "不是时间" }],
+      userText: "在吗", engine: "A", mode: "local", settings: {},
+    });
+    const contents = payload.messages.map((m) => String(m.content));
+    assert.ok(contents.indexOf("以前说过的话。") >= 0, "没有时间戳的那条应当原样发出去：" + JSON.stringify(contents));
+    assert.ok(contents.indexOf("嗯。") >= 0, "时间戳解析不了的那些也原样发：" + JSON.stringify(contents));
+    assert.equal(Core22.messageTimePrefix(""), "");
+    assert.equal(Core22.messageTimePrefix(null), "");
+    assert.equal(Core22.messageTimePrefix("不是时间"), "");
+    // 一条有效时间都没有时，那句说明也不该出现（不多发一段没用的 token）。
+    assert.equal(String(payload.messages[0].content).indexOf("[Message times]"), -1,
+      "没有任何有效时间时不该多出一段说明");
+  });
+
+  await test("消息时间：只改发出去的那一份，存档里的 mes 一个字都不动", () => {
+    const card = { name: "Harry", description: "d", first_mes: "hi", data: {} };
+    const history = [{ is_user: true, mes: "原话。", send_date: "2026-09-18T14:32:00+08:00" }];
+    Core22.buildGeneratePayload({ card, memoryBooks: [], history, userText: "在吗", engine: "A", mode: "local", settings: {} });
+    assert.equal(history[0].mes, "原话。", "存档里那条被改写了（这是绝不允许的）");
+    assert.equal(history[0].send_date, "2026-09-18T14:32:00+08:00", "时间戳也被改写了");
+    // 关掉开关时（给"逐字节对齐老请求"的用例留的），时间前缀与说明都不出现。
+    const off = Core22.buildGeneratePayload({
+      card, memoryBooks: [], history, userText: "在吗", engine: "A", mode: "local", settings: {}, messageTimes: false,
+    });
+    assert.ok(off.messages.some((m) => m.content === "原话。"), "messageTimes:false 时应当是没有前缀的老形状");
+    assert.equal(String(off.messages[0].content).indexOf("[Message times]"), -1);
   });
 
   console.log("");

@@ -26,8 +26,12 @@
 
   // 两套步骤：自己配 Key 的是原来那套；拿体验卡的是"卡说明 → 称呼 → 语言 → 功能 → 开始"。
   // 中间那步「这里能做什么」两边共用（用户 2026-09-12：「第一次进的时候也要介绍网站的功能吧」）。
-  const FULL_STEPS = ["welcome", "name", "key", "features", "ready"];
-  const CARD_STEPS = ["card-welcome", "name", "language", "features", "card-ready"];
+  // 两条链在 `choose` 之后**殊途同归**：从卡链接进来的先看「卡说明」再二选一，
+  // 自己打开网站的直接二选一；选完的那条路会自己把另一条的分支页摘掉（见 steps()）。
+  const CARD_STEPS = ["card-welcome", "choose", "card-setup", "name", "language", "features", "card-ready"];
+  // 2026-09-16：两条路都在**称呼之后问一次语言** —— 内置角色卡是英文的，看不懂英文的人
+  // 需要在这一步就能选"一律中文"（以前只有卡那条路问，自己配 Key 的人要事后去设置里找）。
+  const FULL_STEPS = ["welcome", "choose", "card-setup", "name", "language", "key", "features", "ready"];
 
   let overlay = null;
   let index = 0;
@@ -35,9 +39,17 @@
   let nickname = "";
   let mode = "full";
   let cardQuota = null;
+  // 2026-09-16：第一步二选一的结果 —— "card"（朋友给了体验卡）或 "key"（用自己的 Key）。
+  // 空串 = 还没选（第一次打开时就是这个状态）。
+  let way = "";
 
   function steps() {
-    return mode === "card" ? CARD_STEPS : FULL_STEPS;
+    const base = mode === "card" ? CARD_STEPS : FULL_STEPS;
+    // 二选一的**结果**决定后面走哪条：选了"自己的 Key"就把填卡页摘掉，选了"体验卡"就把填 Key 页摘掉。
+    // （摘 == 不出现，而不是"跳过去"：跳过去会留下一个空页。）
+    if (!way) return base;
+    const drop = way === "key" ? "card-setup" : "key";
+    return base.filter((name) => name !== drop);
   }
 
   /** 卡还能用多少 → 一句话（"剩 4 次 · 到期 2026-10-12" / "次数已用完"）。 */
@@ -74,7 +86,7 @@ html[data-theme="light"] .rw-ob{
 .rw-ob-dots{display:flex;gap:6px;margin:18px 0 16px;}
 .rw-ob-dots i{width:7px;height:7px;border-radius:50%;background:var(--rw-fg);opacity:.22;}
 .rw-ob-dots i.is-on{opacity:.85;}
-.rw-ob-actions{display:flex;gap:10px;align-items:center;}
+.rw-ob-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
 .rw-ob-actions .rw-ob-grow{flex:1;}
 .rw-ob button{border-radius:10px;padding:8px 16px;font:inherit;font-size:14px;cursor:pointer;
   border:1px solid var(--rw-line);background:transparent;color:var(--rw-fg);}
@@ -86,11 +98,22 @@ html[data-theme="light"] .rw-ob{
 .rw-ob-field select{flex:0 0 150px;}
 .rw-ob-field input::placeholder{color:var(--rw-muted);}
 .rw-ob-status{margin:6px 0 0;font-size:13px;color:var(--rw-muted);min-height:20px;}
-.rw-ob-status.is-ok{color:#3ecf8e;}
+.rw-ob-status.is-ok{color:#3ecf8e;font-size:14px;font-weight:600;}
 .rw-ob-status.is-bad{color:#ff7a7a;}
 .rw-ob-hint{font-size:13px;color:var(--rw-muted);margin:10px 0 0;}
 .rw-ob-check{display:flex;gap:8px;align-items:center;margin:14px 0 0;font-size:14px;color:var(--rw-fg);cursor:pointer;}
 .rw-ob-check input{width:16px;height:16px;accent-color:var(--rw-accent);}
+/* 二选一的两张大按钮（2026-09-16）：要一眼看出是"两个选项"，不是一段说明文字 */
+.rw-ob-choice{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px;}
+.rw-ob button.rw-ob-choice-btn{display:block;width:100%;text-align:left;padding:14px 16px;border-radius:12px;
+  border:1px solid var(--rw-line);background:transparent;color:var(--rw-fg);line-height:1.6;cursor:pointer;}
+.rw-ob button.rw-ob-choice-btn:hover{border-color:var(--rw-accent);background:rgba(127,127,127,.08);}
+.rw-ob button.rw-ob-choice-btn.is-current{border-color:var(--rw-accent);}
+.rw-ob button.rw-ob-choice-btn b{display:block;font-size:15px;margin-bottom:2px;color:var(--rw-fg);}
+.rw-ob button.rw-ob-choice-btn span{display:block;font-size:13px;color:var(--rw-muted);}
+.rw-ob-details{margin:12px 0 0;font-size:13px;color:var(--rw-muted);}
+.rw-ob-details summary{cursor:pointer;color:var(--rw-fg);}
+.rw-ob-details p{margin:8px 0 0;}
 `;
     document.head.appendChild(style);
   }
@@ -137,13 +160,55 @@ html[data-theme="light"] .rw-ob{
         "<p>你的**聊天记录只存在这台设备上**：别人搭的中转只统计「用了多少次」，看不到你聊了什么。</p>",
       ].join("");
     }
+    if (step === "choose") {
+      // 二选一：**普通人第一次打开网站看到的第一件事**（用户 2026-09-16 要求）。
+      // 写法上刻意做到三件事：① 用大白话说"你手上有什么"；② 两个大按钮直接点；
+      // ③ 选哪个都不用自己去设置里翻。
+      return [
+        "<h2>你手上有什么？</h2>",
+        "<p>二选一，点一下就行 —— 选完才填对应的那一项，不用自己去找设置。</p>",
+        '<div class="rw-ob-choice">',
+        '<button type="button" class="rw-ob-choice-btn" data-ob="way" data-way="card">',
+        "<b>有人给了我一张体验卡</b>",
+        "<span>打开就能用，不用 API Key、不用付钱</span>",
+        "卡号形如 <code>RW-XXXXX-XXXXX-XXXXX</code>，由发卡的人给你",
+        "</button>",
+        '<button type="button" class="rw-ob-choice-btn" data-ob="way" data-way="key">',
+        "<b>我自己有 API Key</b>",
+        "<span>直连你自己的服务商（DeepSeek / OpenAI 等），花自己的额度</span>",
+        "在服务商官网申请，形如 <code>sk-…</code>",
+        "</button>",
+        "</div>",
+        "<p class=\"rw-ob-hint\">不确定？只要有卡号就选第一个；两个都没有就先选第一个，进去也能随时改成第二种"
+          + "（设置 → 连接方式）。</p>",
+      ].join("");
+    }
+    if (step === "card-setup") {
+      // 拆成两栏填：普通人手里只有"卡号"，中转地址是应用该自己填的。
+      // 以前要求"把卡号@地址那一整行粘进来"——对没干过这事的人是纯门槛（用户 2026-09-16 反馈）。
+      return [
+        "<h2>把体验卡填进来</h2>",
+        "<p>发卡的人给了你一个<b>卡号</b>（形如 <code>RW-XXXXX-XXXXX-XXXXX</code>）。把它粘在下面第一栏。</p>",
+        '<div class="rw-ob-field"><input type="text" data-ob="card-token" placeholder="卡号：RW-XXXXX-XXXXX-XXXXX"'
+          + ' autocomplete="off" spellcheck="false" maxlength="120" aria-label="体验卡号"></div>',
+        "<p>第二栏是<b>中转地址</b>：发卡的人一般会连同卡号一起给你一段网址。填过一次就会记住，下次不用再填。</p>",
+        '<div class="rw-ob-field"><input type="text" data-ob="card-relay" placeholder="中转地址：https://…"'
+          + ' autocomplete="off" spellcheck="false" maxlength="300" aria-label="中转地址"></div>',
+        '<div class="rw-ob-field"><button type="button" class="rw-ob-primary" data-ob="card-use">用这张卡</button></div>',
+        '<p class="rw-ob-status" data-ob="card-status"></p>',
+        '<details class="rw-ob-details"><summary>发卡的人只给了我一段话 / 一条链接，怎么填？</summary>'
+          + "<p>把那段话里 <code>RW-…</code> 开头的那串<b>粘进第一栏</b>，"
+          + "把 <code>https://</code> 开头的那段网址<b>粘进第二栏</b>。"
+          + "如果只给了你一条链接，点开它、或者按上面的办法拆开填都可以。</p></details>",
+      ].join("");
+    }
     if (step === "language") {
       return [
         "<h2>角色说什么语言？</h2>",
         "<p>内置角色卡是英文的，所以默认他们**说英文**。</p>",
         "<p>看不懂英文就勾上下面这个：所有角色都改说简体中文。</p>",
         '<label class="rw-ob-check"><input type="checkbox" data-ob="language-zh"> 让角色一律说简体中文（看不懂英文就勾上）</label>',
-        '<p class="rw-ob-hint">以后想改：**设置 → 模型 → 角色语言**；只想让某一个角色说中文，用对话页顶栏的「语言」下拉。</p>',
+        '<p class="rw-ob-hint">以后想改：**设置 → 回复偏好 → 角色语言**；只想让某一个角色说中文，用对话页顶栏的「语言」下拉。</p>',
       ].join("");
     }
     if (step === "features") {
@@ -155,9 +220,11 @@ html[data-theme="light"] .rw-ob{
         "<p><strong>他们记得你</strong>：每个角色有自己的一本记忆，跨对话保留；记忆可以随时查看、改、删，还能看到它是从哪句话来的。</p>",
         "<p><strong>剧情模式</strong>：想让好几个角色同时在同一个场景里，用左侧的「剧情模式」。</p>",
         "<p><strong>伴侣模式</strong>（可选）：给某个角色写一份关系档案（关系、称呼、共同经历），它会照这个来；里面有「不许用内疚留人」这类硬规矩。</p>",
-        "<p><strong>语言</strong>：内置角色卡是英文的，所以默认说英文；想一律中文在**设置 → 模型 → 角色语言**里改，也可以只给某一个角色改（对话页顶栏的「语言」）。</p>",
+        "<p><strong>语言</strong>：内置角色卡是英文的，所以默认说英文；想一律中文在**设置 → 回复偏好 → 角色语言**里改，也可以只给某一个角色改（对话页顶栏的「语言」）。</p>",
         "<p><strong>花的钱看得见</strong>：每轮显示 token 用量和费用估算；「本次请求」能看到这一轮到底发了什么。</p>",
-        "<p><strong>数据只在这台设备上</strong>：没有账号、不上传；换电脑用**设置 → 关于 → 导出存档**。</p>",
+        "<p><strong>数据只在这台设备上</strong>：没有账号、不上传；换电脑用**设置 → 数据与备份 → 导出存档**。</p>",
+        "<p class=\"rw-ob-hint\">设置里**常用就那几页**（连接方式 / 语音 / 回复偏好 / 外观与布局 / 数据与备份），"
+          + "其余收在下面的「更多设置」里，用到再展开。</p>",
       ].join("");
     }
     if (step === "card-ready") {
@@ -167,7 +234,8 @@ html[data-theme="light"] .rw-ob{
         "<p>左侧是角色（内置 6 个），点一个直接打字就能聊。</p>",
         "<p>**每个角色有自己的记忆**，跨对话保留；这些记录只存在这台设备上。</p>",
         line ? "<p>你的体验卡：" + format(line) + "。用完或想再要一张，找发卡的人。</p>" : "",
-        "<p>想用自己的 API Key 也可以：**设置 → 模型** 里填上就换成你自己的额度。</p>",
+        "<p>想用自己的 API Key 也可以：**设置 → 连接方式** 里换成「自己配置 API」就行。</p>",
+        "<p>以后想再看一遍这份说明：**设置 → 更多设置 → 关于 → 再看一次教程**。</p>",
       ].join("");
     }
     if (step === "welcome") {
@@ -176,7 +244,7 @@ html[data-theme="light"] .rw-ob{
         "<p>这是一个本地优先的角色对话应用：没有账号、没有遥测。</p>",
         "<p>角色卡、对话记录、记忆书、API Key 全部只存在这台设备上；发送给模型的内容只会到达你选定的云端服务。</p>",
         "<p>代价只有一条：没人替你备份，换电脑前记得自己导出。</p>",
-        "<p>接下来两步：先写一个**称呼**，再填模型接口的 **API Key**（可以先准备好）。</p>",
+        "<p>下一步先问你一句：**你手上有什么**（体验卡 / 自己的 API Key）—— 选完才填对应的那一项。</p>",
         // 语言：**默认不勾** —— 角色按自己角色卡的语言说话（默认行为）。
         // 看不懂英文的人勾一下就一律中文，勾的当下就生效（设置里随时能改）。
         '<label class="rw-ob-check"><input type="checkbox" data-ob="language-zh"> 全中文：角色一律说简体中文（看不懂英文就勾上）</label>',
@@ -193,8 +261,8 @@ html[data-theme="light"] .rw-ob{
     }
     if (step === "key") {
       return [
-        "<h2>填入你的 API Key，或用体验卡</h2>",
-        "<p>用自己的 API Key 就是**直连**你选的服务商；用体验卡则经过发卡人搭的中转。Key 只保存在本机。</p>",
+        "<h2>填入你的 API Key</h2>",
+        "<p>你选的是「自己配置 API」：Key 只保存在本机，请求直连你选的服务商（不经过我们的中转）。</p>",
         // 正在用体验卡的人（点「再看一次教程」会走到这一步）先给一句说明，
         // 免得他对着下面那个中转地址和一栏空的 Key 发懵（用户 2026-09-13 实测反馈）。
         '<p class="rw-ob-status" data-ob="key-note"></p>',
@@ -215,15 +283,7 @@ html[data-theme="light"] .rw-ob{
         "</div>",
         '<div class="rw-ob-field"><input type="text" data-ob="endpoint" placeholder="接口地址（留空用服务商默认）" spellcheck="false" autocomplete="off" aria-label="接口地址"></div>',
         '<p class="rw-ob-status" data-ob="status"></p>',
-        '<p class="rw-ob-hint">自定义服务需要填写支持跨域访问的 HTTPS 接口地址和对应 API Key。</p>',
-        // 2026-09-12：**别人给你体验卡**也要能在这一步进门。
-        // 以前这里只有 API Key 一条路：发卡链接被聊天软件截掉、或者同学自己打开首页（地址里没带卡），
-        // 就会看到"必须输 API Key"，看起来像进不去（用户实测反馈："为什么我登的时候还是要输 apikey"）。
-        '<p class="rw-ob-hint">有人给你<b>体验卡</b>？不用 API Key —— 把他给的<b>卡号那一整行</b>'
-          + '（形如 <code>RW-XXXXX-XXXXX-XXXXX@中转地址</code>，或者他发的那条整链接）粘在下面，点「用体验卡」。</p>',
-        '<div class="rw-ob-field"><input type="text" data-ob="card" placeholder="RW-XXXXX-XXXXX-XXXXX@https://…" spellcheck="false" autocomplete="off" maxlength="400" aria-label="体验卡号或体验卡链接">',
-        '<button type="button" data-ob="card-use">用体验卡</button></div>',
-        '<p class="rw-ob-status" data-ob="card-status"></p>',
+        '<p class="rw-ob-hint">只有选「自定义云端服务」时才需要填接口地址。Key 只保存在这台设备上。</p>',
       ].join("");
     }
     return [
@@ -237,14 +297,33 @@ html[data-theme="light"] .rw-ob{
   function actionsHtml(step) {
     const last = index === steps().length - 1;
     const dots = steps().map((_, i) => `<i class="${i === index ? "is-on" : ""}"></i>`).join("");
+    // 二选一那一页**不给「下一步」**：那一页的按钮本身就是下一步（点了才知道去哪儿），
+    // 留一个灰色的「下一步」只会让人犹豫该点哪个（用户 2026-09-16 的诉求：步骤要简单明了）。
+    const primary = step === "choose"
+      ? ""
+      : `<button type="button" class="rw-ob-primary" data-ob="next">${last ? "开始使用" : "下一步"}</button>`;
     return `
       <div class="rw-ob-dots" aria-hidden="true">${dots}</div>
       <div class="rw-ob-actions">
         <button type="button" data-ob="prev" ${index === 0 ? "disabled" : ""}>上一步</button>
+        ${skipHtml()}
         <span class="rw-ob-grow"></span>
         ${step === "key" ? '<button type="button" data-ob="save">保存并测试</button>' : ""}
-        <button type="button" class="rw-ob-primary" data-ob="next">${last ? "开始使用" : "下一步"}</button>
+        ${primary}
       </div>`;
+  }
+
+  /** 「先跳过，稍后设置」——**引导层永远存在的出口**。
+   *
+   *  为什么必须有（2026-09-17 用户实测原话：「你的设置做的根本点不动」）：
+   *  这层引导铺满屏幕、底下什么都点不到；而它的按钮只有「上一步 / 本步的下一步」，
+   *  Escape 又被 onKeydown 故意拦掉。于是**卡不可用、或者手上没有 Key 的人走不完也退不出** ——
+   *  连「设置」都进不去，想自己把卡修好都修不了。这不是"步骤要简单"，这是把人关在里面。
+   *
+   *  行为：记上"看过了"（两套标记都记，免得下次启动又弹），然后关掉浮层。
+   *  先落盘再关（与 finish() 同一个理由：浮层消失就是对外信号）。 */
+  function skipHtml() {
+    return '<button type="button" class="rw-ob-skip" data-ob="skip">先跳过，稍后设置</button>';
   }
 
   /* ------------------------------------------------------------------ *
@@ -313,15 +392,39 @@ html[data-theme="light"] .rw-ob{
    * 渲染与交互
    * ------------------------------------------------------------------ */
 
+  /** 二选一的处理：选定"card"（体验卡）或"key"（自己的 Key），并往前翻一页。
+   *  抽成具名函数有两个用处：① 点击处理就是它；② 自动化可以用 `RoleWorldOnboarding.route()`
+   *  **确定性地**设定路线，不必靠"盲点下一步、猜自己在哪一页"（那样一改顺序就假红，本轮真踩过）。 */
+  function chooseWay(next) {
+    way = next === "key" ? "key" : "card";
+    index += 1;
+    render();
+  }
+
   function render() {
     const step = steps()[index];
     overlay.innerHTML = `<div class="rw-ob-card" role="dialog" aria-modal="true">${renderMarkdown(stepHtml(step))}${actionsHtml(step)}</div>`;
-    overlay.querySelector('[data-ob="prev"]').addEventListener("click", () => {
-      if (index > 0) { index -= 1; render(); }
-    });
-    overlay.querySelector('[data-ob="next"]').addEventListener("click", onNext);
+    // 二选一那一页：把"当前正在用"的那一项标出来（选完就没这个标记了）。
+    if (step === "choose" && way) {
+      const current = overlay.querySelector(`[data-ob="way"][data-way="${way}"]`);
+      if (current) current.classList.add("is-current");
+    }
+    // ⚠ 每一处都要先判空：二选一那一页**故意没有「下一步」**（选项本身就是下一步），
+    //   原来这里无条件 addEventListener → TypeError → 整页画不过去、点了没反应
+    //   （2026-09-16 实测：点「体验卡」之后标题一直停在"你手上有什么？"）。
+    const prevButton = overlay.querySelector('[data-ob="prev"]');
+    if (prevButton) {
+      prevButton.addEventListener("click", () => {
+        if (index > 0) { index -= 1; render(); }
+      });
+    }
+    const nextButton = overlay.querySelector('[data-ob="next"]');
+    if (nextButton) nextButton.addEventListener("click", onNext);
     const saveButton = overlay.querySelector('[data-ob="save"]');
     if (saveButton) saveButton.addEventListener("click", onSaveKey);
+    // 「先跳过，稍后设置」：**每一步都有**，所以同样要先判空（同上）。
+    const skipButton = overlay.querySelector('[data-ob="skip"]');
+    if (skipButton) skipButton.addEventListener("click", () => { skipOnboarding().catch(() => {}); });
     const provider = overlay.querySelector('[data-ob="provider"]');
     if (provider) provider.addEventListener("change", () => { syncKeyFields(); setStatus(""); });
     // 「全中文」勾一下就立刻生效（不等走完引导）——有人就是看不懂英文才需要它。
@@ -335,16 +438,29 @@ html[data-theme="light"] .rw-ob{
       });
     }
     syncKeyFields();
-    if (step === "key") {
-      prefillKeyStep();
+    if (step === "choose") {
+      // 点哪张卡就走哪条路：选"体验卡"进填卡页，选"自己的 Key"进填 Key 页。
+      // 这里只记下选择，步骤链由 `steps()` 按选择现算（摘掉另一条的分支页）。
+      overlay.querySelectorAll('[data-ob="way"]').forEach((button) => {
+        button.addEventListener("click", () => {
+          chooseWay(button.dataset.way === "key" ? "key" : "card");
+        });
+      });
+    }
+    if (step === "card-setup") {
       const cardButton = overlay.querySelector('[data-ob="card-use"]');
       if (cardButton) cardButton.addEventListener("click", () => { useCardInOnboarding().catch(() => {}); });
-      const cardInput = overlay.querySelector('[data-ob="card"]');
-      if (cardInput) {
-        cardInput.addEventListener("keydown", (event) => {
+      prefillCardSetup();
+      ["card-token", "card-relay"].forEach((field) => {
+        const input = overlay.querySelector(`[data-ob="${field}"]`);
+        if (!input) return;
+        input.addEventListener("keydown", (event) => {
           if (event.key === "Enter") { event.preventDefault(); useCardInOnboarding().catch(() => {}); }
         });
-      }
+      });
+    }
+    if (step === "key") {
+      prefillKeyStep();
     }
     if (step === "name") {
       const input = overlay.querySelector('[data-ob="nickname"]');
@@ -394,7 +510,7 @@ html[data-theme="light"] .rw-ob{
       const quota = global.RoleWorldCard.formatQuota ? global.RoleWorldCard.formatQuota(state.quota) : "";
       node.textContent = "你现在用的是体验卡" + (quota ? "（" + quota + "）" : "")
         + "，这一步不用填 API Key —— 直接点「下一步」就行。"
-        + "下面那栏地址就是这张卡走的中转地址，不用改；想换回自己的 Key，就在上面那一栏粘你的 Key。";
+        + "想换回自己的 Key，就在下面那一栏粘你的 Key。";
       node.classList.add("is-ok");
     } catch (_) { /* 说明文字失败不影响流程 */ }
   }
@@ -426,25 +542,44 @@ html[data-theme="light"] .rw-ob{
     node.classList.toggle("is-bad", kind === "bad");
   }
 
-  /** 引导里用体验卡：配好接口地址 + 把卡号存进密钥位 —— 之后 keyReady() 就认它，不再要求 API Key。
-   *  卡号只在这台设备上落盘，和「设置 → 模型 → 体验卡」那一行走的是同一个 apply()。 */
+  /** 填卡页的预填：卡号留在密钥位里（`api_key_custom`），中转地址留在 `card_relay`。
+   *  已经配过卡的人再进这一页（"再看一次教程"）时不该两手空空。 */
+  async function prefillCardSetup() {
+    try {
+      const adapter = global.RoleWorld;
+      const settings = await adapter.getLocalSettings();
+      const relayInput = overlay && overlay.querySelector('[data-ob="card-relay"]');
+      if (relayInput && !relayInput.value && settings.card_relay) relayInput.value = settings.card_relay;
+      // 卡号**不回填**：卡号是凭据，回填等于把它摆在屏幕上（用户可能正在投屏/截图）。
+      // 已经在用卡的话，状态行里会说清楚"已经在用卡了"，不用再填。
+    } catch (_) { /* 预填失败就空着 */ }
+  }
+
+  /** 引导里用体验卡：两栏（卡号 + 中转地址）拼成 `卡号@地址` 再交给应用同一个 apply()。
+   *  卡号只在这台设备上落盘，和「设置 → 连接方式 → 体验卡」那一行走的是同一个 apply()。 */
   async function useCardInOnboarding() {
     if (busy) return;
     const card = global.RoleWorldCard;
-    const input = overlay && overlay.querySelector('[data-ob="card"]');
-    const raw = input ? String(input.value || "").trim() : "";
-    if (!card || typeof card.apply !== "function") { setCardStatus("这个版本不支持体验卡，请填 API Key。", "bad"); return; }
-    if (!raw) { setCardStatus("先粘贴卡号（或者发卡人给你的那条链接）。", "bad"); return; }
+    const tokenInput = overlay && overlay.querySelector('[data-ob="card-token"]');
+    const relayInput = overlay && overlay.querySelector('[data-ob="card-relay"]');
+    const token = tokenInput ? String(tokenInput.value || "").trim() : "";
+    const relay = relayInput ? String(relayInput.value || "").trim().replace(/\/+$/, "") : "";
+    if (!card || typeof card.apply !== "function") { setCardStatus("这个版本不支持体验卡，请改成填 API Key。", "bad"); return; }
+    if (!token) { setCardStatus("先填卡号（发卡的人给你的那串 RW-…）。", "bad"); return; }
+    if (!relay) { setCardStatus("还要填中转地址：发卡的人给你的那段 https:// 开头的网址。", "bad"); return; }
     busy = true;
-    setCardStatus("正在配置…", null);
+    setCardStatus("正在用这张卡…", null);
     try {
-      const result = await card.apply(raw);
+      const result = await card.apply(token + "@" + relay);
       if (!result.ok) { setCardStatus(result.message || "这张卡没用上。", "bad"); return; }
-      if (input) input.value = "";
-      // 「保存并测试」那一行留着的 Key 不该再把卡顶掉：清掉输入框。
-      const keyInput = overlay.querySelector('[data-ob="key"]');
-      if (keyInput) keyInput.value = "";
-      setCardStatus("体验卡已配好：" + (result.message || "") + " 点「下一步」继续。", "ok");
+      if (tokenInput) tokenInput.value = "";
+      setCardStatus("✓ 体验卡已启用（" + (result.message || "") + "）。点「下一步」继续。", "ok");
+      // 把它滚进视野：这一页在窄屏/软键盘弹出时是**内部滚动**的，成功提示在按钮下面，
+      // 不主动滚一下就可能"点了没反应"（用户 2026-09-17 反馈）。
+      const statusNode = overlay && overlay.querySelector('[data-ob="card-status"]');
+      if (statusNode && typeof statusNode.scrollIntoView === "function") {
+        try { statusNode.scrollIntoView({ block: "nearest" }); } catch (_) { /* 滚不动也不影响结果 */ }
+      }
     } catch (error) {
       setCardStatus("这张卡没用上：" + String((error && error.message) || error).slice(0, 120), "bad");
     } finally {
@@ -460,16 +595,12 @@ html[data-theme="light"] .rw-ob{
     const keyInput = overlay.querySelector('[data-ob="key"]');
     const endpoint = overlay.querySelector('[data-ob="endpoint"]').value.trim();
     const key = keyInput ? keyInput.value.trim() : "";
-    // 粘进来的其实是体验卡号？那就别往密钥位里写 —— 写进去等于把卡号当 API Key 用，
+    // 粘进来的其实是体验卡号？别往密钥位里写 —— 写进去等于把卡号当 API Key 用，
     // 下一轮请求必然 401（用户 2026-09-12 就是这么踩的）。
-    // 把那段文字挪到「体验卡」那一栏，并告诉他点哪个按钮。
+    // 现在这一步只服务"用自己的 Key"这条路，所以给一句指路：回上一步选另一个选项。
     if (key && global.RoleWorldCard && typeof global.RoleWorldCard.looksLikeCard === "function"
       && global.RoleWorldCard.looksLikeCard(key)) {
-      const cardInput = overlay.querySelector('[data-ob="card"]');
-      if (cardInput) cardInput.value = key;
-      if (keyInput) keyInput.value = "";
-      setStatus("");
-      setCardStatus("这看起来是体验卡号，不是 API Key。已经帮你放到下面的体验卡那一栏了 —— 点「用体验卡」。", "bad");
+      setStatus("这看起来是**体验卡号**，不是 API Key。点下面的「上一步」回去选「有人给了我一张体验卡」。", "bad");
       return;
     }
     busy = true;
@@ -509,6 +640,8 @@ html[data-theme="light"] .rw-ob{
       await saveNickname(input ? input.value : nickname);
     }
     if (step === "key" && !(await keyReady())) return;
+    // 填卡页：没配好卡不许往下走 —— 否则他会以为什么都没发生就"进去了"（用户 2026-09-16 反馈的核心痛点）。
+    if (step === "card-setup" && !(await cardReady())) return;
     if (index < steps().length - 1) {
       index += 1;
       render();
@@ -517,25 +650,34 @@ html[data-theme="light"] .rw-ob{
     await finish();
   }
 
-  // 第二步必须有凭据：API Key，或者一张体验卡（卡号就存在密钥位里）。
-  async function keyReady() {
-    const adapter = global.RoleWorld;
-    const currentCard = async () => (global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
-      ? await global.RoleWorldCard.currentState() : null);
-    const card = await currentCard();
+  /** 填卡页的前置：这一页过完，本机必须真的在用一张卡。 */
+  async function cardReady() {
+    const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+      ? await global.RoleWorldCard.currentState() : null;
     if (card && card.active) return true;
-    // 卡号框里已经粘了东西、但还没点「用体验卡」就按了下一步 —— 顺手用掉它。
-    // （同学的直觉就是"粘上、点下一步"，不该因为我们少做一步就把人挡回去。）
-    const cardInput = overlay.querySelector('[data-ob="card"]');
-    if (cardInput && String(cardInput.value || "").trim()) {
+    // 卡号和中转地址都填了、只是没点按钮：顺手用掉（"填完就点下一步"是最自然的动作）。
+    const tokenInput = overlay && overlay.querySelector('[data-ob="card-token"]');
+    const relayInput = overlay && overlay.querySelector('[data-ob="card-relay"]');
+    if (tokenInput && String(tokenInput.value || "").trim() && relayInput && String(relayInput.value || "").trim()) {
       await useCardInOnboarding();
-      const after = await currentCard();
+      const after = await global.RoleWorldCard.currentState();
       if (after && after.active) return true;
     }
+    setCardStatus("还没配上：卡号和中转地址两栏都填一下，然后点「用这张卡」。", "bad");
+    return false;
+  }
+
+  // 填 Key 那一页必须有凭据：API Key（体验卡走的是另一条路，不经过这里）。
+  async function keyReady() {
+    const adapter = global.RoleWorld;
     const provider = overlay.querySelector('[data-ob="provider"]').value;
     const saved = await adapter.secrets.get(global.RoleWorldModel.secretKeyFor({ provider }));
     if (saved && saved.value) return true;
-    setStatus("请先粘贴 API Key 并点「保存并测试」；有体验卡的话，把卡号粘在下面点「用体验卡」。", "bad");
+    // 极端情况：用户在这一页之前其实已经把卡配上了（导入存档 / 上一轮留下的），那就别拦他。
+    const card = global.RoleWorldCard && typeof global.RoleWorldCard.currentState === "function"
+      ? await global.RoleWorldCard.currentState() : null;
+    if (card && card.active) return true;
+    setStatus("请先粘贴 API Key 并点「保存并测试」。", "bad");
     return false;
   }
 
@@ -568,11 +710,20 @@ html[data-theme="light"] .rw-ob{
     global.dispatchEvent(new global.CustomEvent("roleworld:nickname-changed", { detail: { nickname } }));
   }
 
-  function close() {
+  async function close() {
     if (!overlay) return;
     overlay.remove();
     overlay = null;
     document.removeEventListener("keydown", onKeydown, true);
+  }
+
+  /** 「先跳过，稍后设置」（见 skipHtml 的说明）：把人放出去，并把"看过了"落盘。 */
+  async function skipOnboarding() {
+    try {
+      await global.RoleWorld.saveLocalSettings({ [SEEN_KEY]: true, [CARD_SEEN_KEY]: true });
+    } catch (_) { /* 存不下也绝不能把人关在里面 */ }
+    close();
+    notifySettings();
   }
 
   // Esc 不退出一一必须走完；只拦掉，避免误关。
@@ -586,6 +737,8 @@ html[data-theme="light"] .rw-ob{
   function show(which) {
     if (overlay) return;
     mode = which === "card" ? "card" : "full";
+    // 每次打开都从"还没选"开始：二选一那一页不给默认值，避免用户以为已经选过了。
+    way = "";
     injectStyle();
     index = 0;
     overlay = document.createElement("div");
@@ -622,6 +775,8 @@ html[data-theme="light"] .rw-ob{
         if (!cardQuota && card.relay) {
           try { cardQuota = await global.RoleWorldCard.quota(card.relay, card.token); } catch (_) { cardQuota = null; }
         }
+        // 卡已经在用了：二选一那一页把「体验卡」标成"当前在用"，别让他以为要重选一遍。
+        // 注意这只影响**高亮**：`way` 仍然是"未选"，他照样可以改选"我自己的 Key"。
         show("card");
         return true;
       }
@@ -667,6 +822,22 @@ html[data-theme="light"] .rw-ob{
     maybeShow,
     // 当前这一套的步骤名（供测试与调试看）。
     steps: () => steps().slice(),
+    /**
+     * **只给自动化用**：在"二选一"那一页上确定性地选定路线并翻页。
+     * 为什么要有它：用例如果靠"点下一步、再看标题猜自己走到哪"，顺序一变就假红
+     * （2026-09-16 重排引导时连红四条）。这里让用例直接说"我走体验卡这条"。
+     * 不在二选一那一页上时它什么也不做（返回 false），避免被误用。
+     */
+    route: (which) => {
+      if (!overlay) return false;
+      const step = steps()[index];
+      if (step !== "choose") return false;
+      chooseWay(which === "key" ? "key" : "card");
+      return true;
+    },
+    // 给用例一个干净的起点：把浮层关掉（测试里"再看一次教程"要能重复开）。
+    close: () => { close(); return true; },
+    currentStep: () => steps()[index] || "",
     CARD_SEEN_KEY,
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);

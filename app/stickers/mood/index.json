@@ -1,0 +1,203 @@
+{
+  "id": "mood",
+  "label": "情绪",
+  "description": "通用情绪表情：任何角色都能用。想换成自己画的那套，把 app/stickers/mood 换掉即可。",
+  "stamps": [
+    {
+      "id": "happy",
+      "name": "开心",
+      "file": "happy.svg",
+      "tags": [
+        "高兴",
+        "快乐",
+        "笑",
+        "happy",
+        "微笑"
+      ],
+      "aliases": [
+        "happy",
+        "smile",
+        "joyful",
+        "glad"
+      ]
+    },
+    {
+      "id": "laugh",
+      "name": "大笑",
+      "file": "laugh.svg",
+      "tags": [
+        "哈哈哈",
+        "爆笑",
+        "laugh"
+      ],
+      "aliases": [
+        "laugh",
+        "lol",
+        "grin"
+      ]
+    },
+    {
+      "id": "love",
+      "name": "爱心",
+      "file": "love.svg",
+      "tags": [
+        "喜欢",
+        "比心",
+        "爱你",
+        "love",
+        "heart"
+      ],
+      "aliases": [
+        "love",
+        "heart",
+        "adore"
+      ]
+    },
+    {
+      "id": "shy",
+      "name": "害羞",
+      "file": "shy.svg",
+      "tags": [
+        "脸红",
+        "不好意思",
+        "shy",
+        "blush"
+      ],
+      "aliases": [
+        "shy",
+        "blush",
+        "embarrassed"
+      ]
+    },
+    {
+      "id": "sad",
+      "name": "难过",
+      "file": "sad.svg",
+      "tags": [
+        "伤心",
+        "哭",
+        "委屈",
+        "sad",
+        "cry"
+      ],
+      "aliases": [
+        "sad",
+        "cry",
+        "upset"
+      ]
+    },
+    {
+      "id": "angry",
+      "name": "生气",
+      "file": "angry.svg",
+      "tags": [
+        "愤怒",
+        "恼火",
+        "angry",
+        "mad"
+      ],
+      "aliases": [
+        "angry",
+        "mad",
+        "annoyed"
+      ]
+    },
+    {
+      "id": "surprised",
+      "name": "惊讶",
+      "file": "surprised.svg",
+      "tags": [
+        "吃惊",
+        "震惊",
+        "surprised",
+        "shock"
+      ],
+      "aliases": [
+        "surprised",
+        "shocked",
+        "wow"
+      ]
+    },
+    {
+      "id": "confused",
+      "name": "疑惑",
+      "file": "confused.svg",
+      "tags": [
+        "问号",
+        "不解",
+        "confused",
+        "hmm"
+      ],
+      "aliases": [
+        "confused",
+        "puzzled",
+        "huh"
+      ]
+    },
+    {
+      "id": "speechless",
+      "name": "无语",
+      "file": "speechless.svg",
+      "tags": [
+        "沉默",
+        "汗",
+        "speechless",
+        "awkward"
+      ],
+      "aliases": [
+        "speechless",
+        "awkward",
+        "sweatdrop"
+      ]
+    },
+    {
+      "id": "sleepy",
+      "name": "困",
+      "file": "sleepy.svg",
+      "tags": [
+        "想睡",
+        "打哈欠",
+        "sleepy",
+        "tired"
+      ],
+      "aliases": [
+        "sleepy",
+        "tired",
+        "yawn"
+      ]
+    },
+    {
+      "id": "thinking",
+      "name": "思考",
+      "file": "thinking.svg",
+      "tags": [
+        "沉思",
+        "想想",
+        "thinking"
+      ],
+      "aliases": [
+        "thinking",
+        "hmm",
+        "pondering"
+      ]
+    },
+    {
+      "id": "thumbsup",
+      "name": "赞",
+      "file": "thumbsup.svg",
+      "tags": [
+        "点赞",
+        "厉害",
+        "棒",
+        "like",
+        "ok"
+      ],
+      "aliases": [
+        "thumbs up",
+        "nice",
+        "well done",
+        "approve"
+      ]
+    }
+  ]
+}
