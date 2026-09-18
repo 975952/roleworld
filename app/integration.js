@@ -6748,7 +6748,11 @@
     // 这一行是"当前对话还不能发"时别留一颗藏起来的按钮（hide 掉它，别只是禁用）。
     if (send) send.hidden = !(composerDraft() || liveState.generationPhase === "generating");
     if (ready) {
-      if (input) { input.disabled = liveState.pending || blocked; input.placeholder = liveState.pending || blocked ? "请稍候…" : `写下你想对 ${activeCharacterShortName()} 说的话…`; }
+      // 空着就是空的（用户 0.1.75：「输入框里面的文字删掉」）：
+      // **平时一个字都不写**，不再有"写下你想对 XX 说的话…"那种提示。
+      // 只有"当前发不出去"这种**状态原因**才写进占位 —— 不写的话用户点了没反应只能猜
+      // （`disableComposer()` 那条路同理）；语音识别中的实时预览也照旧用占位显示。
+      if (input) { input.disabled = liveState.pending || blocked; input.placeholder = liveState.pending || blocked ? "请稍候…" : ""; }
       if (send) {
         const generating = liveState.generationPhase === "generating";
         const saving = liveState.generationPhase === "saving";
@@ -6939,18 +6943,26 @@
   /**
    * 画「+」面板：**只有入口，没有解释文字**（用户 2026-09-18：「所有不必要的文字解释全删」）。
    *
-   * 放两样东西：
-   *   · 「角色语音」那一档（节点就是 index.html 里的 `#replyVoiceToggle`，**移动**进来，
-   *     不是复制 —— 复制会让两个入口抢同一份状态，实测那种"两个开关各说各话"最难查）；
+   * 面板里的两样东西：
+   *   · 「角色语音」那一档 —— 它现在是 index.html 里的**静态节点**，常驻在面板里
+   *     （用户 0.1.75 反馈「一进去角色语音还是单独显示」：以前它是开面板时才被挪进来的，
+   *      所以进页面第一眼它在输入条上）；
    *   · 「本次请求」（原来挂在输入条左边，手机上那一行已经够挤了，收进这里更干净）。
-   * 面板每次打开都重画内容（朗读/语音那一档的文字由 `updateReplyVoiceToggle` 决定）。
+   * 面板每次打开都重画面板里**自己造的那一行**（代理行的可见性会变）。
+   *
+   * ⚠ **绝对不要** `menu.textContent = ""` 来"清空"：那会把已经在面板里的
+   *   `#replyVoiceToggle` 从 DOM 里**真删掉**（removeChild，不是隐藏）——
+   *   于是第二次打开面板时 `querySelector("#replyVoiceToggle")` 返回 null、
+   *   面板只剩一行、而且角色语音入口**再也回不来了**。用户看到的就是
+   *   「把+点一下就消失了，再点开+就显示不全了」。只清自己造的那一行。
    */
   function renderComposerMenu() {
     const menu = $("#composerMenu");
     if (!menu) return;
-    menu.textContent = "";
+    if (composerMenuPeekRow && composerMenuPeekRow.parentElement === menu) composerMenuPeekRow.remove();
     const voice = document.querySelector("#replyVoiceToggle");
-    if (voice) menu.appendChild(voice);
+    // 静态节点已经在面板里就不要再 appendChild（appendChild 会把它挪到末尾，顺序会跳）。
+    if (voice && voice.parentElement !== menu) menu.appendChild(voice);
     menu.appendChild(buildComposerMenuPeekRow());
     syncComposerMenuPeek();
   }
@@ -7047,7 +7059,9 @@
       });
       listeningStop = null;
       const input = $("#messageInput");
-      if (input) input.placeholder = "给 " + (liveState.charName || "角色") + " 发消息";
+      // 识别结束：把占位清空（用户口径「输入框里面的文字删掉」）——
+      // 原来这里写的是"给 XX 发消息"，那是提示文案，不该留。
+      if (input) input.placeholder = "";
       setMicState("idle");
       if (result.ok) applySpeechText(result.text);
       else if (!result.canceled && result.reason) showToast(result.reason);
@@ -7828,6 +7842,10 @@
       } catch (_) { stickerStamps = []; }
 
       // 步骤 2：流式发送。
+      // 「现在」这一轮只算一次：下面 payload 与「本次请求」面板都要用它。
+      // 两处各调一次 `new Date()` 时，跨过分钟边界会让面板里的"现在是 [MM-DD HH:MM]"
+      // 与真正发出去的那份差一分钟，「分段之和与真正发出的请求一致」那条自检偶发变红。
+      const turnNow = new Date();
       const payload = window.TASK22_CORE.buildGeneratePayload({
         card,
         memoryBooks,
@@ -7838,6 +7856,7 @@
         mode: liveState.modelMode,
         modelName: liveState.modelName,
         thinking: liveState.thinking === true,
+        now: turnNow,
         autoMemory: liveState.autoMemory !== false,
         autoEventMemory: liveState.eventMemory !== false,
         // 语言：没强制就传 null，模型就按角色卡自己写的语言说话（默认）。
@@ -7875,6 +7894,8 @@
           messages: payload.messages,
           extraSystem,
           purpose,
+          // 与上面 payload 用的是**同一个** Date（见 turnNow 那段注释）。
+          now: turnNow,
           // 表情指令也是系统提示里的一块：漏传的话面板重建出来的提示词会短一段，
           // 「逐字节一致」的自检会当场变红（local-app-check 就是这么抓到的）。
           stickers: stickerStamps,

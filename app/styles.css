@@ -398,16 +398,27 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 @keyframes thinkingPulse { 0%, 100% { opacity: .32; transform: scale(.78); box-shadow: 0 0 0 0 rgba(174,184,202,0); } 50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 5px rgba(174,184,202,.08), 0 0 14px rgba(174,184,202,.36); } }
 
 .composer-shell { position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; padding: 20px 12px 16px; pointer-events: none; background: linear-gradient(180deg, transparent, var(--canvas) 38%); }
-.composer-box { width: min(880px, 100%); margin: 0 auto; padding: 8px 10px; pointer-events: auto; border: 1px solid var(--strong-line); border-radius: var(--input-radius); background: var(--raised); box-shadow: 0 10px 32px rgba(0,0,0,.26); transition: border-color var(--hover-motion) ease, box-shadow var(--panel-motion) var(--motion-ease), transform var(--panel-motion) var(--motion-ease); }
+/* 输入条本体（2026-09-18 微信化改版，用户 0.1.75：「输入框太粗」「整体太丑」）：
+   微信里这是一**条**（不是一张浮起来的卡片）——所以描边和投影都去掉，
+   底色只比页面略亮一档；真正的"浅灰圆角块"是里面那个输入框本身（见下面的 textarea）。 */
+.composer-box { width: min(880px, 100%); margin: 0 auto; padding: 6px 8px; pointer-events: auto; border: 0; border-radius: 12px; background: var(--raised); transition: background var(--hover-motion) ease; }
 /* 「上次说到」：隔了日子回来时的一行提示。窄屏上允许换行，不能撑出横向滚动。 */
 .recap-bar { display: flex; align-items: center; gap: 8px; width: min(880px, 100%); margin: 0 auto 8px; padding: 6px 8px 6px 11px; pointer-events: auto; color: var(--secondary-text); font-size: 11px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--raised); }
 .recap-bar[hidden] { display: none; }
 .recap-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recap-dismiss { flex: 0 0 auto; padding: 0 7px; }
 @media (max-width: 560px) { .recap-text { white-space: normal; } }
-.composer-box:focus-within { border-color: #505560; box-shadow: 0 12px 38px rgba(0,0,0,.34); transform: translateY(-1px); }
-.composer-box textarea { width: 100%; max-width: 100%; min-height: 30px; max-height: 160px; resize: none; padding: 4px 2px 8px; color: var(--main-text); line-height: 1.55; border: 0; outline: 0; background: transparent; overflow-wrap: anywhere; word-break: break-word; }
+/* 聚焦（用户口径：「聚焦也不加粗，最多极淡的一档底色变化」）——
+   不给输入条加边框/投影/上移，只把输入框那一块换一档底色（见 textarea:focus-visible）。 */
+.composer-box:focus-within { background: var(--raised); }
+.composer-box textarea { width: 100%; max-width: 100%; min-height: 34px; max-height: 160px; resize: none; padding: 6px 10px; color: var(--main-text); line-height: 1.5; border: 0; outline: 0; border-radius: 8px; background: var(--hover); overflow-wrap: anywhere; word-break: break-word; }
+/* 空着就是空的：**平时没有占位文案**（用户 0.1.75：「输入框里面的文字删掉」）——
+   文案本身已经在 integration.js 里不再写了（"写下你想对 XX 说的话…" 那一句删掉了）。
+   这条 `::placeholder` 颜色**要留着**：占位还被两处真实的**状态**用着 ——
+   「请稍候…/暂时无法发送」（发不出去的原因，不写用户就以为点了没反应）与
+   「在听…/正在识别的字」（语音输入的实时预览，那是内容不是提示）。 */
 .composer-box textarea::placeholder { color: var(--quiet-text); }
+.composer-box textarea:focus-visible { outline: 0; background: var(--selected); }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; }
 /* ===== 微信式输入条（2026-09-18 用户指定的形态）=====
    [语音] [输入框] [表情] [+] →（有字时 [+] 变成发送）
@@ -417,12 +428,15 @@ body.is-resizing .app-shell { transition-duration: 60ms; }
 .composer-side { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .composer-side-right { justify-content: flex-end; }
 .composer-row > textarea { flex: 1 1 auto; min-width: 0; }
-/* 「+」：微信里那颗方框加号。尺寸与 mic/sticker 一致（手机上 44px 命中区）。 */
-.composer-plus { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: var(--muted-text, #6b7280); border: 1px solid var(--line, rgba(120,120,140,.28)); border-radius: 50%; background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, border-color var(--hover-motion) ease; }
-.composer-plus:hover { color: var(--main-text); border-color: currentColor; }
-.composer-plus[aria-expanded="true"] { color: var(--main-text); border-color: var(--main-text); background: var(--hover); }
-/* 「+」面板：贴着输入条往上弹（手机上从底部弹）。里面只有真正的入口，没有解释文字。 */
-.composer-menu { position: absolute; right: 10px; bottom: calc(100% + 8px); z-index: 6; display: none; width: min(320px, calc(100vw - 24px)); padding: 10px; border: 1px solid var(--strong-line); border-radius: 16px; background: var(--raised); box-shadow: 0 16px 40px rgba(0,0,0,.34); }
+/* 「+」：微信里那是一颗**纯图标**（没有描边圆环）。用户 0.1.75：「表情和加图标也太大」
+   —— 看得见的部分原来是 34px 的描边圆圈，现在只剩 22px 的线框图标；
+   命中区大小不变（手机上仍是 44px，见窄屏那一段），所以"看着小了、还是好点"。 */
+.composer-plus { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: var(--muted-text, #6b7280); border: 0; border-radius: 50%; background: transparent; cursor: pointer; transition: color var(--hover-motion) ease, background var(--hover-motion) ease; }
+.composer-plus:hover { color: var(--main-text); }
+.composer-plus[aria-expanded="true"] { color: var(--main-text); background: var(--hover); }
+/* 「+」面板：贴着输入条往上弹（手机上从底部弹）。里面只有真正的入口，没有解释文字。
+   圆角与分隔跟着输入条一起收敛（16px → 12px），描边从 --strong-line 降到 --hairline。 */
+.composer-menu { position: absolute; right: 10px; bottom: calc(100% + 8px); z-index: 6; display: none; width: min(320px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); box-shadow: 0 16px 40px rgba(0,0,0,.34); }
 .composer-menu.is-open { display: grid; gap: 6px; }
 .composer-menu[hidden] { display: none; }
 .composer-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 0 12px; color: var(--main-text); font: inherit; font-size: 13px; text-align: left; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
@@ -885,7 +899,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
     padding: 10px max(10px, var(--mobile-safe-right)) calc(8px + var(--mobile-safe-bottom)) max(10px, var(--mobile-safe-left));
     background: linear-gradient(180deg, transparent, var(--canvas) 30%);
   }
-  .composer-box { width: 100%; max-width: 100%; padding: 6px 8px; border-radius: 18px; }
+  .composer-box { width: 100%; max-width: 100%; padding: 6px 8px; border-radius: 12px; }
   .composer-box textarea { min-height: 34px; max-height: 132px; padding: 6px 4px; font-size: 16px; line-height: 1.45; }
   .composer-row { gap: 6px; }
   .composer-side { gap: 4px; }
@@ -1380,6 +1394,8 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
 /* ==========================================================================
    语音输入 / 发表情 按钮，以及表情选择面板（2026-09-13）
    ========================================================================== */
+/* 微信里这两个也是**纯图标**（没有描边圆环）：去掉那圈 1px 描边，
+   图标本身 22px（SVG 尺寸写在 index.html 上），命中区在手机上仍是 44px。 */
 .mic-button, .sticker-button {
   display: inline-flex;
   align-items: center;
@@ -1387,12 +1403,13 @@ html[data-motion="reduced"].season-ambient-on::after { animation: none !importan
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid var(--line, rgba(120, 120, 140, .28));
+  border: 0;
   background: transparent;
   color: var(--muted-text, #6b7280);
   cursor: pointer;
+  transition: color var(--hover-motion) ease;
 }
-.mic-button:hover, .sticker-button:hover { color: var(--main-text); border-color: currentColor; }
+.mic-button:hover, .sticker-button:hover { color: var(--main-text); }
 /* 正在录音：变红并轻微呼吸，让用户一眼看出"还在听" */
 .mic-button.is-listening {
   color: #fff;

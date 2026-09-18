@@ -900,15 +900,64 @@
       + " " + pad(date.getHours()) + ":" + pad(date.getMinutes()) + "]";
   }
 
-  /** 带过时间（且本机时区）时，在系统提示里用**一句话**说明那些前缀是什么。 */
-  function historyTimeLine(history) {
-    const has = (Array.isArray(history) ? history : [])
-      .some((h) => h && messageTimePrefix(h.send_date));
-    if (!has) return "";
-    // 只解释格式，**刻意不写"今天是几号"**：那要按机器算一句示例，一旦时区/格式没对齐
-    // 就会把模型带偏，而模型自己知道今天几号 —— 前缀是几点就够了。
+  /** 带过时间（且本机时区）时，在系统提示里说明那些前缀是什么、以及"现在"是什么时候。 */
+  const WEEKDAY_ZH = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+  /** 复用陪伴模式那一套"距今几天"（`companion-core` 的 gapInfo/gapText）——不写第二套时间算法。 */
+  function timeGap(sendDate, now) {
+    const core = GLOBAL.ROLEWORLD_COMPANION_CORE;
+    if (core && typeof core.gapInfo === "function") {
+      try {
+        const gap = core.gapInfo(sendDate, now);
+        if (gap && gap.known) return gap;
+      } catch (_) { /* 走到下面的兜底：宁可不说，也不编 */ }
+    }
+    return { known: false, days: null, text: "" };
+  }
+
+  /** 只挑出"有时间"的那几条历史（老存档没有 send_date 的不算，绝不补一个时间）。 */
+  function timedHistory(history) {
+    return (Array.isArray(history) ? history : []).filter((h) => h && messageTimePrefix(h.send_date));
+  }
+
+  /**
+   * 「现在是几点」那一句 —— 系统提示与本轮提醒**共用这一处**，不写第二份。
+   *
+   * 为什么必须有它（2026-09-18 用户第二遍反馈：「时间也没做，角色还是不清楚时间」）：
+   * 上一轮只把 `[MM-DD HH:MM]` 前缀塞进了每条历史消息，可模型**并不知道今天是几号** ——
+   * 它得先知道"现在"，才能算出"这句话是三天前说的"。训练数据里没有"今天"。
+   * 所以把现在、星期、以及"上一条距今多久"直接写成话（用的还是 `messageTimePrefix`
+   * 与陪伴模式的 `gapText` 措辞，没有第二套格式）。
+   */
+  function nowLine(rows, stamp) {
+    if (!rows.length) return "";
+    const gap = timeGap(rows[rows.length - 1].send_date, stamp);
+    return "现在是 " + messageTimePrefix(stamp) + "（" + WEEKDAY_ZH[stamp.getDay()] + "，本机时间）。"
+      + (gap.known ? "时间感：" + gap.text + "。" : "")
+      + "隔了多久按这个算：该说「好久没聊」就说，不要问对方「过了多久」，也不要假装刚刚才聊过。";
+  }
+
+  function historyTimeLine(history, now) {
+    const rows = timedHistory(history);
+    if (!rows.length) return "";
+    const stamp = (now === undefined || now === null) ? new Date() : now;
     return "[Message times] 旧对话每一条开头的 [MM-DD HH:MM] 是它发出的本机时间（按时间先后排列）。"
-      + " Each past message starts with its local send time.";
+      + " Each past message starts with its local send time.\n"
+      + nowLine(rows, stamp);
+  }
+
+  /**
+   * 「本轮输入之前」再钉一次当前时间的那一句。
+   *
+   * 为什么另加一条而不只写在最前面的系统提示里：系统提示与用户这句话之间隔着整段历史，
+   * 模型实际只看最后几轮（这条与"语言提醒必须紧贴用户这句话"是同一个理由）。
+   * 它放在**语言提醒之前**，所以"语言提醒紧贴用户这句话"这条既有口径不受影响。
+   */
+  function turnTimeLine(history, now) {
+    const rows = timedHistory(history);
+    if (!rows.length) return "";
+    const stamp = (now === undefined || now === null) ? new Date() : now;
+    return nowLine(rows, stamp);
   }
 
   function composeMessages(card, memoryBooks, history, userText, options) {
@@ -916,7 +965,7 @@
     const timeOn = opts.messageTimes !== false;
     // 时间说明交给 `systemPromptParts` 拼（**不许**在这里往 msgs[0] 上追加 —— 那样
     // 「本次请求」面板重建出来的系统提示会短一段，逐字节核对立刻变红）。
-    opts.messageTimeLine = timeOn ? historyTimeLine(history) : "";
+    opts.messageTimeLine = timeOn ? historyTimeLine(history, opts.now) : "";
     const msgs = [{ role: "system", content: buildSystemPromptWithFormat(card, memoryBooks, userText, null, opts) }];
     for (const turn of parseExample(cardField(card, "mes_example"))) msgs.push(turn);
     for (const h of (history || [])) {
@@ -925,6 +974,11 @@
       const prefix = timeOn ? messageTimePrefix(h.send_date) : "";
       msgs.push({ role: h.is_user ? "user" : "assistant", content: prefix ? prefix + " " + h.mes : h.mes });
     }
+    // 「本轮输入之前」先把"现在几点"钉一次（用户 0.1.75 之后：「角色还是不清楚时间」）。
+    // ⚠ 顺序：这句放在**语言提醒之前** —— 语言提醒必须紧贴用户这句话（既有口径，
+    //   有用例钉住 `tailMessages[0]` 就是语言提醒），所以时间那句只能排在它前面。
+    const timeNowLine = timeOn ? turnTimeLine(history, opts.now) : "";
+    if (timeNowLine) msgs.push({ role: "system", content: timeNowLine });
     // 强制语言时：在**用户这句话之前**再插一条系统提醒。
     // 为什么非要这么近：系统提示在最前面，整段历史都是英文时，模型会跟着历史继续说英文
     // （用户 2026-09-12 连着两次反馈"还是英文"）。放在这里离当前这句最近，效果最直接。
@@ -969,6 +1023,11 @@
           stickers: opts.stickers,
           // 每条消息的时间：默认开（2026-09-18 用户要求），`false` 只给"要逐字节对齐老请求"的用例用。
           messageTimes: opts.messageTimes !== false,
+          // ⚠ 「现在」必须**这一轮只算一次**（integration.js 把同一个 Date 同时交给
+          //   buildGeneratePayload 与 describeRequest）。两处各调一次 `new Date()` 的话，
+          //   跨过分钟边界时面板重建出来的"现在是 [MM-DD HH:MM]"会与真正发出去的那份差一分钟，
+          //   「分段之和与真正发出的请求一致」那条自检就会**偶发**变红（实测：整套时红时不红）。
+          now: opts.now,
         }),
         // 模型名以「设置 → 模型」里填的为准；mode 只决定走哪条通道。
         model: (opts.modelName && String(opts.modelName).trim()) || mode,
@@ -993,6 +1052,7 @@
         purpose: profile.purpose,
         stickers: opts.stickers,
         messageTimes: opts.messageTimes !== false,
+        now: opts.now,
       }),
       model: "local",
       chat_completion_source: "custom",
@@ -1025,7 +1085,10 @@
       messageTimes: options.messageTimes !== false,
       // 面板重建的系统提示要**逐字节等于**真正发出去的那一份，所以时间说明那一块也要带上
       // （由 composeMessages 用同一个 historyTimeLine 算出来，不在这里另写一套）。
-      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history),
+      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history, options.now),
+      // 同一个 `now`：跨分钟边界时若各算一次，"现在是 [MM-DD HH:MM]"会差一分钟，
+      // 「逐字节一致」自检就会偶发变红（见 composeMessages 里那条注释）。
+      now: options.now,
     });
 
     const pricing = (typeof globalThis !== "undefined" && globalThis.RoleWorldPricing) || null;
@@ -1054,7 +1117,7 @@
       // 逐字节核对立刻变红（这条自检就是这么抓到这个 bug 的）。
       stickers: options.stickers,
       // 消息时间说明那一块（2026-09-18）：同上，漏掉就"分段之和与真正发出的请求不一致"。
-      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history),
+      messageTimeLine: options.messageTimes === false ? "" : historyTimeLine(options.history, options.now),
     });
     const systemRows = [];
     let pending = [];
@@ -1139,7 +1202,14 @@
     const historyStart = exampleStart + exampleTurns.length;
     // 强制语言时会多一条"贴近本轮输入"的语言提醒（见 composeMessages），位置也算清楚。
     const reminderCount = forcedLanguage(options) ? 1 : 0;
-    const reminderStart = historyStart + history.length;
+    // 时间提醒（2026-09-18）：本轮输入之前还有一条"现在是几点"（composeMessages 的 turnTimeLine）。
+    // ⚠ 它排在语言提醒**之前**（语言提醒必须紧贴用户那句话，见 composeMessages 里的顺序注释），
+    //   所以它的位置是 history 之后、语言提醒之前。漏算这一条会让下面的一致性核对
+    //   报"分段统计与真实请求没有完全对上"（这条自检就是这么抓到本轮的改动的）。
+    const timeReminder = options.messageTimes === false ? "" : turnTimeLine(options.history, options.now);
+    const timeCount = timeReminder ? 1 : 0;
+    const timeStart = historyStart + history.length;
+    const reminderStart = timeStart + timeCount;
     const inputStart = reminderStart + reminderCount;
 
     const group = (kind, label, from, to) => {
@@ -1150,6 +1220,7 @@
     };
     group("example", "样例对话", exampleStart, historyStart);
     group("history", `旧对话（最近 ${history.length} 条）`, historyStart, reminderStart);
+    if (timeCount) group("time-reminder", "现在时间（贴近本轮输入）", timeStart, reminderStart);
     if (reminderCount) group("language-reminder", "语言提醒（贴近本轮输入）", reminderStart, inputStart);
     group("input", "本轮输入", inputStart, inputStart + 1);
 
@@ -1173,7 +1244,7 @@
     // ③ 一致性核对（两条都必须为真，否则面板显示的内容就不可信）：
     //    ① 系统提示逐字节对得上（面板上的细分加起来 == 真正发出去的系统提示）；
     //    ② 每条消息都刚好被归到一段，一条不多一条不少。
-    const covered = (exampleTurns.length ? exampleTurns.length : 0) + history.length + reminderCount + (options.userText ? 1 : 0) + 1;
+    const covered = (exampleTurns.length ? exampleTurns.length : 0) + history.length + timeCount + reminderCount + (options.userText ? 1 : 0) + 1;
     const joined = realMessages.map((m) => String(m.content === undefined ? "" : m.content)).join("\u0000");
     const systemSegment = segments.filter((s) => s.kind === "system")[0] || null;
     const rebuiltSystem = systemSegment ? rebuildSystem() : "";

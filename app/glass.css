@@ -40,19 +40,6 @@
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   box-shadow: var(--glass-shadow);
 }
-.composer-box {
-  border: 1px solid var(--glass-edge);
-  border-radius: 24px;
-  background: var(--glass);
-  backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
-  box-shadow: 0 10px 36px rgb(0 0 0 / 16%), inset 0 1px 0 var(--glass-edge);
-}
-.composer-box:focus-within {
-  border-color: transparent;
-  box-shadow: 0 12px 38px rgb(0 0 0 / 20%), 0 0 0 2px color-mix(in srgb, var(--focus) 25%, transparent);
-  transform: none;
-}
 .plain-button, .new-conversation-button, .map-app button {
   border-color: transparent;
   border-radius: 12px;
@@ -109,12 +96,22 @@
   background: color-mix(in srgb, var(--main-text) 8%, var(--navigation));
 }
 #chatModelPrice { white-space: normal; text-align: right; font-size: 10px; line-height: 1.4; color: var(--muted-text); }
+/* 输入条：2026-09-18 按微信重做（用户 0.1.75：「输入框太粗」）。
+   这一份表在 styles.css / tokens.css **之后**加载，所以之前那套"玻璃卡片"（24px 圆角 +
+   一圈描边 + 48px 投影 + 聚焦时 2px 光环）就是用户嫌粗的那一层 —— 必须在这里改，
+   只改 styles.css 是改不动的（这一条踩过：用例量到 shadow 还在）。
+   微信里它是一条：无描边、无投影、无模糊，底色只比页面亮一档；
+   里面那个输入框才是"浅灰圆角块"（见 styles.css 的 `.composer-box textarea`）。 */
 .composer-box {
-  padding: 16px 18px 12px;
+  padding: 6px 8px;
   border: 0;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--main-text) 9%, transparent), transparent 70%), var(--glass);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 22%), inset 0 1px 0 var(--glass-edge);
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
+.composer-box:focus-within { box-shadow: none; border-color: transparent; transform: none; }
 .character-picker-trigger { border-color: transparent; background: color-mix(in srgb, var(--main-text) 6%, transparent); }
 .new-conversation-button { min-height: 46px; border-radius: 16px; background: color-mix(in srgb, var(--main-text) 12%, var(--navigation)); }
 .settings-surface .settings-topbar { border: 0; background: transparent; padding: 12px 24px; }
@@ -136,7 +133,7 @@
   .topbar { flex-wrap: nowrap; }
   .topbar-title { flex: 1 1 auto; min-width: 0; }
   .topbar-actions { flex: 0 0 auto; flex-wrap: nowrap; }
-  .composer-box { padding: 10px; }
+  .composer-box { padding: 6px 8px; }
 }
 @media (min-width: 761px) {
   .app-shell.settings-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
@@ -158,7 +155,7 @@
 }
 @media (max-width: 760px) {
   .memory-modal, .confirm-dialog { border-radius: 20px; }
-  .composer-box { border-radius: 20px; }
+  .composer-box { border-radius: 12px; }
 }
 
 /* Character-first sidebar: one quiet hierarchy, no nested cards. */
@@ -542,11 +539,11 @@ html[data-style="paper"] .map-app .map-button-primary:hover:not(:disabled) {
   background: var(--focus-grad);
   filter: brightness(1.06);
 }
-html[data-style="gold"] .composer-box:focus-within,
-html[data-style="sakura"] .composer-box:focus-within,
-html[data-style="forest"] .composer-box:focus-within,
-html[data-style="paper"] .composer-box:focus-within {
-  box-shadow: 0 12px 38px rgb(0 0 0 / 20%), 0 0 0 2px color-mix(in srgb, var(--focus) 28%, transparent);
+html[data-style="gold"] .composer-menu,
+html[data-style="sakura"] .composer-menu,
+html[data-style="forest"] .composer-menu,
+html[data-style="paper"] .composer-menu {
+  border-radius: 12px;
 }
 
 /* =====================================================================

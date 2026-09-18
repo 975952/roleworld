@@ -871,6 +871,347 @@ async function main() {
     reportErrors("返回手势");
   });
 
+  /**
+   * 「+」面板的体检报告（只读）：位置、条目、高度、命中区，一次全量取回。
+   *
+   * 为什么要一次全取：用户 0.1.75 反馈的三条（F1 入口不在面板里 / F2 点一下自己消失 /
+   * F3 再点开显示不全）在界面上都表现为"面板怪怪的"。只看 `hidden` 分不清是哪一条 ——
+   * 必须同时知道"面板里到底有哪几个可见条目、每个量出来多高、点下去能不能命中"。
+   */
+  const probeComposerMenu = () => evaluate(`(() => {
+    const menu = document.querySelector('#composerMenu');
+    const voice = document.querySelector('#replyVoiceToggle');
+    const peek = document.querySelector('#composerMenuPeek');
+    if (!menu) return { missing: true };
+    const box = (n) => {
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), left: Math.round(r.left) };
+    };
+    const items = Array.from(menu.querySelectorAll('button')).filter((one) => !one.hidden);
+    const hits = items.map((one) => {
+      const r = one.getBoundingClientRect();
+      const ok = r.width >= 1 && r.height >= 1;
+      const top = ok ? document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)) : null;
+      return {
+        id: one.id || one.className, w: Math.round(r.width), h: Math.round(r.height),
+        reachable: !!(top && (top === one || one.contains(top))),
+      };
+    });
+    const rect = menu.getBoundingClientRect();
+    const voiceBox = box(voice);
+    return {
+      menuHidden: menu.hidden,
+      display: getComputedStyle(menu).display,
+      menuBox: { w: Math.round(rect.width), h: Math.round(rect.height), top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
+      scrollHeight: menu.scrollHeight,
+      clientHeight: menu.clientHeight,
+      clipped: menu.scrollHeight > menu.clientHeight + 1,
+      overflowY: getComputedStyle(menu).overflowY,
+      voiceInMenu: !!(voice && menu.contains(voice)),
+      voiceVisible: !!(voice && !voice.hidden && voiceBox && voiceBox.h > 0),
+      voiceBox,
+      peekInMenu: !!(peek && menu.contains(peek)),
+      itemCount: items.length,
+      items: hits,
+      allReachable: hits.length > 0 && hits.every((one) => one.reachable && one.h > 0),
+      voiceInRow: !!(voice && voice.closest('.composer-row')),
+      plusHidden: !!document.querySelector('#composerPlusButton').hidden,
+      plusExpanded: document.querySelector('#composerPlusButton').getAttribute('aria-expanded'),
+    };
+  })()`);
+
+  /**
+   * 打开「+」面板。
+   *
+   * 为什么用例必须走这一步（2026-09-18 用户要求 F1 之后）：「角色语音」入口**常驻在面板里**，
+   * 面板没开时它虽然还在 DOM 里、但被 `[hidden]` 的父节点收着，量出来 `w/h` 都是 0 ——
+   * 直接 `.click()` 也照样有效，于是会出现"用例绿、用户根本点不到"的假绿。
+   * 凡是**要按用户的方式摸到这个入口**的用例，都先调它。
+   */
+  async function openComposerMenu() {
+    if (await evaluate("document.querySelector('#composerMenu').hidden === false")) return;
+    await evaluate("document.querySelector('#composerPlusButton').click(); true");
+    await waitFor("document.querySelector('#composerMenu').hidden === false", 8000, "「+」面板没打开");
+  }
+
+  /** 关掉「+」面板（用例收尾用；面板开着会漏给后面的用例）。 */
+  async function closeComposerMenu() {
+    if (await evaluate("document.querySelector('#composerMenu').hidden === true")) return;
+    await evaluate("document.querySelector('#composerPlusButton').click(); true");
+    await waitFor("document.querySelector('#composerMenu').hidden === true", 8000, "「+」面板没关上");
+  }
+
+  await check("「角色语音」只在「+」面板里，不再单独挂在输入条那一行", async () => {
+    // 用户 0.1.75 原话：「现在所有版本的一进去角色语音的选项，还是单独显示」。
+    // 根因：`#replyVoiceToggle` 写在输入条的 `.composer-side-right` 里，
+    // 只有面板**第一次被打开**时 `renderComposerMenu()` 才把它挪进面板 ——
+    // 所以进页面第一眼它就在输入条上（用户看到的就是这个）。
+    await waitFor("window.RoleWorldBack.openLayerCount() === 0", 15000);
+    await waitFor("!!document.querySelector('#replyVoiceToggle')", 15000);
+    const place = await evaluate(`(() => {
+      const voice = document.querySelector('#replyVoiceToggle');
+      return {
+        inRow: !!voice.closest('.composer-row'),
+        inMenu: !!voice.closest('#composerMenu'),
+        parent: voice.parentElement ? (voice.parentElement.className || voice.parentElement.id || voice.parentElement.tagName) : '',
+      };
+    })()`);
+    assert(place.inRow === false, "「角色语音」还单独挂在输入条那一行：" + JSON.stringify(place));
+    assert(place.inMenu === true, "「角色语音」不在「+」面板里：" + JSON.stringify(place));
+    // 判据落到"用户看得见看不见"上：面板没开时它必须**不可见**
+    // （只在 DOM 里存在不算 —— 这个项目因为"断言 textContent / 节点存在"瞎过好几次）。
+    const beforeOpen = await probeComposerMenu();
+    assert(beforeOpen.menuHidden === true, "前置不成立：一开始面板就是开的：" + JSON.stringify(beforeOpen));
+    assert(beforeOpen.voiceVisible === false,
+      "面板还没打开，「角色语音」就已经看得见了（用户一进页面就看得见它）：" + JSON.stringify(beforeOpen));
+  });
+
+  await check("「+」面板：点一次不自己消失、关掉再开条目还在、每一项都点得到", async () => {
+    // F2「把+点一下，就消失了」+ F3「再点开+就显示不全了」。
+    // F3 的真根因：`renderComposerMenu()` 用 `menu.textContent = ""` 清空面板，
+    // 而「角色语音」那个节点**已经被挪进面板**了 —— 于是第二次打开时它被真删掉，
+    // `querySelector('#replyVoiceToggle')` 返回 null，面板里只剩「本次请求」一行。
+    await waitFor("window.RoleWorldBack.openLayerCount() === 0", 15000);
+    const plus = "#composerPlusButton";
+    const waitHidden = (want) => waitFor(`document.querySelector('#composerMenu').hidden === ${want ? "true" : "false"}`, 8000);
+
+    // ① 打开：不许自己消失
+    await evaluate(`document.querySelector('${plus}').click(); true`);
+    await waitHidden(false);
+    // 给异步重绘（语音档位文字、代理行可见性）留时间：
+    // "点一下它自己消失"如果只断言点击那一帧，会漏掉"过一会儿才被关掉"。
+    await sleep(400);
+    const first = await probeComposerMenu();
+    assert(first.menuHidden === false, "点开「+」之后它自己消失了：" + JSON.stringify(first));
+    assert(first.plusExpanded === "true", "「+」没有报出展开状态：" + JSON.stringify(first));
+    assert(first.voiceInMenu && first.voiceVisible, "面板里没有「角色语音」：" + JSON.stringify(first));
+    assert(first.allReachable, "面板里有条目点不到／尺寸为 0：" + JSON.stringify(first));
+
+    // ② 关掉再开：第二次打开必须和第一次一样全
+    await evaluate(`document.querySelector('${plus}').click(); true`);
+    await waitHidden(true);
+    await evaluate(`document.querySelector('${plus}').click(); true`);
+    await waitHidden(false);
+    await sleep(300);
+    const second = await probeComposerMenu();
+    assert(second.voiceInMenu, "第二次打开「+」时「角色语音」没了（重画把它从 DOM 里删掉了）：" + JSON.stringify(second));
+    assert(second.voiceVisible, "第二次打开「+」时「角色语音」不可见：" + JSON.stringify(second));
+    assert(!second.clipped, "第二次打开「+」显示不全（面板把内容裁掉了）：" + JSON.stringify(second));
+    assert(second.allReachable, "第二次打开「+」时条目点不到：" + JSON.stringify(second));
+
+    // ③ 点别处要能关（既有行为，不能被这次重做弄丢）
+    await evaluate("document.querySelector('#dynamicMessages').click(); true");
+    await waitHidden(true);
+    reportErrors("「+」面板");
+  });
+
+  await check("输入框按微信重做：没有占位文案、浅灰圆角块、无描边、图标 22px 纯线框", async () => {
+    // 用户 0.1.75 原话：「输入框里面的文字删掉；输入框太粗；表情和加图标也太大」。
+    // 三条都落到**量得出来**的东西上（不是"看着像"）：
+    //   · 占位文案 = `placeholder` 属性（浏览器只在有它时才画那行灰字）；
+    //   · 「太粗」= 输入条那圈描边 + 投影（微信是一条，不是浮起来的卡片）；
+    //   · 图标大小 = SVG 的 width/height（原来 16/17px 套在 34px 的描边圆圈里）。
+    await waitFor("window.RoleWorldBack.openLayerCount() === 0", 15000);
+    // 量之前先把表情那格弄出来（它默认按能力隐藏），量完收回来。
+    await evaluate(`(() => {
+      window.__rwStickerWasHidden = document.querySelector('#stickerButton').hidden;
+      document.querySelector('#stickerButton').hidden = false;
+      return true;
+    })()`);
+    const look = await evaluate(`(() => {
+      const input = document.querySelector('#messageInput');
+      const bar = document.querySelector('.composer-box');
+      const plus = document.querySelector('#composerPlusButton');
+      const sticker = document.querySelector('#stickerButton');
+      const voice = document.querySelector('#replyVoiceToggle');
+      const cs = (n) => getComputedStyle(n);
+      const px = (v) => Math.round(parseFloat(v) * 100) / 100;
+      // ⚠ 界面有全局 zoom（--ui-scale）：getBoundingClientRect() 量到的是**缩放后**的像素
+      //   （22px 的图标会量成 20）。所以拿按钮自己的"CSS 尺寸 ↔ 实际尺寸"求出这一层的缩放比，
+      //   把图标尺寸还原成 CSS 像素再比 —— 不要为此把判据放宽（放宽容差就守不住 22–24 了）。
+      const svg = (n) => {
+        const s = n.querySelector('svg');
+        if (!s) return null;
+        const r = n.getBoundingClientRect();
+        const cssW = parseFloat(cs(n).width) || 0;
+        const scale = (cssW > 0 && r.width > 0) ? r.width / cssW : 1;
+        const b = s.getBoundingClientRect();
+        return { attr: Number(s.getAttribute('width')), w: Math.round(b.width / scale), h: Math.round(b.height / scale) };
+      };
+      const ic = cs(input);
+      return {
+        placeholder: input.getAttribute('placeholder'),
+        input: {
+          border: px(ic.borderTopWidth), radius: px(ic.borderTopLeftRadius),
+          bg: ic.backgroundColor, padTop: px(ic.paddingTop), padLeft: px(ic.paddingLeft),
+          h: Math.round(input.getBoundingClientRect().height), maxH: px(ic.maxHeight),
+        },
+        bar: { border: px(cs(bar).borderTopWidth), shadow: cs(bar).boxShadow },
+        icons: {
+          plus: { border: px(cs(plus).borderTopWidth), hit: [Math.round(plus.getBoundingClientRect().width), Math.round(plus.getBoundingClientRect().height)], svg: svg(plus) },
+          sticker: { border: px(cs(sticker).borderTopWidth), hit: [Math.round(sticker.getBoundingClientRect().width), Math.round(sticker.getBoundingClientRect().height)], svg: svg(sticker) },
+          voice: { border: px(cs(voice).borderTopWidth), svg: svg(voice) },
+        },
+      };
+    })()`);
+    await evaluate("document.querySelector('#stickerButton').hidden = window.__rwStickerWasHidden === true; true");
+
+    // ① 空着就是空的
+    assert(look.placeholder === null || look.placeholder === "",
+      "输入框里还有占位文案（用户要求「输入框里面的文字删掉」）：" + JSON.stringify(look.placeholder));
+    // ② 输入框是"浅灰圆角块"：无描边、有底色、圆角 6–10px、内边距收小
+    assert(look.input.border === 0, "输入框还有描边（「太粗」就是它）：" + JSON.stringify(look.input));
+    assert(look.input.bg !== "transparent" && look.input.bg !== "rgba(0, 0, 0, 0)",
+      "输入框没有底色（微信里它是一个浅灰块，不是透明的一行字）：" + JSON.stringify(look.input));
+    assert(look.input.radius >= 6 && look.input.radius <= 10,
+      "输入框圆角不在 6–10px（原来那个 18px 的圆形感是用户嫌粗的一部分）：" + JSON.stringify(look.input));
+    assert(look.input.padTop >= 4 && look.input.padTop <= 8 && look.input.padLeft >= 8 && look.input.padLeft <= 14,
+      "输入框内边距没收小：" + JSON.stringify(look.input));
+    assert(look.input.h >= 28 && look.input.h <= 46, "单行输入框高度不对：" + JSON.stringify(look.input));
+    assert(look.input.maxH === 160, "输入框的自增长上限被改了（会顶掉整个界面）：" + JSON.stringify(look.input));
+    // ③ 输入条本身是一条，不是一张浮起来的描边卡片
+    assert(look.bar.border === 0, "输入条还有一圈描边：" + JSON.stringify(look.bar));
+    assert(look.bar.shadow === "none", "输入条还带投影：" + JSON.stringify(look.bar));
+    // ④ 表情与「+」是纯图标：无描边圆环、SVG 22–24px
+    //    ⚠ 尺寸判据用 SVG 上声明的 width：`#replyVoiceToggle` 在**没打开**的「+」面板里，
+    //      量渲染尺寸永远是 0（量到 0 会让人以为"图标没了"，其实只是父节点 hidden）。
+    for (const key of ["plus", "sticker", "voice"]) {
+      const icon = look.icons[key];
+      assert(icon.border === 0, key + " 还有描边圆环（微信里是纯图标）：" + JSON.stringify(icon));
+      assert(icon.svg, key + " 里没有图标");
+      assert(icon.svg.attr >= 22 && icon.svg.attr <= 24,
+        key + " 图标不在 22–24px：" + JSON.stringify(icon.svg));
+    }
+    // 看得见的那两颗要真的按 22px 画出来（声明了但被 CSS 压扁也算数，所以两样都量）
+    for (const key of ["plus", "sticker"]) {
+      const icon = look.icons[key];
+      assert(icon.svg.w >= 22 && icon.svg.w <= 24 && icon.svg.h >= 22 && icon.svg.h <= 24,
+        key + " 图标渲染尺寸不是 22–24px：" + JSON.stringify(icon.svg));
+    }
+    reportErrors("输入框微信化");
+  });
+
+  await check("上拉/下拉回弹：到边能拽出一点、松手弹回；开了「减少动效」就一点都不回弹", async () => {
+    // 用户口径：「加 QQ 那种上拉下拉回弹」（原 ③ 里一直没做的那一半，0.1.75 之后仍未做）。
+    // 「减少动效」有**两条**来路，两条都要钉住，而且都要走真实判据：
+    //   ① 设置里的「动效：减少」→ `html[data-motion="reduced"]`；
+    //   ② 系统级 `prefers-reduced-motion` → 用 CDP 的 Emulation.setEmulatedMedia 真的改媒体特性
+    //      （不是在页面里把 matchMedia 换成假的：那样等于把被测对象自己顶掉，测得再绿也不算数）。
+    // 回弹是**手机**上的手感（QQ 那种），而且桌面大窗口下设置页根本不够高、滚不动 ——
+    // 所以这条用例把视口真的缩到手机尺寸再量（用 CDP 改设备指标，不是改 CSS）。
+    await cdp.sessionSend(session, "Emulation.setDeviceMetricsOverride",
+      { width: 390, height: 640, deviceScaleFactor: 2, mobile: true });
+    await sleep(400);
+    await evaluate("window.TASK25C_UI.openSettings(); true");
+    await waitFor("document.querySelector('#settingsSurface').hidden === false", 8000);
+    await waitFor("!!window.RoleWorldOverscroll", 8000, "回弹模块没有挂上（overscroll.js 没加载？）");
+
+    // 先把"能动"的那一档摆好：系统侧 no-preference + 设置侧 full。
+    await cdp.sessionSend(session, "Emulation.setEmulatedMedia",
+      { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+    const pre = await evaluate(`(() => {
+      const el = document.querySelector('.settings-layout');
+      const before = document.documentElement.dataset.motion;
+      document.documentElement.dataset.motion = 'full';
+      return {
+        before,
+        enabled: window.RoleWorldOverscroll.enabled(),
+        maxPull: window.RoleWorldOverscroll.maxPull,
+        scrollable: el.scrollHeight > el.clientHeight + 4,
+        systemReduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      };
+    })()`);
+    assert(pre.systemReduced === false, "媒体特性没改掉，环境不干净：" + JSON.stringify(pre));
+    assert(pre.enabled === true, "动效「完整」时应当回弹：" + JSON.stringify(pre));
+
+    // 设置页刚打开时还在做出现动画/排版，量到的 clientHeight 可能是 0 —— 按**结果**等它可滚。
+    let scrollable = false;
+    for (let i = 0; i < 40 && !scrollable; i += 1) {
+      scrollable = await evaluate("(() => { const el = document.querySelector('.settings-layout'); return !!el && el.scrollHeight > el.clientHeight + 4; })()");
+      if (!scrollable) await sleep(200);
+    }
+    if (!scrollable) {
+      const diag = await evaluate(`(() => {
+        const out = [];
+        document.querySelectorAll('.settings-layout, .settings-surface, .chat-scroll').forEach((el) => {
+          const cs = getComputedStyle(el);
+          out.push({ cls: String(el.className), sh: el.scrollHeight, ch: el.clientHeight, ovY: cs.overflowY, h: Math.round(el.getBoundingClientRect().height) });
+        });
+        return out;
+      })()`);
+      throw new Error("前置不成立：设置页没有可滚动内容，量不出回弹 —— " + JSON.stringify(diag));
+    }
+
+    /**
+     * 在页面上真的模拟一次「到顶继续往下拽」：touchstart → touchmove → 读位移 → touchend。
+     * 用真 TouchEvent/Touch 派发到真容器上，走的就是 overscroll.js 里那套监听。
+     */
+    const pullDown = () => evaluate(`(() => {
+      const el = document.querySelector('.settings-layout');
+      el.scrollTop = 0;
+      el.style.transition = '';
+      el.style.transform = '';
+      const touch = (y) => new Touch({ identifier: 1, target: el, clientX: 24, clientY: y });
+      const fire = (type, y) => el.dispatchEvent(new TouchEvent(type, {
+        touches: type === 'touchend' ? [] : [touch(y)],
+        targetTouches: type === 'touchend' ? [] : [touch(y)],
+        changedTouches: [touch(y)],
+        bubbles: true, cancelable: true,
+      }));
+      fire('touchstart', 200);
+      fire('touchmove', 320);
+      const during = el.style.transform;
+      fire('touchend', 320);
+      const afterTransform = el.style.transform;
+      const afterTransition = el.style.transition;
+      return { during, afterTransform, afterTransition };
+    })()`);
+
+    const moved = await pullDown();
+    // ⚠ Chrome 把它序列化成 `translate3d(0px, 50.4px, 0px)`（第一个 0 也带单位），别只写 `0,`
+    const match = /translate3d\(0(?:px)?,\s*(-?[\d.]+)px/.exec(moved.during);
+    assert(match, "到顶继续往下拽，内容没有跟着走（没有回弹）：" + JSON.stringify(moved));
+    const value = Number(match[1]);
+    assert(value > 0, "到顶往下拽应当是往下位移（正值）：" + JSON.stringify(moved));
+    // 手指走了 120px：有阻尼就不可能 1:1 跟手，也不可能超过封顶
+    assert(value <= pre.maxPull + 0.5, "回弹位移超过了封顶：" + JSON.stringify({ value, max: pre.maxPull }));
+    assert(value <= 90, "手指走 120px 内容就走了 " + value + "px —— 没有阻尼，不是橡皮筋：" + JSON.stringify(moved));
+    assert(moved.afterTransform === "", "松手之后位移没有归零（弹不回去）：" + JSON.stringify(moved));
+    assert(moved.afterTransition.indexOf("transform") >= 0, "松手之后没有弹回动画：" + JSON.stringify(moved));
+
+    // ① 设置里的「动效：减少」
+    const bySetting = await evaluate(`(() => {
+      document.documentElement.dataset.motion = 'reduced';
+      const enabled = window.RoleWorldOverscroll.enabled();
+      document.documentElement.dataset.motion = 'full';
+      return enabled;
+    })()`);
+    assert(bySetting === false, "设置里选了「减少」但 enabled() 还是 true");
+    await evaluate("document.documentElement.dataset.motion = 'reduced'; true");
+    const reducedMoved = await pullDown();
+    await evaluate("document.documentElement.dataset.motion = 'full'; true");
+    assert(reducedMoved.during === "",
+      "设置里选了「减少动效」仍然产生了回弹位移：" + JSON.stringify(reducedMoved));
+
+    // ② 系统级 prefers-reduced-motion（真的改媒体特性，不是换 matchMedia）
+    await cdp.sessionSend(session, "Emulation.setEmulatedMedia",
+      { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    const sysEnabled = await evaluate("window.RoleWorldOverscroll.enabled()");
+    assert(sysEnabled === false, "系统开了 reduce，但 enabled() 还是 true");
+    const sysMoved = await pullDown();
+    assert(sysMoved.during === "",
+      "系统 prefers-reduced-motion: reduce 时仍然回弹：" + JSON.stringify(sysMoved));
+
+    // 环境还原：媒体特性、视口与 data-motion 都放回原来的样子（后面的用例还要用）
+    await cdp.sessionSend(session, "Emulation.setEmulatedMedia", { features: [] });
+    await cdp.sessionSend(session, "Emulation.clearDeviceMetricsOverride");
+    await evaluate(`(() => { document.documentElement.dataset.motion = ${JSON.stringify(pre.before || "full")}; return true; })()`);
+    await evaluate("window.TASK25C_UI.closeSettings ? window.TASK25C_UI.closeSettings() : (document.querySelector('#settingsSurface').hidden = true); true");
+    await waitFor("document.querySelector('#settingsSurface').hidden === true", 8000);
+    reportErrors("上拉下拉回弹");
+  });
+
   await check("页面留在 index.html，没有跳转到登录页", async () => {
     const href = await evaluate("location.pathname");
     assert(href.endsWith("/index.html"), "被跳转到了 " + href);
@@ -1171,6 +1512,9 @@ async function main() {
    * 这不是"某个用例的私有前置"，而是共享 setup 的收尾，所以写成一个具名动作。
    */
   async function restoreDefaultContext() {
+    // 「角色语音」入口 2026-09-18 起常驻在「+」面板里，用例为点它会先把面板打开 ——
+    // 开着不收会漏给后面的用例（面板是浮层，返回手势那条用例会先去关它）。这里统一收干净。
+    await closeComposerMenu().catch(() => {});
     await openChatFor("Harry Potter (EN).png", "Harry Potter", "harry-最近聊过");
   }
 
@@ -1558,6 +1902,64 @@ async function main() {
     assert(await evaluate("window.__rwLastSystemText ? window.__rwLastSystemText.indexOf('[Message times]') >= 0 : false")
       || sent[sent.length - 1].systemText.indexOf("[Message times]") >= 0,
       "系统提示里没有说明时间前缀的含义");
+  });
+
+  await check("现在是几点要写进提示词，而且紧贴本轮输入（不是只把前缀塞进历史）", async () => {
+    // 用户 0.1.75 第二遍反馈：「时间也没做，角色还是不清楚时间」。
+    // 上一轮只把 `[MM-DD HH:MM]` 前缀塞进了每条历史消息 —— 那不够：模型**不知道今天是几号**，
+    // 就没法把前缀换算成"这话是三天前说的"。所以补两句（都在本轮要钉住）：
+    //   ① 系统提示里写出现在（含星期）与"上一条距今多久"；
+    //   ② 本轮用户输入**之前**再钉一次（系统提示隔着整段历史，模型实际只看最后几轮）。
+    // 判据只看假服务端收到的请求体，并且要求**真的是三天前**的对话（不是"今天聊过"混过去）。
+    const TEMP_CHAT = "harry-三天前";
+    try {
+      const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString();
+      await evaluate(`(async () => {
+        await window.STApi.saveChat("Harry Potter (EN).png", ${JSON.stringify(TEMP_CHAT)}, [
+          { chat_metadata: { ui_title: ${JSON.stringify(TEMP_CHAT)} }, user_name: "我", character_name: "Harry Potter" },
+          { name: "我", is_user: true, mes: "我下周要去杭州出差", send_date: ${JSON.stringify(threeDaysAgo)} },
+          { name: "Harry Potter", is_user: false, mes: "杭州？记得带伞。", send_date: ${JSON.stringify(threeDaysAgo)} },
+        ]);
+        return true;
+      })()`);
+      await openChatFor("Harry Potter (EN).png", "Harry Potter", TEMP_CHAT);
+      await waitFor(`window.TASK21.activeChatFileName() === ${JSON.stringify(TEMP_CHAT)}`, 10000);
+
+      await evaluate(`(() => {
+        const input = document.querySelector('#messageInput');
+        input.value = "上次我们说到哪了？";
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#sendButton').click();
+        return true;
+      })()`);
+      await waitTurnSettled();
+
+      const sent = requests.filter((row) => row.stream === true && row.systemText).slice(-1)[0];
+      assert(sent, "前置不成立：没有抓到这一轮的请求");
+      // ① 系统提示：现在 + 星期 + 距今多久
+      assert(/现在是 \[\d\d-\d\d \d\d:\d\d\]（周[日一二三四五六]/.test(sent.systemText),
+        "系统提示里没写清「现在是几点、星期几」：" + JSON.stringify(sent.systemText.slice(-400)));
+      assert(sent.systemText.indexOf("3 天前") >= 0,
+        "系统提示没有把「上一条是几天前」算出来（模型自己算不出今天几号）："
+        + JSON.stringify(sent.systemText.slice(-400)));
+      // ② 本轮输入之前再钉一次（tailMessages 就是请求体最后两条）
+      const tail = sent.tailMessages || [];
+      assert(tail.length === 2 && tail[0].role === "system" && tail[0].text.indexOf("现在是 ") >= 0,
+        "本轮用户输入之前没有再钉一次现在的时间：" + JSON.stringify(tail));
+      assert(tail[1].role === "user" && tail[1].text.indexOf("上次我们说到哪了") >= 0,
+        "用户那句话不在最后一条（时间那句把它挤开了？）：" + JSON.stringify(tail));
+      // ③ 不许污染"用户原话"：时间只加在系统那一条里
+      assert(tail[1].text.indexOf("[") < 0 || tail[1].text.indexOf("现在是") < 0,
+        "把时间塞进了用户原话里（记忆来源与改口解析都靠原话）：" + JSON.stringify(tail[1]));
+      // ④ 每条历史的时间前缀照旧（这是上一轮做完的，不能被这轮弄丢）
+      const history = sent.historyMessages || [];
+      assert(history.some((m) => /^\[\d\d-\d\d \d\d:\d\d\] /.test(m.text)),
+        "历史消息的时间前缀丢了：" + JSON.stringify(history.map((m) => m.text.slice(0, 30))));
+      reportErrors("现在几点进提示词");
+    } finally {
+      await evaluate(`(async () => { try { await window.STApi.deleteChat("Harry Potter (EN).png", ${JSON.stringify(TEMP_CHAT)}); } catch (_) {} return true; })()`).catch(() => {});
+      await restoreDefaultContext().catch(() => {});
+    }
   });
 
   await check("正常配置必须照常发出去（守卫的反面用例，先写它）", async () => {
@@ -5261,8 +5663,12 @@ async function main() {
       "默认不该强制中文：" + firstTurn.systemText.slice(-200));
     assert(firstTurn.systemText.indexOf("[Language]") < 0,
       "卡面没写语言时不加语言约束（跟着玩家说）：" + firstTurn.systemText.slice(-200));
-    assert(firstTurn.tailMessages[0].role !== "system" && firstTurn.tailMessages[1].role === "user",
-      "默认不该插语言提醒（尾巴应当是上一条回复 + 这句话）：" + JSON.stringify(firstTurn.tailMessages));
+    // ⚠ 判据要**点名语言提醒**，不能写成"尾巴里不许有任何 system"：
+    //   2026-09-18 起本轮输入之前还会有一条"现在是几点"（用户：「角色还是不清楚时间」），
+    //   它是另一个功能，跟"默认不强制语言"无关。原来那条宽判据会把它一起误杀。
+    assert(firstTurn.tailMessages[1].role === "user"
+      && !firstTurn.tailMessages.some((m) => m.role === "system" && m.text.indexOf("必须用") >= 0),
+      "默认不该插语言提醒（尾巴里不该出现语言提醒，用户那句话在最后）：" + JSON.stringify(firstTurn.tailMessages));
 
     // ② 顶栏那个「语言」下拉＝**这个角色**的开关：改成"一律中文"，下一轮就生效（不刷新、不重开对话）。
     const lang = await evaluate(`(() => {
@@ -7740,6 +8146,9 @@ async function main() {
       })()`);
       await new Promise((r) => setTimeout(r, 500));
 
+      // 「角色语音」入口常驻在「+」面板里（F1）—— 要量它就得先把面板打开，
+      // 否则量到的是"父节点 hidden"，w/h 都是 0（那不是"入口没了"，是没打开面板）。
+      await openComposerMenu();
       const entry = await evaluate(`(() => {
         const btn = document.querySelector('#replyVoiceToggle');
         if (!btn) return null;
@@ -7752,7 +8161,7 @@ async function main() {
           canSpeak: window.RoleWorldVoiceCloud.capability().canSpeak,
         };
       })()`);
-      assert(entry, "窄屏下输入框旁边没有「角色语音」入口");
+      assert(entry, "「+」面板里没有「角色语音」入口");
       assert(entry.hidden === false, "入口被藏起来了（用户实测就是「看不到」，藏起来等于没有）：" + JSON.stringify(entry));
       assert(entry.disabled === false, "入口是禁用的（用户看到的就是「灰的」，点了也没反应）：" + JSON.stringify(entry));
       assert(entry.w > 0 && entry.h > 0, "入口在屏幕上没有尺寸：" + JSON.stringify(entry));
@@ -7760,7 +8169,7 @@ async function main() {
       assert(entry.canSpeak === false, "前置不对：这条用例要在「还没有卡」的现场跑");
 
       // 点它：应当打开底部面板（不是跳设置、不是弹一个提示就完）。
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceSheet')", 8000, "点了「角色语音」入口，底部面板没有出现");
       const shape = await voiceSheetShape();
       assert(shape.sections.indexOf("service") >= 0, "面板里没有「语音服务」那一栏：" + JSON.stringify(shape));
@@ -7806,7 +8215,7 @@ async function main() {
       assert(before.voice === false, "前置不对：语音已经开着了");
       assert(before.relay.length > 0, "前置不对：体验卡没配上");
 
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceSheet')", 8000, "面板没打开");
       // 2026-09-18 用户口径：「挑好的语音也不要做，就让用户选择，不要加一堆文字说明」——
       //   面板里**不再有"推荐候选"那一块**，选择走「全部音色」那个选择器。
@@ -7913,7 +8322,7 @@ async function main() {
       assert(await enableCompanionPlain(stuckAvatar), "前置条件不成立：没能给定制角色打开伴侣 + 软件聊天");
       await openChatFor(stuckAvatar, CUSTOM_NAME, CUSTOM_CHAT);
       await sleep(500);
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceSheet')", 8000, "面板没打开");
       await evaluate(`(() => {
         window.__voiceStuck = { wrote: false };
@@ -7999,7 +8408,7 @@ async function main() {
       }))()`);
       assert(ready.voiceEnabled === true && ready.canSpeak === true,
         "前置不成立：语音没就绪（点入口会打开开启面板而不是三选一菜单）：" + JSON.stringify(ready));
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceReplyMenu')", 8000);
       const items = await evaluate(`(() => Array.from(document.querySelectorAll('#voiceReplyMenu .rw-voice-menu-item strong')).map((n) => String(n.textContent || '')))()`);
       assert(items.indexOf("一直语音") >= 0 && items.indexOf("一直文字") >= 0,
@@ -8026,7 +8435,7 @@ async function main() {
       assert(after.stored === "text" && after.label.indexOf("一直文字") >= 0,
         "刷新后选择没有保持：" + JSON.stringify(after));
       // 换回「一直语音」也要落盘（三档都走同一条路）。
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceReplyMenu')", 8000);
       await evaluate(`(() => {
         const rows = Array.from(document.querySelectorAll('#voiceReplyMenu .rw-voice-menu-item'));
@@ -8048,6 +8457,7 @@ async function main() {
     try {
       await closeAppWithVoice();
       await openChatFor("Harry Potter (EN).png", "Harry Potter", "harry-最近聊过");
+      await openComposerMenu();
       const entry = await evaluate(`(() => {
         const btn = document.querySelector('#replyVoiceToggle');
         if (!btn) return null;
@@ -8057,7 +8467,7 @@ async function main() {
       })()`);
       assert(entry && entry.hidden === false, "内置角色那里入口被藏起来了（文档 §7：剧情也保留可发现的声音入口）：" + JSON.stringify(entry));
       assert(entry.disabled === false, "内置角色那里入口是禁用的（「灰的」就是用户最初的抱怨）：" + JSON.stringify(entry));
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceSheet')", 8000, "内置角色点入口没有说明（不该什么都不发生）");
       const shape = await voiceSheetShape();
       assert(shape.text.indexOf("小说人物") >= 0 || shape.text.indexOf("内置") >= 0,
@@ -8393,7 +8803,7 @@ async function main() {
       await openChatFor(SHEET_AVATAR, SHEET_NAME, SHEET_CHAT);
 
       // 打开面板：开着的时候入口先给小菜单，走「声音设置…」进面板（跟用户一样）。
-      await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
+      await openComposerMenu(); await evaluate("document.querySelector('#replyVoiceToggle').click(); true");
       await waitFor("!!document.querySelector('#voiceReplyMenu') || !!document.querySelector('#voiceSheet')", 8000,
         "点了「角色语音」入口，既没有小菜单也没有面板");
       await evaluate(`(() => {

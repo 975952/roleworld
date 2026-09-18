@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "roleworld"
-version = "0.1.75"
+version = "0.1.76"
 dependencies = [
  "base64 0.22.1",
  "serde",
