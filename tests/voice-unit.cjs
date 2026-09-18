@@ -306,6 +306,28 @@ function jsonResponse(status, payload) {
     } finally { restore(); }
   });
 
+  await test("模型模仿出来的时间前缀要被摘掉（不该显示、更不该被念）", () => {
+    // 用户 2026-09-18 实测：角色 Alaric Vane 的回复变成了
+    //   `[09-18 19:08] 好，那就是懒得打字。我认了。……`
+    // —— 历史里每条消息前面都带 `[MM-DD HH:MM]`（"消息时间进提示词"），模型照着写了。
+    // 那串是给模型看历史时间的，不是内容。那条的语音合成一路失败
+    //（「上游说合成结束了，但一个字节的音频都没给」），而试听在同音色同链路下正常，
+    // 差别就落在这段带前缀的文本上。
+    const { core, restore } = loadVoice({});
+    try {
+      const withPrefix = "[09-18 19:08] 好，那就是懒得打字。我认了。";
+      assert.equal(core.stripLeadingTimePrefix(withPrefix), "好，那就是懒得打字。我认了。");
+      // 朗读那一份必须已经摘掉
+      assert.equal(core.voiceMessageText(withPrefix), "好，那就是懒得打字。我认了。");
+      assert.ok(core.speakableText(withPrefix).indexOf("09-18") < 0, "朗读文本里还留着时间前缀");
+      // 反面对照：正文里**中间**出现的时间戳不许动（那是内容，可能是角色在念时间）
+      const inside = "他说：「我们 09-18 19:08 见。」";
+      assert.equal(core.stripLeadingTimePrefix(inside), inside, "只该摘开头的那个，中间的不许动");
+      // 没有前缀时一个字都不改
+      assert.equal(core.stripLeadingTimePrefix("你好。"), "你好。");
+    } finally { restore(); }
+  });
+
   await test("只有标点 / 表情的文本不算「能念的内容」（用户 0.1.77 报的零字节音频）", () => {
     // 用户实测原话（角色 Alaric Vane 的一条语音消息）：
     //   「这条语音没做出来 / 上游说合成结束了，但一个字节的音频都没给。」

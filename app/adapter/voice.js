@@ -478,12 +478,19 @@
     const lib = global.RoleWorldVoice;
     const cacheLib = global.RoleWorldVoiceCache;
     if (!cache && cacheLib) cache = cacheLib.createVoiceCache({});
-    const chunks = lib.splitForSpeech(text, { maxChars: opts.maxChars || snapshot.maxChars || DEFAULT_MAX_CHARS });
-    if (!chunks.length) return { ok: false, reason: "没有可合成的内容。" };
-    // 同一条口径（`app/voice-core.js` 的 hasSpeakableContent）：只有标点/表情的文本
-    // 不该被送去合成 —— 上游会回"合成结束"但零字节音频，用户拿到一句查不下去的话
-    // （2026-09-18 实测：角色 Alaric Vane 的一条「……」）。
-    if (typeof lib.hasSpeakableContent === "function" && !lib.hasSpeakableContent(text)) {
+    const all = lib.splitForSpeech(text, { maxChars: opts.maxChars || snapshot.maxChars || DEFAULT_MAX_CHARS });
+    if (!all.length) return { ok: false, reason: "没有可合成的内容。" };
+    /*
+     * ⚠ 判据必须落在**分片**上，不是整段上 —— 上线的是分片，一个分片一次上游调用。
+     * 一段"有字"的文本完全可能切出一个"只有标点"的分片（例如开头一段「……」自成一句），
+     * 那个分片送给上游只会换回「合成结束但零字节音频」——用户看到的是一句查不下去的话，
+     * 还白花一次付费调用（2026-09-18 实测：角色 Alaric Vane）。
+     * 这种分片直接不发：它本来就没有可念的东西，不是"丢字"。
+     */
+    const chunks = typeof lib.hasSpeakableContent === "function"
+      ? all.filter((one) => lib.hasSpeakableContent(one))
+      : all;
+    if (!chunks.length) {
       return { ok: false, code: "VOICE_EMPTY_TEXT", reason: "这段没有能念出来的内容（只有标点或表情）。" };
     }
     const speaker = opts.speaker || snapshot.defaultSpeaker || "";

@@ -53,7 +53,8 @@
    */
   function speakableText(text, options) {
     const opts = options || {};
-    let out = String(text === undefined || text === null ? "" : text);
+    // 模型模仿出来的时间前缀（`[09-18 19:08] 正文…`）先摘掉：那不是内容，不该被念。
+    let out = stripLeadingTimePrefix(text);
     out = out.replace(MARKER_RE, " ");
     if (opts.skipNarration) {
       // 「只念对白」必须在**去掉引号之前**做：引号就是判据，先删就再也分不出旁白了。
@@ -360,10 +361,27 @@
    */
   const VOICE_MESSAGE_MAX_CHARS = 120;
 
+  /**
+   * 模型**自己写出来的**时间前缀：`[09-18 19:08] 正文…`。
+   *
+   * 为什么会有（2026-09-18 用户实测，角色 Alaric Vane）：历史里每条消息前面都带
+   * `[MM-DD HH:MM]`（2026-09-18 加的"消息时间进提示词"），模型看见就**照着写**进自己的回复。
+   * 那个前缀是**给模型看历史时间的**，不是内容 —— 它既不该出现在气泡里，也绝不该被念出来。
+   * 那一条的语音合成一路失败（「上游说合成结束了，但一个字节的音频都没给」），
+   * 而「试听」在**同一音色、同一条链路**下是正常的，差别就落在这段带前缀的文本上。
+   */
+  const LEADING_TIME_PREFIX_RE = /^\s*\[\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}\]\s*/;
+
+  /** 去掉正文开头那个"模型模仿出来的"时间前缀。 */
+  function stripLeadingTimePrefix(text) {
+    return String(text === undefined || text === null ? "" : text).replace(LEADING_TIME_PREFIX_RE, "");
+  }
+
   function voiceMessageText(text, options) {
     const opts = options || {};
     const max = Number(opts.maxChars) > 0 ? Math.floor(Number(opts.maxChars)) : VOICE_MESSAGE_MAX_CHARS;
-    const segments = dialogueSegments(text);
+    // 先摘掉模型模仿出来的时间前缀：那是给模型看的，**永远不该被念**。
+    const segments = dialogueSegments(stripLeadingTimePrefix(text));
     // 再兜一道：引号里的内容也可能夹着「（笑）」这种描写 —— 只念真正说出口的话。
     const joined = segments.map((one) => stripStageDirections(one)).filter(Boolean).join(" ").trim();
     if (!joined) return "";
@@ -835,6 +853,7 @@
     /* 文本 */
     speakableText,
     hasSpeakableContent,
+    stripLeadingTimePrefix,
     splitForSpeech,
     dialogueSegments,
     stripStageDirections,

@@ -1668,6 +1668,13 @@
       const plainNow = isPlainChatMessage(message);
       const Core = window.TASK22_CORE;
       let bodyText = String(message.mes);
+      // 模型有时会**模仿历史里的 `[MM-DD HH:MM]` 前缀**，把它写进自己的回复
+      //（2026-09-18 用户实测：`[09-18 19:08] 好，那就是懒得打字。……`）。
+      // 那串是给模型看历史时间的，不是正文 —— 显示与朗读都不该带上它。
+      // 显示这一道在这里，朗读那一到在 `voice-core.voiceMessageText`；存档里的 `mes` 不动。
+      if (window.RoleWorldVoice && typeof window.RoleWorldVoice.stripLeadingTimePrefix === "function") {
+        bodyText = window.RoleWorldVoice.stripLeadingTimePrefix(bodyText);
+      }
       if (plainNow) {
         bodyText = plainChatText(bodyText);
         if (Core && typeof Core.stripStickerMarkers === "function") bodyText = Core.stripStickerMarkers(bodyText);
@@ -4345,6 +4352,27 @@
    */
   const VOICE_RECOVERABLE_REASONS = ["too-long", "no-text", "no-capability"];
 
+  /**
+   * 一段文本的**形状**：汉字 / 拉丁字母 / 数字 / 其它 各几个。
+   *
+   * 只统计，**不泄漏内容** —— 用在语音失败的排障提示上（既有口径：语音条不许把正文露在屏幕上，
+   * 但"上游说结束却零字节音频"这种故障必须能查下去）。形状足以回答关键问题：
+   * 这段是中文、是英文、还是根本没有可念的字？
+   */
+  function textShape(text) {
+    const chars = Array.from(String(text === undefined || text === null ? "" : text));
+    let han = 0;
+    let latin = 0;
+    let digit = 0;
+    for (const ch of chars) {
+      if (/\p{Script=Han}/u.test(ch)) han += 1;
+      else if (/[A-Za-z]/.test(ch)) latin += 1;
+      else if (/\p{N}/u.test(ch)) digit += 1;
+    }
+    return "汉字 " + han + " / 字母 " + latin + " / 数字 " + digit
+      + " / 其它 " + (chars.length - han - latin - digit);
+  }
+
   async function synthesizeOneVoicePart(entry, part) {
     const Cloud = window.RoleWorldVoiceCloud;
     const Language = window.RoleWorldLanguage;
@@ -4399,7 +4427,22 @@
     });
     const clip = result && result.ok && result.clips && result.clips[0] ? result.clips[0] : null;
     if (!clip || !clip.key) {
-      return fail("synth-failed", (result && result.reason) || "语音没合成出来（可能是网络或额度问题），可以重试一次。");
+      /*
+       * 失败提示里要带上**这段文本的形状**（汉字/字母/数字/其它各几个）与音色 —— 但**不带正文**。
+       *
+       * 为什么（2026-09-18 用户连报三次「上游说合成结束了，但一个字节的音频都没给」）：
+       *   · 「试听」是**正常**的 —— 同一个音色、同一条 Cloud.speak 链路、同一个中转，
+       *     所以差别只可能落在这段文本上；
+       *   · 而语音条的正文**刻意不显示**（既有口径：「语音条不许把正文露在屏幕上」，
+       *     有用例钉着），于是"它到底想说什么"这一侧我完全看不见 —— 只能靠猜，而我已经猜错过一次。
+       * ⚠ 这里**只报形状，不报内容**：形状足够回答关键问题（是中文 / 是英文 / 还是根本没字），
+       *   又不会把正文摊在屏幕上 —— 两个口径可以同时成立。
+       *   想看正文走「改为文字」（那本来就是用户主动选择）。
+       */
+      return fail("synth-failed",
+        ((result && result.reason) || "语音没合成出来（可能是网络或额度问题），可以重试一次。")
+        + " 这段 " + speakText.length + " 字：" + textShape(speakText)
+        + "（音色 " + (settingText.speaker || "默认") + "）");
     }
     return {
       part: Object.assign(base, {

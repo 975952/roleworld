@@ -7763,6 +7763,17 @@ async function main() {
           assert(failed.hasRetry, "失败态里没有「重试」按钮：" + JSON.stringify(failed));
           assert(failed.hasToText, "失败态里没有「改为文字」入口：" + JSON.stringify(failed));
           assert(failed.waiting === 0, "已经失败了却还显示「准备中」：" + JSON.stringify(failed));
+          // ③ 失败提示里要带上**这段文本的形状**与音色 —— 但**不许带正文**。
+          //    为什么：2026-09-18 用户连报三次「上游说合成结束了，但一个字节的音频都没给」，
+          //    而「试听」在同一音色同一链路下**正常** —— 差别只可能在这段文本上；
+          //    可语音条的正文刻意不显示，那边我完全看不见。形状（汉字/字母/数字/其它）
+          //    足以判断"是中文、是英文、还是根本没字"，又不违反"不露正文"。
+          assert(/汉字 \d+ \/ 字母 \d+ \/ 数字 \d+ \/ 其它 \d+/.test(failed.text),
+            "失败提示里没写出这段文本的形状（用户与我们都无从判断）：" + JSON.stringify(failed.text));
+          assert(failed.text.indexOf("音色") >= 0, "失败提示里没写音色：" + JSON.stringify(failed.text));
+          assert(failed.text.indexOf(spokenLine.slice(0, 8)) < 0,
+            "失败提示里把正文摊出来了（既有口径：语音条不许把正文露在屏幕上，要看正文走「改为文字」）："
+            + JSON.stringify(failed.text));
 
           // ② 重试有次数上限：点到用完为止，按钮必须变成不可用（而不是"点了没反应"）。
           let retries = 0;

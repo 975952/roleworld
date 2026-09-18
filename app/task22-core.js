@@ -943,6 +943,10 @@
     const stamp = (now === undefined || now === null) ? new Date() : now;
     return "[Message times] 旧对话每一条开头的 [MM-DD HH:MM] 是它发出的本机时间（按时间先后排列）。"
       + " Each past message starts with its local send time.\n"
+      + "[Message times] ⚠ 那个方括号前缀**只是给你看历史的**：你的回复里**不要**写它，"
+      + "一个字都不要模仿（用户 2026-09-18 实测：模型把 `[09-18 19:08]` 写进了自己的回复，"
+      + "那条消息既在气泡里多出一串时间戳，语音合成也一路失败）。"
+      + " Never write a [MM-DD HH:MM] prefix in your own reply.\n"
       + nowLine(rows, stamp);
   }
 
